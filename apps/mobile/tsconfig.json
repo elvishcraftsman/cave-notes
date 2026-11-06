@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "types": ["node"], "jsx": "react-jsx", "jsxImportSource": "preact" },
+  "include": ["src", "test", "../../packages/service/src/core.d.ts", "../desktop/src/renderer/globals.d.ts"]
+}

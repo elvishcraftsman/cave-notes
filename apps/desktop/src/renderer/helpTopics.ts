@@ -1,0 +1,20 @@
+/** The pages of the documentation, in the order the Help window lists them: [file, title, what it covers]. */
+export const HELP_TOPICS: Array<[string, string, string]> = [
+  ['Introduction.md', 'Introduction', 'What Cave Notes is, and how pages, folders and workspaces fit together.'],
+  ['linking.md', 'Links, embeds and footnotes', 'Linking pages, embedding text from other pages, footnotes.'],
+  ['attributes.md', 'Attributes and inheritance', 'Properties of a page, how they are handed down, reserved names such as exportStyle and children.'],
+  ['queries.md', 'Queries, saved queries and views', 'Finding pages by their attributes; tables, boards and relations (including backattribute).'],
+  ['tables.md', 'Tables', 'Tables in a page and views of queries.'],
+  ['templates.md', 'Templates and dynamic blocks', 'Starting pages from templates, and the templates that come with the app.'],
+  ['code-blocks.md', 'Code blocks', 'Fenced code, running it, wrapping and scrolling.'],
+  ['search-and-replace.md', 'Search and replace', 'Searching one page or the whole workspace.'],
+  ['export-styles.md', 'Export styles', 'Word, OpenDocument and PDF: every setting, headers, footers and page numbers.'],
+  ['presentations.md', 'Presentations', 'Turning a page into slides.'],
+  ['automation.md', 'Automations', 'Rules, triggers, actions, JavaScript and plugins.'],
+  ['workspace-files.md', 'Workspace settings files', 'The files of a .cave-notes folder, and the app config folder.'],
+  ['preferences.md', 'Preferences', 'Every setting of the app and of a workspace.'],
+  ['shortcuts.md', 'Keyboard shortcuts', 'All the keys.'],
+  ['updates.md', 'Updating the app', 'How the AppImage updates itself, and how to change where it looks.'],
+  ['packaging.md', 'Packaging as an AppImage', 'Building the AppImage.'],
+  ['troubleshooting.md', 'Troubleshooting and logs', 'When something goes wrong.'],
+];

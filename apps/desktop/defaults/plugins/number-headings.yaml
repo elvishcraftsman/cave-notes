@@ -1,0 +1,27 @@
+# Shipped with Cave Notes. Edit it freely: your changes are kept when the app updates.
+# To remove it, delete this file or use Plugins > All plugins.
+rules:
+  - id: number-headings
+    on: { plugin: "Number headings at this level" }
+    do:
+      - run_js:
+          code: |
+            if (!cursor) throw new Error("This plugin needs the editor's cursor.");
+            const here = headingAt(text, cursor.offset);
+            if (!here) throw new Error("Put the cursor in or under a heading first.");
+
+            // the part of the page to number: the section of the heading one level up, or the whole page
+            const parent = previousHeading(text, here.start, here.level - 1);
+            const from = parent ? parent.start : 0;
+            const to = parent ? section(text, parent.start).end : text.length;
+
+            const edits = [];
+            let n = 0;
+            for (const h of outline(text)) {
+              if (h.start < from || h.start >= to || h.level !== here.level) continue;
+              n++;
+              const old = /^\d+[.)]\s+/.exec(h.text);          // a number from an earlier run
+              edits.push({ from: h.textStart, to: h.textStart + (old ? old[0].length : 0), insert: n + ". " });
+            }
+            const result = applyEdits(text, edits);
+            return { text: result.text, cursor: result.map(cursor.offset) };

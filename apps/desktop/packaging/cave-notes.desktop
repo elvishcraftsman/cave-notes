@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Cave Notes
+GenericName=Hierarchical Notes
+Comment=Notes as a hierarchy of Markdown pages
+# This copy is for the AppImage root and for installing from a package. The AppImage writes its own copy (with Exec
+# pointing at the AppImage file) to ~/.local/share/applications on first run. For a source checkout, change Exec to e.g.
+#   Exec=/path/to/cave-notes/node_modules/.bin/electron /path/to/cave-notes/apps/desktop %F
+Exec=cave-notes %F
+Icon=cave-notes
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;text/x-markdown;
+Keywords=notes;markdown;outline;wiki;
+StartupWMClass=cave-notes
+StartupNotify=true

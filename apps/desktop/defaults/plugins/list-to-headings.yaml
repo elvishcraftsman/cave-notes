@@ -1,0 +1,28 @@
+# Shipped with Cave Notes. Edit it freely: your changes are kept when the app updates.
+# To remove it, delete this file or use Plugins > All plugins.
+rules:
+  - id: list-to-headings
+    on: { plugin: "Numbered list to headings" }
+    ask:
+      level: { label: "Heading level for the top items", type: number, default: 2, min: 1, max: 6 }
+    do:
+      - run_js:
+          code: |
+            const item = /^(\s*)((?:\d+|[A-Za-z]|[ivxlcdmIVXLCDM]+)[.)]|[-*+])\s+(.*)$/;
+            const width = (s) => s.replace(/\t/g, "    ").length;
+            const lines = text.split("\n");
+            const found = lines.map((l) => item.exec(l));
+
+            // how far one level of indent is: the smallest indent in the text
+            const indents = found.filter((m) => m && m[1].length > 0).map((m) => width(m[1]));
+            const step = indents.length ? Math.min(...indents) : 0;
+
+            const hashes = "#".repeat(ask.level);
+            const out = lines.map((line, i) => {
+              const m = found[i];
+              if (!m) return line;                                    // not a list line: leave it
+              const w = width(m[1]);
+              if (w === 0) return hashes + " " + m[3];               // top level: a heading
+              return " ".repeat(Math.max(0, w - step)) + m[2] + " " + m[3]; // deeper: one level up
+            });
+            return out.join("\n");

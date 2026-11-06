@@ -1,0 +1,26 @@
+{
+  "name": "@cave-notes/platform",
+  "version": "0.1.0",
+  "description": "The few platform services the core packages need (file system, path, hashing), with Node as the default and a way to swap them for Android.",
+  "type": "module",
+  "main": "src/node.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "browser": "./src/browser.js",
+      "default": "./src/node.js"
+    },
+    "./memfs": { "types": "./src/memfs.d.ts", "default": "./src/memfs.js" },
+    "./conformance": { "types": "./src/conformance.d.ts", "default": "./src/conformance.js" },
+    "./posix": "./src/posix.js",
+    "./fs-methods": { "types": "./src/fs-methods.d.ts", "default": "./src/fs-methods.js" }
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.0.0"
+  },
+  "license": "MIT"
+}

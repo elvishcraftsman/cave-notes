@@ -1,0 +1,39 @@
+# Only the unpacked app is made here; packaging/build-appimage.sh turns it into AppImages (with either runtime).
+appId: io.github.elvishcraftsman.CaveNotes
+productName: Cave Notes
+executableName: cave-notes
+copyright: Cave Notes
+# No asar: the worker is a separate process that loads plain ES modules and a native module from node_modules, and the
+# AppImage is already compressed, so an archive inside it would only add a way to fail.
+asar: false
+# better-sqlite3 ships N-API prebuilds (no per-Electron-version rebuild needed).
+npmRebuild: false
+buildDependenciesFromSource: false
+directories:
+  output: release
+  buildResources: packaging
+afterPack: packaging/after-pack.cjs
+files:
+  - package.json
+  - dist/**
+  - "!dist/**/*.map"
+  # sources, tests, benchmarks and docs of dependencies
+  - "!**/node_modules/**/{test,tests,__tests__,bench,benchmark,benchmarks,example,examples,docs,.github}/**"
+  - "!**/node_modules/**/*.{md,markdown,ts.map,d.ts}"
+  # better-sqlite3: the x64 glibc prebuild only (and not its C sources)
+  - "!**/node_modules/better-sqlite3/{deps,src}/**"
+  - "!**/node_modules/better-sqlite3/prebuilds/{darwin-arm64,darwin-x64,win32-x64,win32-arm64,linux-arm64,linuxmusl-x64,linuxmusl-arm64}.node"
+# the documentation shown by Help > Documentation: plain Markdown, read in place from the app's resources folder
+extraResources:
+  - from: ../../docs
+    to: docs
+    # the child pages too (docs/automation.md has its pages in docs/automation/)
+    filter:
+      - "**/*.md"
+  # the plugins and templates that come with the app: copied into the app config folder on first start (see service/src/app-config.ts)
+  - from: defaults
+    to: defaults
+linux:
+  target: dir
+  category: Office
+  icon: packaging/icons

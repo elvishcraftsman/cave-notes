@@ -1,0 +1,54 @@
+#!/bin/sh
+# AppRun for the Cave Notes AppImage.
+#
+# Chromium's sandbox cannot work the way an installed Electron app uses it: inside an AppImage chrome-sandbox can never be
+# root-owned/setuid (the image is read-only and mounted nosuid). The build therefore ships WITHOUT chrome-sandbox, and
+# Chromium uses its user-namespace sandbox instead. Where the system does not allow that (Ubuntu 23.10+/24.04 AppArmor
+# restriction, older hardened kernels, containers, running as root) Chromium would stop with "No usable sandbox!", so
+# only then is --no-sandbox added, with a note on stderr.
+#
+#   CAVE_SANDBOX=auto (default) | 1 (never add --no-sandbox) | 0 (always add it)
+set -u
+
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+
+userns_works() {
+  # kernels with the Debian/old-Ubuntu switch
+  [ "$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null)" = "0" ] && return 1
+  # no user namespaces allowed at all
+  [ "$(cat /proc/sys/user/max_user_namespaces 2>/dev/null)" = "0" ] && return 1
+  # Ubuntu 23.10+/24.04: unprofiled programs (an AppImage) may not use them
+  [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = "1" ] && return 1
+  # the real test, where the tool exists
+  if command -v unshare >/dev/null 2>&1; then
+    unshare --user true >/dev/null 2>&1 || return 1
+  fi
+  return 0
+}
+
+EXTRA=""
+case " $* " in
+  *" --no-sandbox "*) ;;                      # the caller already decided
+  *)
+    case "${CAVE_SANDBOX:-auto}" in
+      0) EXTRA="--no-sandbox" ;;
+      1) ;;
+      *)
+        if [ "$(id -u)" = "0" ]; then
+          echo "cave-notes: running as root, starting without the Chromium sandbox" >&2
+          EXTRA="--no-sandbox"
+        elif ! userns_works; then
+          echo "cave-notes: user namespaces are not available here, starting without the Chromium sandbox" >&2
+          EXTRA="--no-sandbox"
+        fi
+        ;;
+    esac
+    ;;
+esac
+
+# Wayland when the session is one, X11 otherwise
+EXTRA="$EXTRA --ozone-platform-hint=auto"
+
+# shellcheck disable=SC2086  # EXTRA is a list of plain flags
+exec "$HERE/app/cave-notes" $EXTRA "$@"

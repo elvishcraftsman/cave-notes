@@ -1,0 +1,6 @@
+Moby Thesaurus II
+Compiled by Grady Ward. Placed in the public domain by its author (the Moby Project, 1996; documentation notes January 2001).
+"Use, sell, rework, excerpt and use in any way on any platform."
+
+Mirrored at Project Gutenberg: https://www.gutenberg.org/ebooks/3202
+Used by Cave Notes (ranked and trimmed, together with WordNet) for the synonyms offered in the editor's right-click menu.

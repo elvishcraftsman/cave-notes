@@ -1,0 +1,13 @@
+{
+  "name": "@cave-notes/thesaurus",
+  "version": "0.1.0",
+  "description": "Synonyms for the editor's right-click menu: lookup, inflection and case matching over data built from WordNet and the Moby Thesaurus.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts", "./data": "./data/thesaurus.txt" },
+  "scripts": {
+    "test": "vitest run",
+    "build-data": "node scripts/build-data.mjs"
+  },
+  "license": "MIT"
+}

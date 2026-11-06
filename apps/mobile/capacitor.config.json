@@ -1,0 +1,6 @@
+{
+  "appId": "com.lynnmichaelmartin.cavenotes",
+  "appName": "Cave Notes",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}

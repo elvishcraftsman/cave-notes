@@ -1,0 +1,7 @@
+node_modules/
+.workspace/
+*.log
+release/
+.appimage-tools/
+apps/mobile/www/
+apps/mobile/dist/

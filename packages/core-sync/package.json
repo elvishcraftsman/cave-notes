@@ -1,0 +1,21 @@
+{
+  "name": "@cave-notes/core-sync",
+  "version": "0.1.0",
+  "description": "Three-way merging of Markdown pages (for edits that meet again after sync delays), Syncthing conflict-file names, and a small per-file version history.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./pure": "./src/pure.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@cave-notes/platform": "0.1.0"
+  },
+  "license": "MIT"
+}

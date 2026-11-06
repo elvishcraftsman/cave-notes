@@ -1,0 +1,12 @@
+{
+  "name": "@cave-notes/ui-views",
+  "version": "0.1.0",
+  "description": "Framework-free model for database-view blocks: config parsing and editing, query resolution, sorting, grouping, calendar math, and filter clauses.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@cave-notes/ui-search": "0.1.0", "yaml": "*" },
+  "license": "MIT"
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@cave-notes/core-md",
+  "version": "0.1.0",
+  "description": "Markdown page parser: frontmatter, headings with positions, and every link form (md, wikilink, file, web).",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "bench": "node bench/bench.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@cave-notes/platform": "0.1.0",
+    "remark-frontmatter": "5.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
+    "yaml": "2.9.1"
+  }
+}

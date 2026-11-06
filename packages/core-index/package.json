@@ -1,0 +1,36 @@
+{
+  "name": "@cave-notes/core-index",
+  "version": "0.1.0",
+  "description": "SQLite index for Cave Notes workspaces: incremental indexing, link resolution, attributes, full-text search and a filter query language.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./query": "./src/query.js",
+    "./config": "./src/config.js",
+    "./driver-better-sqlite3": "./src/driver-better-sqlite3.js",
+    "./driver-sqlite-wasm": "./src/driver-sqlite-wasm.js",
+    "./db-conformance": "./src/db-conformance.js"
+  },
+  "imports": {
+    "#default-driver": { "browser": "./src/driver-none.js", "default": "./src/driver-better-sqlite3.js" },
+    "#parse-pool": { "browser": "./src/pool-none.js", "default": "./src/pool.js" }
+  },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "test:wasm": "node --import ./test/wasm-driver.js --test \"test/*.test.js\"",
+    "bench": "node bench/bench.js"
+  },
+  "dependencies": {
+    "@cave-notes/core-md": "0.1.0",
+    "@cave-notes/core-tree": "0.1.0",
+    "@cave-notes/platform": "0.1.0",
+    "better-sqlite3": "*",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.54.1-build1"
+  },
+  "license": "MIT"
+}

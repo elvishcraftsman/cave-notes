@@ -1,0 +1,31 @@
+{
+  "name": "@cave-notes/mobile",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Cave Notes for Android: a Capacitor shell around the shared editor (Milestone 0 spike).",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "sync": "npm run build && cap sync android",
+    "apk": "bash scripts/build-apk.sh",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.6.0",
+    "@cave-notes/editor": "*",
+    "@cave-notes/platform": "0.1.0",
+    "@cave-notes/service": "0.1.0",
+    "@sqlite.org/sqlite-wasm": "*",
+    "preact": "*"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
+    "esbuild": "*",
+    "typescript": "*",
+    "vitest": "*"
+  },
+  "license": "MIT"
+}

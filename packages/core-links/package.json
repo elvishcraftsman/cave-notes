@@ -1,0 +1,20 @@
+{
+  "name": "@cave-notes/core-links",
+  "version": "0.1.0",
+  "description": "Plans and applies link rewrites when pages are moved or renamed, with a preview, a journal and undo.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": { ".": "./src/index.js" },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "bench": "node bench/bench.js"
+  },
+  "dependencies": {
+    "@cave-notes/core-index": "0.1.0",
+    "@cave-notes/core-md": "0.1.0",
+    "@cave-notes/core-tree": "0.1.0",
+    "@cave-notes/platform": "0.1.0"
+  },
+  "license": "MIT"
+}

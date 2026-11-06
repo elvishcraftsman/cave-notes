@@ -1,0 +1,36 @@
+/* The shared window on a phone: keep it clear of the system bars (Capacitor gives the insets as variables; env() covers other cases). */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body {
+  box-sizing: border-box;
+  height: 100dvh;
+  padding-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+  padding-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+  padding-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+#app { height: 100%; }
+.cave-gate { display: flex; flex-direction: column; gap: 14px; justify-content: center; height: 100%; padding: 24px; max-width: 520px; margin: 0 auto; box-sizing: border-box; }
+.cave-gate h1 { font-size: 22px; margin: 0; }
+.cave-gate p { margin: 0; line-height: 1.45; opacity: .85; }
+.cave-gate button { padding: 14px; font-size: 16px; border-radius: 12px; border: 0; background: var(--accent, #3584e4); color: #fff; }
+.cave-gate .quiet { background: transparent; color: inherit; border: 1px solid rgba(128,128,128,.4); font-size: 13px; padding: 10px; }
+
+/* query tables are wider than a phone: the block scrolls sideways instead of cutting the columns off */
+.view-block { overflow-x: auto; overflow-y: hidden; }
+.view-block .vb-table { width: max-content; min-width: 100%; }
+.view-block .vb-table td, .view-block .vb-table th { min-width: 6.5em; }
+.view-block .vb-table td.fit, .view-block .vb-table th.fit { min-width: 0; }
+/* dialogs stay inside what is left above the keyboard (the window shrinks for it) */
+.dialog { max-height: 100dvh; overflow-y: auto; }
+/* touch targets: a finger is wider than a pointer */
+.tab-close, .icon-button { min-width: 36px; min-height: 36px; }
+
+/* messages are small and stay out of the way: one line or two at the foot of the screen, only the newest */
+.toasts { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); transform: none; align-items: stretch; gap: 4px; }
+.toast { max-width: none; padding: 4px 4px 4px 12px; gap: 6px; border-radius: 12px; font-size: 12.5px; line-height: 1.25; }
+.toast > span { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.toast:not(:last-child) { display: none; }
+.toast-action { padding: 2px 8px; font-size: 12.5px; }
+.toast-close { width: 22px; height: 22px; flex: none; }

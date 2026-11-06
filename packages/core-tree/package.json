@@ -1,0 +1,19 @@
+{
+  "name": "@cave-notes/core-tree",
+  "version": "0.1.0",
+  "description": "Page/folder hierarchy model for Markdown workspaces: Foo.md + Foo/ children, with safe create/move/rename/delete.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./paths": "./src/paths.js"
+  },
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@cave-notes/platform": "0.1.0"
+  },
+  "license": "MIT"
+}

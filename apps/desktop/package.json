@@ -1,0 +1,53 @@
+{
+  "name": "@cave-notes/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cave Notes: hierarchical Markdown notes with live preview, outline, links and search.",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "start": "npm run build && electron .",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "node e2e/run.mjs",
+    "package:dir": "node build.mjs --minify && electron-builder --linux dir --x64 -c.electronVersion=$(node -p \"require('electron/package.json').version\")",
+    "package:appimage": "sh packaging/build-appimage.sh both",
+    "package:appimage:fuse2": "sh packaging/build-appimage.sh fuse2",
+    "package:appimage:uruntime": "sh packaging/build-appimage.sh uruntime"
+  },
+  "dependencies": {
+    "@cave-notes/core-automation": "0.1.0",
+    "@cave-notes/core-export": "0.1.0",
+    "@cave-notes/core-index": "0.1.0",
+    "@cave-notes/core-links": "0.1.0",
+    "@cave-notes/core-md": "0.1.0",
+    "@cave-notes/core-sync": "0.1.0",
+    "@cave-notes/core-tree": "0.1.0",
+    "@cave-notes/editor": "0.1.0",
+    "@cave-notes/platform": "0.1.0",
+    "@cave-notes/service": "0.1.0",
+    "@cave-notes/ui-search": "0.1.0",
+    "@cave-notes/ui-tree": "0.1.0",
+    "@cave-notes/thesaurus": "0.1.0",
+    "@cave-notes/ui-views": "0.1.0",
+    "@fontsource/libertinus-serif": "^5.3.0",
+    "@preact/signals": "*",
+    "better-sqlite3": "*",
+    "chokidar": "*",
+    "preact": "10.*",
+    "yaml": "*"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "*",
+    "@types/node": "*",
+    "electron": "*",
+    "electron-builder": "^26.15.3",
+    "esbuild": "*",
+    "jsdom": "*",
+    "typescript": "*",
+    "vitest": "*"
+  },
+  "license": "MIT",
+  "desktopName": "cave-notes.desktop"
+}

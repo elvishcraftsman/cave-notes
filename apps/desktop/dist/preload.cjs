@@ -1,0 +1,2 @@
+"use strict";var t=require("electron"),i=new Map;t.ipcRenderer.on("cave:event",(e,n,r,o)=>{for(let s of i.get(n)??[])s(r,o)});var a={invoke:(e,n,r,o)=>t.ipcRenderer.invoke(`cave:${e}`,n,r,o),on(e,n){let r=i.get(e);return r||i.set(e,r=new Set),r.add(n),()=>{r.delete(n)}},platform:process.platform,pathForFile:e=>{try{return t.webUtils.getPathForFile(e)}catch{return""}},spell:{suggestions:e=>{try{return t.webFrame.isWordMisspelled(e)?t.webFrame.getWordSuggestions(e):null}catch{return null}}}};t.contextBridge.exposeInMainWorld("cave",a);
+//# sourceMappingURL=preload.cjs.map

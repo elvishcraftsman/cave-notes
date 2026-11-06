@@ -1,0 +1,9 @@
+# Shipped with Cave Notes. Edit it freely: your changes are kept when the app updates.
+# To remove it, delete this file or use Plugins > All plugins.
+rules:
+  - id: remove-trailing-spaces
+    on: { plugin: "Remove trailing spaces" }
+    do:
+      - transform_text:
+          steps:
+            - regex: { find: "[ ]+$", replace: "" }
