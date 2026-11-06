@@ -16,6 +16,7 @@ export { activeFormats, toggleBlock, toggleInline, type ActiveFormats, type Bloc
 export { DEFAULT_LIST_CONFIG, listConfig, makeHierarchical, type ListConfig } from './lists';
 export { formatMarker, fromAlpha, fromRoman, parseMarker, toAlpha, toRoman } from './listMarkers';
 export { closeFormatMenu, formatMenu, showFormatMenu, misspeltAt, synonymsAt, wordAround, type SpellHost, type SpellTarget, type SynonymTarget, type ThesaurusHost } from './formatMenu';
+export { selectAll, selectAllAsHtml, selectAllAsText, isHtmlSelection, type HtmlRenderer } from './selectAll';
 export { yamlTokens, type YamlToken, type YamlTokenClass } from './yamlHighlight';
 export { yamlHints, yamlDocument, yamlProblem, frontmatterBody, reservedFrontmatter, RESERVED_FRONTMATTER, RESERVED_VALUES, RESERVED_VIEW } from './yamlHints';
 export { embeds, embedHost, type EmbedHost, type EmbedHandle, type EmbedSpec } from './embeds';

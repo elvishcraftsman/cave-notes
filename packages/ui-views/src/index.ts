@@ -1,5 +1,5 @@
 export { COLOR_NAMES, colorValue, type ColorRule } from './config';
-export { NEW_VIEW_TEMPLATE, addViewToSource, ownQueryOf, parseViewConfig, parseViewSet, protectShortcodes, removeViewFromSource, savedViewTemplate, shortcodeOf, updateConfigSource, updateViewSource, VIEW_TYPES, type ParseResult, type ViewConfig, type ViewSet, type ViewType } from './config';
+export { NEW_VIEW_TEMPLATE, addViewToSource, ownQueryOf, parseViewConfig, parseViewSet, protectShortcodes, removeViewFromSource, setOpenView, savedViewTemplate, shortcodeOf, updateConfigSource, updateViewSource, VIEW_TYPES, type ParseResult, type ViewConfig, type ViewSet, type ViewType } from './config';
 export { parseForeign, splitForeign, withoutSort, type ForeignRef, type Split } from './federate';
 export { expandSaved, newPageContent, newPageDefaults, placementOf, resolveQuery } from './query';
 export {

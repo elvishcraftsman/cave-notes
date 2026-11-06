@@ -237,3 +237,27 @@ suite('Up and Down from the start of an item', () => {
     expect(ed.state.selection.main.head).toBeLessThan(8);
   });
 });
+
+suite('Tab and Shift-Tab in lists indented with tabs', () => {
+  it('indent with a tab and take it away again', () => {
+    const ed = make('- a\n\t- b\n\t- c‸\n- d');
+    press(ed, 'Tab');
+    expect(ed.text()).toBe('- a\n\t- b\n\t\t- c\n- d');
+    press(ed, 'Tab', { shift: true });
+    expect(ed.text()).toBe('- a\n\t- b\n\t- c\n- d');
+    press(ed, 'Tab', { shift: true });
+    expect(ed.text()).toBe('- a\n\t- b\n- c\n- d');
+  });
+
+  it('move an item with its sub-items, all tab-indented', () => {
+    const ed = make('- a\n- b‸\n\t- b1\n- c');
+    press(ed, 'Tab');
+    expect(ed.text()).toBe('- a\n\t- b\n\t- b1\n- c');
+  });
+
+  it('still use spaces in a list indented with spaces', () => {
+    const ed = make('- a\n  - b\n  - c‸');
+    press(ed, 'Tab');
+    expect(ed.text()).toBe('- a\n  - b\n    - c');
+  });
+});

@@ -18,8 +18,8 @@ async function sample(t) {
     'Writing Three.md': '---\ndoctrine: "[[Doctrine/Grace|grace]]"\n---\n# Writing Three',
     'Writing Four.md': '---\ndoctrine: [[[Scripture]], [[Grace]]]\n---\n# Writing Four',
     'Tpl.md': '---\ntemplate: true\n---\n# Tpl',
-    'Tpl Shown.md': '---\ntemplate: true\nunlisted: false\n---\n# Tpl Shown',
-    'Secret.md': '---\nunlisted: true\n---\n# Secret',
+    'Tpl Shown.md': '---\ntemplate: true\nhidden: false\n---\n# Tpl Shown',
+    'Secret.md': '---\nhidden: all\n---\n# Secret',
   });
   const idx = await openIndex(root);
   t.after(() => idx.close());
@@ -49,14 +49,14 @@ test('over:, parent: and children:', async (t) => {
   assert.deepEqual(paths(idx.search('over:Nope')), []);
 });
 
-test('templates are unlisted unless they say otherwise', async (t) => {
+test('templates are hidden (`hidden: all`) unless they say otherwise', async (t) => {
   const idx = await sample(t);
   const all = paths(idx.search('', { limit: 100 }));
   assert.ok(!all.includes('Tpl.md'));
   assert.ok(!all.includes('Secret.md'));
   assert.ok(all.includes('Tpl Shown.md'));
   assert.deepEqual(paths(idx.search('template:true')).sort(), ['Tpl Shown.md', 'Tpl.md']);
-  assert.deepEqual([...idx.unlistedPaths()].sort(), ['Secret.md', 'Tpl.md']);
+  assert.deepEqual([...idx.hiddenPaths()].sort(), ['Secret.md', 'Tpl.md']);
   assert.ok(idx.hiddenPaths().has('Tpl.md'));
   assert.ok(!idx.hiddenPaths().has('Tpl Shown.md'));
 });

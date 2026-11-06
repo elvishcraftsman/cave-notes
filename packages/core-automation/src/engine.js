@@ -68,6 +68,8 @@ const dirName = (p) => {
 export function attrValue(entries) {
   if (!entries || entries.length === 0) return null;
   const one = (e) => {
+    // a blank attribute (there, with nothing in it) is empty whatever its declared type, never 0 or false
+    if (e.text === '' && (e.num === null || e.num === undefined)) return null;
     if (e.type === 'date') return parseDateValue(e.text) ?? (typeof e.num === 'number' ? new DateValue(e.num + new Date(e.num).getTimezoneOffset() * 60_000, true) : e.text);
     if (e.type === 'number') return typeof e.num === 'number' ? e.num : Number(e.text);
     if (e.type === 'bool') return String(e.text).toLowerCase() === 'true';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addViewToSource, parseViewSet, removeViewFromSource, updateViewSource } from '../src/config';
+import { addViewToSource, parseViewSet, removeViewFromSource, setOpenView, updateViewSource } from '../src/config';
 
 const SRC = `views:
   - name: Projects #optional
@@ -80,5 +80,40 @@ describe('several views in one block', () => {
     const less = removeViewFromSource(SRC, 1);
     const p = parseViewSet(less);
     expect(p.ok && p.set.views.map((v) => v.title)).toEqual(['Projects', 'Complete']);
+  });
+});
+
+describe('remembering the open view', () => {
+  const SRC = 'views:\n  - name: A\n    type: table\n    query: under:$this\n  - name: B # the second\n    type: list\n    query: under:$this\n  - name: C\n    type: gallery\n    query: under:$this\n';
+  const openOf = (s: string): number => {
+    const r = parseViewSet(s);
+    if (!r.ok) throw new Error(r.error);
+    return r.set.openIndex;
+  };
+
+  it('opens the first view when none says it is open', () => {
+    expect(openOf(SRC)).toBe(0);
+  });
+
+  it('puts `open: true` on the chosen view, takes it off the others and keeps comments', () => {
+    const b = setOpenView(SRC, 1);
+    expect(openOf(b)).toBe(1);
+    expect(b).toContain('# the second');
+    const c = setOpenView(b, 2);
+    expect(openOf(c)).toBe(2);
+    expect(c.match(/open: true/g)?.length).toBe(1);
+  });
+
+  it('the first view needs no mark: choosing it removes the others', () => {
+    const back = setOpenView(setOpenView(SRC, 2), 0);
+    expect(back).toBe(SRC.trimEnd());
+    expect(openOf(back)).toBe(0);
+  });
+
+  it('leaves a block that is already right, and a single view, alone', () => {
+    const b = setOpenView(SRC, 1);
+    expect(setOpenView(b, 1)).toBe(b);
+    const one = 'type: table\nquery: under:$this\n';
+    expect(setOpenView(one, 0)).toBe(one);
   });
 });

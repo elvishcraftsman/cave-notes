@@ -9,7 +9,7 @@ import { toPlain, makeSnippet } from './plain.js';
 import { buildLookup, resolvePageLink, resolveFilePath } from './resolve.js';
 import { stripNoteExt, pageByStem } from './exts.js';
 import { expandSaved, normalizeQueries, normalizeRelations } from './saved.js';
-import { parseQuery, compileQuery, hiddenWhere, UNLISTED_IDS_SQL, HIGHLIGHT_START, HIGHLIGHT_END } from './query.js';
+import { parseQuery, compileQuery, hiddenWhere, hiddenIdsSql, HIGHLIGHT_START, HIGHLIGHT_END } from './query.js';
 import { ParsePool } from '#parse-pool';
 
 const posix = path.posix;
@@ -1252,18 +1252,15 @@ export async function openIndex(rootDir, options = {}) {
   const hiddenFor = (area) => {
     let st = hiddenStatements.get(area);
     if (!st) {
-      const where = hiddenWhere(area);
+      const ids = hiddenIdsSql(area);
       st = {
-        ofParent: db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${where}`),
-        all: db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${where} ORDER BY p.path`),
+        ofParent: db.prepare(`SELECT p.path FROM pages p WHERE p.parent_path IS ? AND p.id IN (${ids})`),
+        all: db.prepare(`SELECT p.path FROM pages p WHERE p.id IN (${ids}) ORDER BY p.path`),
       };
       hiddenStatements.set(area, st);
     }
     return st;
   };
-  const unlistedOfParent = db.prepare(`SELECT p.path FROM pages p WHERE p.parent_path IS ? AND p.id IN (${UNLISTED_IDS_SQL})`);
-  const unlistedAll = db.prepare(`SELECT p.path FROM pages p WHERE p.id IN (${UNLISTED_IDS_SQL}) ORDER BY p.path`);
-
   const TEMPLATE_WHERE = "lower(a.key) = 'template' AND ((a.type = 'bool' AND a.num_value = 1) OR lower(a.text_value) = 'true')";
   const templatesOfParent = db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${TEMPLATE_WHERE}`);
   const templatesAll = db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${TEMPLATE_WHERE} ORDER BY p.path`);
@@ -1271,12 +1268,6 @@ export async function openIndex(rootDir, options = {}) {
   /** The pages that are templates (`template: true`). Same shape as hiddenPaths. */
   function templatePaths(parent) {
     const rows = parent === undefined ? templatesAll.all() : templatesOfParent.all(parent);
-    return new Set(rows.map((r) => r.path));
-  }
-
-  /** Pages that are unlisted (`unlisted: true`, own or handed down, or a template without an `unlisted` of its own). */
-  function unlistedPaths(parent) {
-    const rows = parent === undefined ? unlistedAll.all() : unlistedOfParent.all(parent);
     return new Set(rows.map((r) => r.path));
   }
 
@@ -1301,11 +1292,11 @@ export async function openIndex(rootDir, options = {}) {
   }
 
   /**
-   * Pages that keep out of the page tree: `hidden: true` and every unlisted page (templates included).
+   * Pages that keep out of the page tree: `hidden: tree` (or `files`, `all`, `true`) and the templates that say nothing of their own.
    * With a parent (null = top level) only its direct children are listed.
    */
   function hiddenPaths(parent) {
-    return new Set([...hiddenOnlyPaths(parent), ...unlistedPaths(parent)]);
+    return hiddenOnlyPaths(parent);
   }
 
   async function close() {
@@ -1346,6 +1337,13 @@ export async function openIndex(rootDir, options = {}) {
     get schemaWarnings() {
       return schemaWarnings;
     },
+    /** What a page hands down and takes in, as stored: its attributes and its own `children:` blocks (null when there is no such page). */
+    stateOf(path) {
+      const stored = q.effByPath.get(path);
+      if (!stored) return null;
+      const st = parseState(stored.eff);
+      return { attributes: st.attributes, blocks: st.blocks };
+    },
     /** the workspace's global attributes, as in effect */
     get globals() {
       return globals;
@@ -1366,7 +1364,6 @@ export async function openIndex(rootDir, options = {}) {
     stats,
     hiddenPaths,
     hiddenOnlyPaths,
-    unlistedPaths,
     iconPaths,
     templatePaths,
     orderOf: (p) => q.orderOf.get(p)?.o ?? undefined,

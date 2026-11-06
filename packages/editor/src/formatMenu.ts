@@ -3,6 +3,7 @@ import { syntaxTree } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
 import { EditorView } from '@codemirror/view';
 import { installFormatMenuStyles } from './theme';
+import { selectAllAsHtml, selectAllAsText } from './selectAll';
 import { canIndentListItems, canOutdentListItems, indentListItems, outdentListItems } from './lists';
 import { insertViewBlock } from './commands';
 import { insertTable } from './tables';
@@ -15,7 +16,7 @@ import { activeFormats, type BlockFormat, type InlineFormat, toggleBlock, toggle
  * Plain DOM so it works anywhere; it is styled with the host's CSS variables (see .cm-format-menu in theme.ts).
  */
 
-type IconKey = 'table' | 'grid' | 'code' | 'link' | 'quote' | 'codeblock' | 'bullets' | 'numbers' | 'tasks' | 'chevron' | 'check' | 'indent' | 'outdent' | 'selectall';
+type IconKey = 'table' | 'grid' | 'code' | 'link' | 'quote' | 'codeblock' | 'bullets' | 'numbers' | 'tasks' | 'chevron' | 'check' | 'indent' | 'outdent' | 'selectall' | 'selecthtml' | 'copy';
 
 /** 16px grid, 1.5px strokes, currentColor: the same style as the app's own symbolic icons. */
 const ICON_PATHS: Record<IconKey, string> = {
@@ -32,6 +33,8 @@ const ICON_PATHS: Record<IconKey, string> = {
   check: 'M3 8.5l3.2 3.2L13 4.8',
   indent: 'M2.5 3.5h11 M8 7.5h5.5 M8 11.5h5.5 M2.5 6.2L5.3 8.5 2.5 10.8',
   selectall: 'M2.5 2.5h11v11h-11z M5.5 6h5 M5.5 8h5 M5.5 10h3',
+  selecthtml: 'M2.5 2.5h11v11h-11z M6 5.5L4.5 8 6 10.5 M10 5.5L11.5 8 10 10.5',
+  copy: 'M5.5 5.5h8v8h-8z M2.5 10.5v-8h8',
   outdent: 'M2.5 3.5h11 M8 7.5h5.5 M8 11.5h5.5 M5.3 6.2L2.5 8.5 5.3 10.8',
 };
 
@@ -214,7 +217,7 @@ export function closeFormatMenu(): void {
  * Show the menu with its top left corner at (x, y), in page coordinates. With `dock` (touch) it instead spans the bottom edge
  * of the window, and has Indent / Outdent buttons for list items, which a phone keyboard has no Tab key for.
  */
-export function showFormatMenu(view: EditorView, x: number, y: number, spelling?: { target: SpellTarget; host: SpellHost }, synonyms?: SynonymTarget, opts: { dock?: boolean } = {}): void {
+export function showFormatMenu(view: EditorView, x: number, y: number, spelling?: { target: SpellTarget; host: SpellHost }, synonyms?: SynonymTarget, opts: { dock?: boolean; selectOnly?: boolean } = {}): void {
   const dock = opts.dock === true;
   closeFormatMenu();
   installFormatMenuStyles();
@@ -394,16 +397,8 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
     split({ label: 'Bulleted list', icon: 'bullets' }, 'bullet', BULLET_VARIANTS, 'More bulleted lists', bulletOn),
     split({ label: 'Numbered list', icon: 'numbers' }, numberKind ?? 'decimal', NUMBER_VARIANTS, 'More numbered lists', !!numberKind),
     tool(TASKS, active.block.has('task')),
-    ...(dock
-      ? [
-          action('Outdent list item', 'outdent', canOutdentListItems(view.state), () => outdentListItems(view)),
-          action('Indent list item', 'indent', canIndentListItems(view.state), () => indentListItems(view)),
-          action('Select all', 'selectall', true, () => {
-            view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
-            return true;
-          }),
-        ]
-      : []),
+    action('Outdent list item', 'outdent', canOutdentListItems(view.state), () => outdentListItems(view)),
+    action('Indent list item', 'indent', canIndentListItems(view.state), () => indentListItems(view)),
   );
 
   // a database view goes in from here (it is not in the main menu)
@@ -435,7 +430,15 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
     r.append(...kids);
     return r;
   };
-  menu.append(row(styles, divider(), blocks), row(lists, divider(), inserts));
+  const selects = group(
+    action('Select all text', 'selectall', true, () => selectAllAsText(view)),
+    action('Select all as HTML', 'selecthtml', true, () => selectAllAsHtml(view)),
+  );
+  if (opts.selectOnly) {
+    // a page that cannot change: nothing to format, but its text can still be selected and copied
+    const copy = action('Copy', 'copy', !view.state.selection.main.empty, () => document.execCommand('copy'));
+    menu.append(row(group(copy), divider(), selects));
+  } else menu.append(row(styles, divider(), blocks), row(lists, divider(), inserts, divider(), selects));
 
   if (dock) menu.classList.add('cm-format-dock');
   document.body.appendChild(menu);
@@ -592,13 +595,17 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
         return false;
       },
       contextmenu: (e, view) => {
-        if (view.state.readOnly) return false; // nothing to format in a page that cannot change
+        const readOnly = view.state.readOnly; // nothing to format in a page that cannot change: only select and copy
         if (lastPointer === 'touch') return false; // a long press selects a word: do not take it away
         e.preventDefault();
         // right-clicking outside the selection puts the cursor there first, as in any text editor
         const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
         const sel = view.state.selection.main;
         if (pos !== null && (pos < sel.from || pos > sel.to)) view.dispatch({ selection: { anchor: pos } });
+        if (readOnly) {
+          showFormatMenu(view, e.clientX, e.clientY, undefined, undefined, { selectOnly: true });
+          return true;
+        }
         const target = misspeltAt(view, pos, options.spell);
         const synonyms = target ? null : synonymsAt(view, pos, options.thesaurus);
         showFormatMenu(view, e.clientX, e.clientY, target && options.spell ? { target, host: options.spell } : undefined, synonyms ?? undefined);

@@ -1,5 +1,5 @@
 import type { ViewBlockApi, ViewBlockHost } from '@cave-notes/editor';
-import { BUILTIN, BUILTIN_COLUMNS, VIEW_TYPES, addViewToSource, clausesOf, fieldsFor, ownQueryOf, parseViewSet, pickColumns, relationAliases, removeViewFromSource, resolveQuery, shortcodeOf, toCsv, updateViewSource, type Row, type ViewConfig, type ViewType } from '@cave-notes/ui-views';
+import { BUILTIN, BUILTIN_COLUMNS, VIEW_TYPES, addViewToSource, clausesOf, fieldsFor, ownQueryOf, parseViewSet, pickColumns, relationAliases, removeViewFromSource, resolveQuery, setOpenView, shortcodeOf, toCsv, updateViewSource, type Row, type ViewConfig, type ViewType } from '@cave-notes/ui-views';
 import { type JSX, render } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AttributeKey } from '../../shared/api';
@@ -58,7 +58,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
   const parsed = useMemo(() => parseViewSet(source), [source]);
   const set = parsed.ok ? parsed.set : null;
   // a block can hold several views (see `view:` in docs/queries.md); one is shown at a time
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(set?.openIndex ?? 0);
   const idx = set ? Math.min(activeIdx, set.views.length - 1) : 0;
   const config = set ? set.views[idx]! : null;
   const [expanded, setExpanded] = useState(false);
@@ -187,9 +187,15 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
   );
   const views = set!.views;
   const controlsOpen = expanded || panel !== null; // the controls row shows while it is expanded or a settings pane is open
+  // the tab that was chosen is remembered in the block (`open: true`), so the page opens on it next time
+  const chooseView = (i: number): void => {
+    setActiveIdx(i);
+    if (!api.readOnly) api.updateSource(setOpenView(source, i));
+  };
   const addView = (): void => {
     const named = views[idx]!.title;
-    api.updateSource(addViewToSource(source, { type: 'table', query: named ? `!${/^[\w-]+$/.test(named) ? named : `"${named}"`}` : builderQuery || ownQuery }));
+    const added = addViewToSource(source, { type: 'table', query: named ? `!${/^[\w-]+$/.test(named) ? named : `"${named}"`}` : builderQuery || ownQuery });
+    api.updateSource(api.readOnly ? added : setOpenView(added, views.length));
     setActiveIdx(views.length);
   };
 
@@ -227,7 +233,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
         {views.length > 1 ? (
           <div class="vb-tabs" role="tablist" aria-label="Views">
             {views.map((v, i) => (
-              <button key={i} role="tab" aria-selected={i === idx} class={`vb-tab ${i === idx ? 'on' : ''}`} data-view-tab={i} title={v.title ?? TYPE_INFO[v.type].label} aria-label={v.title ?? TYPE_INFO[v.type].label} onClick={() => setActiveIdx(i)}>
+              <button key={i} role="tab" aria-selected={i === idx} class={`vb-tab ${i === idx ? 'on' : ''}`} data-view-tab={i} title={v.title ?? TYPE_INFO[v.type].label} aria-label={v.title ?? TYPE_INFO[v.type].label} onClick={() => chooseView(i)}>
                 <Icon name={TYPE_INFO[v.type].icon} size={14} />
                 {v.title && <span class="vb-tab-name">{v.title}</span>}
               </button>

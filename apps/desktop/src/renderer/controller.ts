@@ -63,9 +63,9 @@ interface Nav {
   at: number;
 }
 
-/** A page name made from a title: what a file name cannot hold is dropped. */
+/** A page name made from a title: what a file name cannot hold is dropped (so are question marks and a trailing dot; the title keeps them). */
 export function nameFromTitle(title: string): string {
-  return title.replace(/[/\\\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/\.+$/, '').trim();
+  return title.replace(/\?/g, '').replace(/[/\\\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/\.+$/, '').trim();
 }
 
 /** A workspace that is open in at least one tab. */

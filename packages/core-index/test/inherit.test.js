@@ -239,7 +239,7 @@ test('the global attributes follow edits to workspace.yaml, and survive restarts
   await idx.reconcile();
   assert.deepEqual(paths(idx.search('status:idea')).sort(), ['A.md', 'A/B.md']);
 
-  await w.write('.cave-notes/workspace.yaml', JSON.stringify({ attributes: { status: 'plan', hidden: true } }));
+  await w.write('.cave-notes/workspace.yaml', JSON.stringify({ attributes: { status: 'plan', hidden: 'tree' } }));
   const r = await idx.reloadSchema();
   assert.equal(r.changed, true);
   assert.deepEqual(paths(idx.search('status:plan')).sort(), ['A.md', 'A/B.md']);
@@ -247,7 +247,7 @@ test('the global attributes follow edits to workspace.yaml, and survive restarts
   assert.equal((await idx.reloadSchema()).changed, false);
 
   // a change to something else in the file (the tab colour) is no change to the attributes
-  await w.write('.cave-notes/workspace.yaml', JSON.stringify({ color: '#fff', attributes: { status: 'plan', hidden: true } }));
+  await w.write('.cave-notes/workspace.yaml', JSON.stringify({ color: '#fff', attributes: { status: 'plan', hidden: 'tree' } }));
   assert.equal((await idx.reloadSchema()).changed, false);
 
   // broken YAML keeps what we had, and says so

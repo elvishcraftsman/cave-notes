@@ -7,9 +7,9 @@ export interface TreeItem {
   hasChildren: boolean;
   /** `hidden` names the page tree (`tree`, `all`, `true`): kept out of the tree */
   hidden?: boolean;
-  /** `template: true`: a template page (unlisted, so only in the tree when unlisted pages are shown) */
+  /** `template: true`: a template page (`hidden: all` unless it says otherwise, so only in the tree when hidden pages are shown) */
   template?: boolean;
-  /** `unlisted: true` (or a template): kept out of the tree and of queries; present only when the tree shows unlisted pages */
+  /** hidden from the tree (`hidden: files`, `all` or `true`, or a template): present only when the tree shows hidden pages */
   unlisted?: boolean;
   /** `icon: name` in its attributes: an icon of the bundled set, shown in the tree and the gallery */
   icon?: string;
@@ -246,6 +246,19 @@ export interface ReplaceDone {
   failed: string[];
 }
 
+/** Where an attribute of a page comes from. */
+export type AttributeOrigin =
+  | { kind: 'page' }
+  | { kind: 'children'; page: string }
+  | { kind: 'inherited'; page: string }
+  | { kind: 'workspace' }
+  | { kind: 'other' };
+export interface AttributeSource {
+  key: string;
+  value: string;
+  source: AttributeOrigin;
+}
+
 /** One page in a database view: its title and the attributes asked for. */
 export interface ViewRow {
   path: string;
@@ -412,7 +425,7 @@ export interface AutomationLogEntry {
 export interface WorkerApi {
   openWorkspace(root: string, opts?: { file?: string; config?: boolean; docs?: boolean; dataDir?: string; notes?: NoteTypes; firstDay?: number }): Promise<WorkspaceInfo>;
   closeWorkspace(): Promise<void>;
-  /** Sub-pages of a page (null = top level). Pages that are `hidden`, unlisted or templates are left out; `unlisted` brings the unlisted ones (templates included) back. */
+  /** Sub-pages of a page (null = top level). Pages hidden from the tree (and templates) are left out; `unlisted: true` brings them (templates included) back. */
   /** `bareFolders: false` leaves out folders that hold no notes (the page tree can be set to do that; the sub-page bar never does). */
   listChildren(parent: string | null, opts?: { includeHidden?: boolean; forChildren?: boolean; workspaces?: boolean; unlisted?: boolean; bareFolders?: boolean }): Promise<TreeItem[]>;
   /** Files in a page's folder that are not notes (null = the workspace's top folder). */
@@ -476,6 +489,8 @@ export interface WorkerApi {
   copyPageIn(src: PageSource, parent: string | null): Promise<string>;
   /** whether a page (or folder) of this name already exists under `parent` (null = the top level) */
   pageNameTaken(parent: string | null, name: string): Promise<boolean>;
+  /** Every attribute of a page, its value as text and where it is set (the page itself, a `children:` block of a page above, the workspace ...). */
+  attributeSources(path: string): Promise<AttributeSource[]>;
   /** settings that other workspaces on this computer offer to all workspaces and this one has not been asked about */
   /** one workspace's offer, to ask about it (again) */
   globalsOffer(source: string): Promise<{ source: string; name: string; hash: string; summary: string[] } | null>;
@@ -937,7 +952,7 @@ export const MAIN_METHODS = [
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [
-  'openWorkspace', 'closeWorkspace', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
+  'openWorkspace', 'closeWorkspace', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
   'planMove', 'applyPlan', 'undoLast', 'lastMove', 'deleteInfo', 'afterDelete', 'pageInfo', 'links', 'backlinks',
   'resolveLink', 'suggestPages', 'findPagePaths', 'getInheritedExportStyles', 'search', 'replaceFind', 'replaceApply', 'attributeKeys', 'attributeValues', 'queryView', 'savedQueries', 'saveQuery', 'setAttribute', 'setFileAttributes', 'moveFile', 'mergeTemplateInto', 'templateAttributes', 'editRelation', 'relationCandidates', 'setPageTitle', 'stats', 'getState', 'setState',
   'absolutePath', 'importFile', 'fileInPage', 'importExternal', 'setSyncOptions', 'mergeConflictCopies', 'historyList', 'historyRead', 'snapshot', 'historyTexts',

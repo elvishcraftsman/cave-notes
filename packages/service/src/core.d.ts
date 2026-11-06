@@ -33,6 +33,7 @@ declare module '@cave-notes/core-tree' {
   export function cleanExt(e: string): string | null;
   export function normalizePagePath(p: string): string;
   export function normalizeName(n: string): string;
+  export function fileStem(n: string): string;
   export function parentPage(p: string): string | null;
   export function pageName(p: string): string;
   export function pageFolder(p: string): string;
@@ -116,7 +117,7 @@ declare module '@cave-notes/core-index' {
     links(path: string): IndexLink[];
     backlinks(path: string): Array<{ fromPath: string; fromTitle: string; line: number; text: string | null }>;
     allPageRows(): PageRow[];
-    search(query: string, opts?: { limit?: number; offset?: number; count?: boolean; hideFrom?: 'tree' | 'children' | 'search' }): { results: any[]; total: number | null; errors: string[] };
+    search(query: string, opts?: { limit?: number; offset?: number; count?: boolean; hideFrom?: 'tree' | 'children' | 'search' | 'queries' }): { results: any[]; total: number | null; errors: string[] };
     /** The page a path, file name, title or alias points at. */
     resolveRef(ref: string): { path: string; title: string } | null;
     attributeKeys(): any[];
@@ -125,8 +126,9 @@ declare module '@cave-notes/core-index' {
     /** pages kept out of the tree (`hidden: true`, own or inherited); with a parent (null = top level) only its direct children */
     hiddenPaths(parent?: string | null): Set<string>;
     /** the pages whose `hidden` keeps them out of `area` (default: the page tree) */
+    readonly globals: Record<string, unknown>;
+    stateOf(path: string): { attributes: Record<string, unknown>; blocks: Array<{ defaults: string; link?: string; inheritance: string; attrs: Record<string, unknown> }> } | null;
     hiddenOnlyPaths(parent?: string | null, area?: 'tree' | 'children' | 'search'): Set<string>;
-    unlistedPaths(parent?: string | null): Set<string>;
     templatePaths(parent?: string | null): Set<string>;
     /** the icon pages ask for with `icon: name` (path -> icon name); with a parent only its direct children */
     iconPaths(parent?: string | null): Map<string, string>;

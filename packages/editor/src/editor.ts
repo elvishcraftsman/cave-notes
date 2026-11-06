@@ -26,6 +26,7 @@ import { extractOutline, findHeading, isHeading, type OutlineItem } from './outl
 import { LEFT_DOUBLE, LEFT_SINGLE, smartQuotes } from './smartQuotes';
 import { noteTheme } from './theme';
 import { codeScroll } from './codeScroll';
+import { selectAll, type HtmlRenderer } from './selectAll';
 
 /** The first `# Heading` of a page: its text and the 1-based line it is on. Frontmatter and fenced code are skipped. */
 export function findFirstH1(lines: Iterable<string>, limit = 400): { text: string; line: number } | null {
@@ -114,6 +115,8 @@ export interface EditorOptions {
   formatMenu?: boolean;
   /** The menu also opens when text is selected with the mouse (default true). */
   selectionMenu?: boolean;
+  /** Turns the page into HTML for "Select all as HTML" then copy; without it the page as drawn is copied. */
+  renderHtml?: HtmlRenderer;
   /** Spell checker for the right-click menu: suggestions for a misspelt word and "Add to Dictionary". */
   spell?: SpellHost;
   /** Thesaurus for the right-click menu: synonyms to replace a single word with. */
@@ -307,6 +310,7 @@ export class NoteEditor {
         }),
       ),
       o.formatMenu === false ? [] : formatMenu({ onSelection: o.selectionMenu !== false, ...(o.spell ? { spell: o.spell } : {}), ...(o.thesaurus ? { thesaurus: o.thesaurus } : {}) }),
+      selectAll(o.renderHtml),
       fenceAutoClose(),
       footnotes(),
       listEnterKeepsSpace(),

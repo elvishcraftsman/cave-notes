@@ -563,22 +563,28 @@ function attrCondition(term, errors, now, ctx = {}) {
 
 const TRUE_SQL = "((a.type = 'bool' AND a.num_value = 1) OR lower(a.text_value) = 'true')";
 
-/** Where `hidden` can hide a page. `files` is another name for `tree`. */
-export const HIDDEN_AREAS = ['tree', 'children', 'search'];
+/** Where `hidden` can hide a page. `files` is another name for `tree`, `query` for `queries`. */
+export const HIDDEN_AREAS = ['tree', 'children', 'search', 'queries'];
+const AREA_NAMES = { tree: ['tree', 'files'], children: ['children'], search: ['search'], queries: ['queries', 'query'] };
+/** The area a word in a query (`hidden:query`, `hidden:files`) names, or null. */
+export const hiddenAreaOf = (word) => HIDDEN_AREAS.find((a) => AREA_NAMES[a].includes(String(word).trim().toLowerCase())) ?? null;
 /**
  * The attribute rows that hide a page from `area`: `hidden: true` or `all` (everywhere), or the names of the places, as a list
  * (`[tree, children]`, one row each) or in one line (`tree, children`). `false`, other words and no value hide nothing.
  */
 export function hiddenWhere(area) {
-  const names = area === 'tree' ? ['tree', 'files'] : [area];
+  const names = AREA_NAMES[area] ?? [area];
   const line = "(',' || replace(replace(lower(a.text_value), ' ', ''), char(9), '') || ',')";
   const hit = ['all', 'true', ...names].map((n) => `${line} LIKE '%,${n},%'`).join(' OR ');
   return `lower(a.key) = 'hidden' AND (${TRUE_SQL} OR (a.type != 'bool' AND (${hit})))`;
 }
-/** The pages that are unlisted: `unlisted: true`, or a template with no `unlisted` attribute saying otherwise. */
-export const UNLISTED_IDS_SQL = `SELECT a.page_id FROM attrs a WHERE lower(a.key) = 'unlisted' AND ${TRUE_SQL}
+/**
+ * The pages hidden from `area`: those whose `hidden` says so, and templates (`template: true`) with no `hidden` attribute of
+ * their own, which count as `hidden: all`.
+ */
+export const hiddenIdsSql = (area) => `SELECT a.page_id FROM attrs a WHERE ${hiddenWhere(area)}
   UNION SELECT a.page_id FROM attrs a WHERE lower(a.key) = 'template' AND ${TRUE_SQL}
-    AND a.page_id NOT IN (SELECT page_id FROM attrs WHERE lower(key) = 'unlisted')`;
+    AND a.page_id NOT IN (SELECT page_id FROM attrs WHERE lower(key) = 'hidden')`;
 
 const BUILTIN_SORTS = {
   rank: null,
@@ -636,7 +642,14 @@ export function compileQuery(parsed, ctx, { limit = 100, offset = 0 } = {}) {
       if (parts.length === 0) return null;
       return { sql: `(${parts.join(t.op === 'or' ? ' OR ' : ' AND ')})`, params: gp };
     }
-    if (t.type === 'attr') return attrCondition(t, errors, now, ctx);
+    if (t.type === 'attr') {
+      // `hidden:query` (or tree, files, children, search) also finds the pages that are `hidden: all` or `true`
+      if (String(t.key).toLowerCase() === 'hidden' && t.kind === 'any' && t.values?.length > 0) {
+        const areas = t.values.map(hiddenAreaOf);
+        if (areas.every(Boolean)) return { sql: `(${areas.map((a) => `p.id IN (SELECT a.page_id FROM attrs a WHERE ${hiddenWhere(a)})`).join(' OR ')})`, params: [] };
+      }
+      return attrCondition(t, errors, now, ctx);
+    }
     let cond = null;
     let condParams = [];
     switch (t.key) {
@@ -776,19 +789,14 @@ export function compileQuery(parsed, ctx, { limit = 100, offset = 0 } = {}) {
     }
   });
 
-  // `unlisted: true` keeps a page out of every result, unless the query itself names the attribute (unlisted:true, has:unlisted, -unlisted:true …).
-  // A template (`template: true`) counts as unlisted unless it has an `unlisted` attribute of its own; naming `template` in the query also brings them back.
-  const NAMES = new Set(['unlisted', 'template']);
-  const mentionsUnlisted = (list) =>
-    list.some((t) => (t.type === 'group' ? mentionsUnlisted(t.children) : (t.type === 'attr' && NAMES.has(String(t.key).toLowerCase())) || (t.type === 'special' && t.key === 'has' && t.values.some((v) => NAMES.has(String(v).toLowerCase())))));
-  if (!mentionsUnlisted(parsed.terms)) {
-    where.push(`p.id NOT IN (${UNLISTED_IDS_SQL})`);
-  }
-  // `hidden: search` (or `all`, `true`) keeps a page out of the search pane; a query that names `hidden` finds such pages again
-  if (ctx.hideFrom) {
-    const mentionsHidden = (list) =>
-      list.some((t) => (t.type === 'group' ? mentionsHidden(t.children) : (t.type === 'attr' && String(t.key).toLowerCase() === 'hidden') || (t.type === 'special' && t.key === 'has' && t.values.some((v) => String(v).toLowerCase() === 'hidden'))));
-    if (!mentionsHidden(parsed.terms)) where.push(`p.id NOT IN (SELECT a.page_id FROM attrs a WHERE ${hiddenWhere(ctx.hideFrom)})`);
+  // Pages hidden from queries (`hidden: queries`, `all` or `true`, and templates, which count as `hidden: all`) stay out of every result,
+  // views and rules included, unless the query itself names `hidden` (or `template`). Rules and views still see pages that are
+  // only hidden from the search pane, the tree or the children bar. The search pane itself also leaves out what `hidden` keeps from `search`.
+  const mentions = (list, names) =>
+    list.some((t) => (t.type === 'group' ? mentions(t.children, names) : (t.type === 'attr' && names.has(String(t.key).toLowerCase())) || (t.type === 'special' && t.key === 'has' && t.values.some((v) => names.has(String(v).toLowerCase())))));
+  if (!mentions(parsed.terms, new Set(['hidden', 'template']))) {
+    where.push(`p.id NOT IN (${hiddenIdsSql('queries')})`);
+    if (ctx.hideFrom && ctx.hideFrom !== 'queries') where.push(`p.id NOT IN (${hiddenIdsSql(ctx.hideFrom)})`);
   }
 
   const hasText = fts.length > 0;

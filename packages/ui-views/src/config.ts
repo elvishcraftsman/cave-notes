@@ -14,6 +14,8 @@ export type ViewType = (typeof VIEW_TYPES)[number];
  */
 export interface ViewConfig {
   type: ViewType;
+  /** `open: true` in one view of a block of several: the tab that shows when the page opens (the app moves it as tabs are chosen) */
+  open?: boolean;
   title?: string;
   /** the same query language as the search bar; `$this` and `$parent` stand for the page holding the block */
   query: string;
@@ -99,6 +101,7 @@ function readViewObject(raw: unknown): ParseResult {
     const v = asString(o[k]);
     if (v) config[k] = v;
   }
+  if (o.open === true || (typeof o.open === 'string' && o.open.trim().toLowerCase() === 'true')) config.open = true;
   if (o.noDuplicateWarning === true || (typeof o.noDuplicateWarning === 'string' && o.noDuplicateWarning.trim().toLowerCase() === 'true')) config.noDuplicateWarning = true;
   if (typeof o.relationFiles === 'string' && ['link', 'skip'].includes(o.relationFiles.trim().toLowerCase())) config.relationFiles = o.relationFiles.trim().toLowerCase() as 'link' | 'skip';
   if (typeof o.groupDir === 'string' && o.groupDir.trim().toLowerCase() === 'desc') config.groupDir = 'desc';
@@ -186,6 +189,8 @@ export interface ViewSet {
   /** every view of the block, in order; a `!Name` query shortcode is already worked out in `query` */
   views: ViewConfig[];
   segmented: boolean;
+  /** the view that shows first: the first with `open: true`, else the first */
+  openIndex: number;
   /** the problems with shortcodes (a name nobody has), for a note under the toolbar */
   warnings: string[];
 }
@@ -251,7 +256,7 @@ export function parseViewSet(source: string): { ok: true; set: ViewSet } | { ok:
     return out;
   };
   const full = views.map((v, i) => ({ ...v, query: work(i, []) }));
-  return { ok: true, set: { views: full, segmented: seq !== null, warnings: [...new Set(warnings)] } };
+  return { ok: true, set: { views: full, segmented: seq !== null, openIndex: Math.max(0, views.findIndex((v) => v.open === true)), warnings: [...new Set(warnings)] } };
 }
 
 /** The settings map of view `index` (a flat block is view 0), or null. */
@@ -284,6 +289,33 @@ export function updateViewSource(source: string, index: number, patch: Patch): s
   }
   const p = viewsSeq(doc) && 'title' in patch ? (Object.fromEntries(Object.entries(patch).map(([k, v]) => [k === 'title' ? 'name' : k, v])) as Patch) : patch;
   applyPatch(doc, map, p);
+  return dump(doc);
+}
+
+/**
+ * Remember which view of a block of several is open: `open: true` goes on that view and comes off the others, so the block opens
+ * on it next time. A block of one view, and a block that already says so, come back unchanged.
+ */
+export function setOpenView(source: string, index: number): string {
+  const doc = YAML.parseDocument(protectShortcodes(source));
+  if (doc.errors.length > 0) return source;
+  const seq = viewsSeq(doc);
+  if (!seq || seq.items.length < 2 || index < 0 || index >= seq.items.length) return source;
+  const isOpen = (m: YAML.YAMLMap): boolean => {
+    const v = m.get('open');
+    return v === true || (typeof v === 'string' && v.trim().toLowerCase() === 'true');
+  };
+  const maps = seq.items.map((it) => (YAML.isMap(it) ? it : null));
+  // already right: this one is the first open view and no later one claims to be open too
+  const firstOpen = maps.findIndex((m) => m && isOpen(m));
+  if ((firstOpen === index || (firstOpen === -1 && index === 0)) && maps.filter((m, i) => m && isOpen(m) && i !== index).length === 0) return source;
+  maps.forEach((m, i) => {
+    if (!m) return;
+    if (i === index) m.set('open', true);
+    else m.delete('open');
+  });
+  // the first view is the default: it needs no mark
+  if (index === 0) maps[0]?.delete('open');
   return dump(doc);
 }
 

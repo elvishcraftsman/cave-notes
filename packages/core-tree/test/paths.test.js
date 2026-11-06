@@ -67,3 +67,12 @@ test('foldKey ignores case and Unicode normalization form', () => {
   assert.equal(foldKey('GRACE'), foldKey('grace'));
   assert.equal(foldKey('Cafe\u0301'), foldKey('CAF\u00c9'));
 });
+
+test('fileStem leaves question marks and a trailing dot out of the file name', async () => {
+  const { fileStem } = await import('../src/index.js');
+  assert.equal(fileStem('Why?'), 'Why');
+  assert.equal(fileStem('Notes v1.'), 'Notes v1');
+  assert.equal(fileStem('What is this?...'), 'What is this');
+  assert.equal(fileStem('Plain'), 'Plain');
+  assert.throws(() => fileStem('???'), /empty/);
+});

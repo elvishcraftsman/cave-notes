@@ -43,8 +43,7 @@ author:                  # nested values become author.name
 const SPECIAL: Array<[string, string]> = [
   ['aliases', 'other names that [[wikilinks]] may use for this page'],
   ['order', 'a number: pages with one come first in the page tree, lowest first'],
-  ['hidden: all', 'keep the page out of the page tree, the sub-page bar and search (or name the places: tree, children, search)'],
-  ['unlisted: true', 'keep the page out of the page tree, search and queries (templates count as unlisted unless they say unlisted: false)'],
+  ['hidden: all', 'keep the page out of the page tree, the sub-page bar, search and queries (templates count as hidden: all unless they have a hidden of their own). Name places instead: tree (or files), children, search, queries'],
   ['icon: book', 'an icon for this page, from the bundled icon set; it shows in the page tree and in galleries (set it from the page\u2019s right-click menu)'],
   ['children:', 'attributes that every sub-page, at any depth, gets unless it sets its own. Write defaults: inherit (hand down this page\u2019s own values too), defaults: none (a blank slate) or inheritance: children (reach only the next level) inside it'],
   ['status: inherit', 'take the parent page\u2019s value for this attribute; default takes the workspace\u2019s value, none leaves it blank'],

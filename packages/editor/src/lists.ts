@@ -99,6 +99,26 @@ function pushShift(changes: ChangeSpec[], line: { from: number; text: string }, 
   }
 }
 
+/**
+ * Whether the list `lineNumber` is in is indented with tabs rather than spaces: its own line starts with a tab, or (when it
+ * sits at the left edge) the nearest indented list line of the document does.
+ */
+function usesTabs(state: EditorState, lineNumber: number): boolean {
+  const doc = state.doc;
+  const lead = (n: number): string => /^[ \t]*/.exec(doc.line(n).text)![0];
+  const own = lead(lineNumber);
+  if (own.includes('\t')) return true;
+  if (own.length > 0) return false;
+  const marker = /^[ \t]+(?:[-*+]|\d{1,9}[.)]|[A-Za-z]{1,8}[.)])[ \t]/;
+  for (let n = lineNumber + 1; n <= doc.lines; n++) {
+    const text = doc.line(n).text;
+    if (text.trim() === '') break;
+    if (marker.test(text)) return text.startsWith('\t');
+    if (!/^[ \t]/.test(text)) break;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------- indent and outdent
 
 /** An item the selection moves: with the lists under it too when some of those are selected as well. */
@@ -171,9 +191,10 @@ export function indentListItems(view: EditorView): boolean {
     if (!step) continue;
     group.forEach((m, k) => {
       const [a, b] = spanOf(state, m);
+      const unit = usesTabs(state, a) ? '\t' : ' '.repeat(step.delta);
       for (let n = a; n <= b; n++) {
         const ln = doc.line(n);
-        if (ln.text.trim() !== '') changes.push({ from: ln.from, insert: ' '.repeat(step.delta) });
+        if (ln.text.trim() !== '') changes.push({ from: ln.from, insert: unit });
       }
       // an item that starts a new nested numbered list starts it at 1 (or a, or i)
       if (k === 0 && step.under && m.item.parent?.name === 'OrderedList' && step.under.lastChild?.name !== 'OrderedList') {
@@ -221,7 +242,8 @@ export function outdentListItems(view: EditorView): boolean {
     const [a, b] = spanOf(state, m);
     for (let n = a; n <= b; n++) {
       const ln = doc.line(n);
-      const k = Math.min(delta, /^ */.exec(ln.text)![0].length);
+      // a tab-indented line gives up one tab; a space-indented one gives up as many spaces as the item is nested by
+      const k = ln.text.startsWith('\t') ? 1 : Math.min(delta, /^ */.exec(ln.text)![0].length);
       if (k > 0) changes.push({ from: ln.from, to: ln.from + k });
     }
   }

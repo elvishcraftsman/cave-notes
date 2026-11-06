@@ -19,7 +19,7 @@ export interface TreeNodeData {
   hasChildren: boolean;
   /** a template page (`template: true`), shown only when templates are asked for */
   template?: boolean;
-  /** `unlisted: true` (or a template), shown only when unlisted pages are asked for */
+  /** hidden from the tree (or a template), shown only when those pages are asked for */
   unlisted?: boolean;
   /** an icon name the page asks for (`icon:` attribute) */
   icon?: string;

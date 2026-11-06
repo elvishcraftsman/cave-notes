@@ -196,11 +196,10 @@ Without `backattribute` the other side is worked out from the first and is read-
 | Name | Where | What it does |
 |---|---|---|
 | `icon` | an icon name | The page's icon in the page tree and, in a gallery, in place of its initial. Set it from the page's right-click menu (**Set Icon…**). |
-| `hidden` | text or list | Where the page is hidden: `tree` (the page tree; `files` means the same), `children` (the sub-page bar) and `search` (the search pane). Name one, several (`tree, children` or a list) or use `all` or `true` for all three. `false`, a missing attribute or any other word hides nothing. Queries and views still list the page. Can be handed down. |
+| `hidden` | text or list | Where the page is hidden: `tree` (the page tree; `files` means the same), `children` (the sub-page bar), `search` (the search pane) and `queries` (views, rules and every other query; `query` means the same). Name one, several (`tree, children` or a list) or use `all` or `true` for all four. `false`, a missing attribute or any other word hides nothing. A query that names `hidden` finds hidden pages again: `hidden:queries` finds every page hidden from queries, `hidden: all` and `true` ones included. Rules and views still see pages that are only hidden from the tree, the sub-page bar or the search pane. The sidebar's **Show Unlisted Files/Templates** button shows the pages hidden from the tree (`files`, `tree`, `all` or `true`). Can be handed down with `children:`. A page with `template: true` is `hidden: all` unless it has a `hidden` of its own. |
 | `exportStyle` | any attribute | The name of the export style set the page is exported in (see [export-styles.md](export-styles.md)); the export window starts with it. A page that has one also shows its **page count** under the outline, next to the word count. Can be handed down with `children:`, so one line can set the style of a whole folder of chapters. A name that matches no style falls back to *Clean* (and the count is marked with ⚠). |
 | `presentationTheme` | own only | Makes the page a presentation in the named slide theme (see [presentations.md](presentations.md)). The sidebar then shows a **slide count** instead of a page count. |
-| `unlisted` | any attribute | `true` keeps the page out of the page tree, search results and every query and view, unless the query itself names the attribute (`unlisted:true`, `has:unlisted`, `-unlisted:true`). The sidebar's **Show Unlisted Files/Templates** button brings them back into the tree. Can be handed down with `children:`. A page with `template: true` is unlisted unless it says `unlisted: false` itself. |
-| `template` | any attribute | `true` marks a template (see [templates.md](templates.md)). Counts as `unlisted: true` unless the page sets `unlisted` itself. |
+| `template` | any attribute | `true` marks a template (see [templates.md](templates.md)). Counts as `hidden: all` unless the page sets `hidden` itself. |
 | `aliases` | own only | Other names that `[[wikilinks]]` accept for this page. |
 | `order` | own only | Sorts pages in the tree, lowest first. |
 | `title` | own only | The page's title, when it has no `# Heading`. |
@@ -338,7 +337,7 @@ A value that does not fit its declared type (`due: tomorrow`) is kept as text an
 
 ### Values that imply other attributes
 
-An attribute in the schema can say what each of its values brings with it, with `implies:`. This is how `template: true` already counts as `unlisted: true`; now you can add your own:
+An attribute in the schema can say what each of its values brings with it, with `implies:`. This is how `template: true` already counts as `hidden: all`; now you can add your own:
 
 ```yaml
 schema:
@@ -350,7 +349,7 @@ schema:
       project: { icon: folder-kanban }
 ```
 
-Every page with `type: task` now behaves as if it also had `hidden: true`: it keeps out of the page tree, and `hidden:true` finds it in a query. Things to know:
+Every page with `type: task` now behaves as if it also had `hidden: true`: it keeps out of the page tree, the sub-page bar, search and queries, and `hidden:true` finds it in a query. Things to know:
 
 - The implied attribute is never written into the page's file. Take `type: task` away and `hidden` goes with it.
 - A page's own word wins. A task that says `hidden: false` stays visible, and so does a page that gets `hidden: false` from a `children:` block.
