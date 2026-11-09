@@ -17370,7 +17370,6 @@ var WORKER_METHODS = [
   "ensureConfigFolder",
   "templateText",
   "resolveEmbed",
-  "evaluateExpression",
   "saveEmbed",
   "globalsPending",
   "globalsOffer",

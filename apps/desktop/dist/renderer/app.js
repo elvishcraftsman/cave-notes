@@ -32571,25 +32571,6 @@ ${parts.join(",\n")}
   var isExpanded = (n3) => n3.height >= EXPANDED_FROM;
   var DEFAULT_LINK_SIZE = { width: 250, height: 100 };
   var DEFAULT_GROUP_SIZE = { width: 400, height: 300 };
-  var SHAPES = ["rounded", "rectangle", "pill", "ellipse", "diamond"];
-  var SHAPE_NAMES = { rounded: "Rounded", rectangle: "Square corners", pill: "Pill", ellipse: "Ellipse", diamond: "Diamond" };
-  var BORDER_STYLES = ["solid", "dashed", "dotted", "none"];
-  var shapeOf = (n3) => SHAPES.includes(n3.shape) ? n3.shape : "rounded";
-  var borderStyleOf = (n3) => BORDER_STYLES.includes(n3.borderStyle) ? n3.borderStyle : null;
-  function arrowEnds(e4) {
-    return { from: e4.fromEnd === "arrow", to: (e4.toEnd ?? "arrow") === "arrow" };
-  }
-  var ARROW_CYCLE = [{ from: false, to: true }, { from: true, to: false }, { from: true, to: true }, { from: false, to: false }];
-  function cycleArrows(canvas, ids) {
-    const first = canvas.edges.find((e4) => ids.includes(e4.id));
-    if (!first) return canvas;
-    const cur2 = arrowEnds(first);
-    const at = ARROW_CYCLE.findIndex((a4) => a4.from === cur2.from && a4.to === cur2.to);
-    const next = ARROW_CYCLE[(at + 1) % ARROW_CYCLE.length];
-    let out = canvas;
-    for (const e4 of canvas.edges) if (ids.includes(e4.id)) out = updateEdge(out, e4.id, { fromEnd: next.from ? "arrow" : void 0, toEnd: next.to ? void 0 : "none" });
-    return out;
-  }
   var PRESET_COLORS = { "1": "#fb464c", "2": "#e9973f", "3": "#e0de71", "4": "#44cf6e", "5": "#53dfdd", "6": "#a882ff" };
   var PRESET_NAMES = { "1": "Red", "2": "Orange", "3": "Yellow", "4": "Green", "5": "Cyan", "6": "Purple" };
   function cssColor(color3) {
@@ -32803,68 +32784,6 @@ ${parts.join(",\n")}
     return { zoom, x: screen.x - (screen.x - v4.x) * k3, y: screen.y - (screen.y - v4.y) * k3 };
   }
   var toCanvasPoint = (v4, screen) => ({ x: (screen.x - v4.x) / v4.zoom, y: (screen.y - v4.y) / v4.zoom });
-  function distributeNodes(canvas, ids, axis) {
-    const picked = canvas.nodes.filter((n3) => ids.includes(n3.id));
-    if (picked.length < 3) return canvas;
-    const h5 = axis === "horizontal";
-    const sorted = [...picked].sort((a4, b4) => h5 ? a4.x - b4.x : a4.y - b4.y);
-    const first = sorted[0];
-    const last2 = sorted[sorted.length - 1];
-    const span = h5 ? last2.x + last2.width - first.x : last2.y + last2.height - first.y;
-    const total = sorted.reduce((t5, n3) => t5 + (h5 ? n3.width : n3.height), 0);
-    const gap = (span - total) / (sorted.length - 1);
-    let at = h5 ? first.x : first.y;
-    const pos = /* @__PURE__ */ new Map();
-    for (const n3 of sorted) {
-      pos.set(n3.id, at);
-      at += (h5 ? n3.width : n3.height) + gap;
-    }
-    return mapNodes(canvas, (n3) => pos.has(n3.id) ? h5 ? { ...n3, x: pos.get(n3.id) } : { ...n3, y: pos.get(n3.id) } : n3);
-  }
-  function describeNode(n3) {
-    if (n3.type === "text") {
-      const first = (typeof n3.text === "string" ? n3.text : "").split("\n").map((l5) => l5.replace(/^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*)/, "").replace(/[*_`]/g, "").trim()).find((l5) => l5 !== "");
-      return first ? first.length > 48 ? `${first.slice(0, 47)}\u2026` : first : "(empty note)";
-    }
-    if (n3.type === "file") return (typeof n3.file === "string" ? n3.file : "").replace(/^.*\//, "").replace(/\.[^.]+$/, "") || "(page)";
-    if (n3.type === "link") {
-      try {
-        return new URL(String(n3.url)).hostname || String(n3.url);
-      } catch {
-        return String(n3.url) || "(link)";
-      }
-    }
-    return typeof n3.label === "string" && n3.label !== "" ? n3.label : "Group";
-  }
-  var NODE_KIND = { text: "Note", file: "Page", link: "Link", group: "Group" };
-  function objectTree(canvas) {
-    const groups = canvas.nodes.filter((n3) => n3.type === "group");
-    const area = (n3) => n3.width * n3.height;
-    const parentOf2 = /* @__PURE__ */ new Map();
-    for (const n3 of canvas.nodes) {
-      let best = null;
-      for (const g4 of groups) {
-        const outer = area(g4) > area(n3) || area(g4) === area(n3) && canvas.nodes.indexOf(g4) < canvas.nodes.indexOf(n3);
-        if (g4.id !== n3.id && outer && inside(g4, n3) && (!best || area(g4) < area(best))) best = g4;
-      }
-      if (best) parentOf2.set(n3.id, best.id);
-    }
-    const order2 = (a4, b4) => a4.y - b4.y || a4.x - b4.x;
-    const kids = /* @__PURE__ */ new Map();
-    for (const n3 of canvas.nodes) {
-      const k3 = parentOf2.get(n3.id) ?? null;
-      kids.set(k3, [...kids.get(k3) ?? [], n3]);
-    }
-    const out = [];
-    const walk = (parent, depth2) => {
-      for (const n3 of [...kids.get(parent) ?? []].sort(order2)) {
-        out.push({ node: n3, depth: depth2 });
-        if (n3.type === "group") walk(n3.id, depth2 + 1);
-      }
-    };
-    walk(null, 0);
-    return out;
-  }
 
   // ../../packages/ui-canvas/src/style.ts
   var CANVAS_CSS = `
@@ -32886,25 +32805,14 @@ ${parts.join(",\n")}
 .cv-hint { fill: var(--editor-bg, #fff); stroke: var(--accent, #3584e4); stroke-width: 2px; pointer-events: none; }
 .cv-hint-on { fill: var(--accent, #3584e4); }
 .cv-edge-label { font: 13px/1 var(--ui-font, sans-serif); fill: currentColor; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: var(--editor-bg, var(--window-bg, #fff)); stroke-width: 6px; pointer-events: none; }
-.cv-node { position: absolute; box-sizing: border-box; overflow: visible; cursor: default; }
+.cv-node { position: absolute; box-sizing: border-box; border: 2px solid var(--cv-color, var(--cv-border, rgba(128,128,128,.55))); border-radius: 8px; background: var(--cv-card, var(--card-bg, var(--editor-bg, #fff))); overflow: visible; cursor: default; }
 .cv-node[data-node] { --cv-edge-z: 1; }
-.cv-shape { position: absolute; inset: 0; box-sizing: border-box; pointer-events: none; border: var(--cv-bw, 2px) var(--cv-bs, solid) var(--cv-color, var(--cv-border, rgba(128,128,128,.55))); border-radius: 8px; background: var(--cv-bg, var(--cv-card, var(--card-bg, var(--editor-bg, #fff)))); background-image: var(--cv-img, none); background-size: var(--cv-img-size, cover); background-repeat: var(--cv-img-repeat, no-repeat); background-position: center; }
-.cv-shape-rectangle { border-radius: 0; } .cv-shape-pill { border-radius: 9999px; } .cv-shape-ellipse { border-radius: 50%; }
-.cv-shape-diamond { background-image: none; --cv-poly: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); border: 0; border-radius: 0; clip-path: var(--cv-poly); background: var(--cv-color, var(--cv-border, rgba(128,128,128,.55))); }
-.cv-shape-diamond::before { content: ''; position: absolute; inset: var(--cv-bw, 2px); clip-path: var(--cv-poly); background: var(--cv-bg, var(--cv-card, var(--card-bg, var(--editor-bg, #fff)))); background-image: var(--cv-img, none); background-size: var(--cv-img-size, cover); background-repeat: var(--cv-img-repeat, no-repeat); background-position: center; }
-.cv-node[style*="--cv-bs: none"] .cv-shape-diamond::before { inset: 0; }
-.cv-node[style*="--cv-ink"] > .cv-body { color: var(--cv-ink); }
-.cv-node[data-image] > .cv-body { text-shadow: 0 0 3px var(--cv-card, var(--card-bg, var(--editor-bg, #fff))), 0 0 6px var(--cv-card, var(--card-bg, var(--editor-bg, #fff))); }
-.cv-md img, .cv-node .cv-md-img { max-width: 100%; height: auto; display: block; margin: 4px 0; border-radius: 4px; }
-.cv-node.cv-selected > .cv-shape { box-shadow: 0 0 0 3px var(--accent, #3584e4); }
-.cv-node.cv-selected > .cv-shape-diamond { box-shadow: none; background: var(--accent, #3584e4); }
-.cv-node.cv-selected > .cv-shape-diamond::before { inset: 3px; }
-.cv-node[data-shape="ellipse"] > .cv-body { padding: 10% 14%; } .cv-node[data-shape="diamond"] > .cv-body { padding: 22% 25%; } .cv-node[data-shape="pill"] > .cv-body { padding: 6px 18px; }
+.cv-node.cv-selected { box-shadow: 0 0 0 3px var(--accent, #3584e4); }
 .cv-body { position: absolute; inset: 0; overflow: auto; border-radius: 6px; padding: 6px 10px; }
 .cv-text .cv-body { cursor: text; }
 .cv-editing .cv-body { overflow: auto; }
 .cv-plain-edit { width: 100%; height: 100%; box-sizing: border-box; border: 0; resize: none; background: transparent; color: inherit; font: inherit; outline: none; }
-.cv-group > .cv-shape { background-color: var(--cv-bg, color-mix(in srgb, var(--cv-color, rgba(128,128,128,.9)) 8%, transparent)); border-style: var(--cv-bs, dashed); }
+.cv-group { background: color-mix(in srgb, var(--cv-color, rgba(128,128,128,.9)) 8%, transparent); border-style: dashed; }
 .cv-group .cv-body { pointer-events: none; padding: 0; overflow: visible; }
 .cv-group-label { position: absolute; left: 0; top: -30px; max-width: 100%; padding: 2px 10px; border-radius: 6px 6px 0 0; background: color-mix(in srgb, var(--cv-color, rgba(128,128,128,.9)) 25%, var(--editor-bg, var(--window-bg, #fff))); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: auto; cursor: grab; }
 .cv-group-label:empty { display: none; }
@@ -32940,31 +32848,18 @@ ${parts.join(",\n")}
 .cv-danger:hover { background: rgba(224,27,36,.35); }
 .cv-palette { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 10px; z-index: 6; background: var(--card-bg, var(--window-bg, #fff)); border: 1px solid var(--cv-border, rgba(128,128,128,.4)); box-shadow: 0 2px 10px rgba(0,0,0,.2); }
 .cv-readonly .cv-palette { display: none; }
-.cv-btn.cv-on { background: color-mix(in srgb, var(--accent, #3584e4) 35%, transparent); }
-.cv-btn:disabled { opacity: .4; cursor: default; }
-.cv-menu { position: absolute; z-index: 8; min-width: 190px; display: flex; flex-direction: column; padding: 4px; border-radius: 10px; background: var(--card-bg, var(--window-bg, #fff)); color: inherit; border: 1px solid var(--cv-border, rgba(128,128,128,.4)); box-shadow: 0 2px 10px rgba(0,0,0,.25); font-size: 14px; user-select: none; }
-.cv-menu-item { text-align: left; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; padding: 6px 10px; cursor: pointer; }
-.cv-menu-item:hover, .cv-menu-item:focus-visible { background: rgba(128,128,128,.22); outline: none; }
-.cv-menu-head { padding: 4px 10px 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .65; }
-.cv-menu-sep { height: 1px; margin: 4px 6px; background: var(--cv-border, rgba(128,128,128,.35)); }
-.cv-embedded { touch-action: pan-y pinch-zoom; }
 .cv-zoom { position: absolute; right: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: 10px; z-index: 6; background: var(--card-bg, var(--window-bg, #fff)); border: 1px solid var(--cv-border, rgba(128,128,128,.4)); box-shadow: 0 2px 10px rgba(0,0,0,.2); }
 `;
 
   // ../../packages/ui-canvas/src/view.ts
-  var IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg|avif|bmp)$/i;
   var HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
   var MARGIN = 200;
   var CanvasView = class {
     constructor(parent, host, canvas, opts = {}) {
       this.host = host;
       this.canvas = canvas;
-      this.locked = opts.readOnly === true;
-      this.embedded = opts.embedded === true;
-      this.viewMode = this.embedded || (host.pref?.get("view") ?? false);
-      if ((opts.grid ?? 0) > 0) this.step = opts.grid;
-      this.snapOn = (opts.grid ?? 0) > 0 || (host.pref?.get("snap") ?? false);
-      this.readOnly = this.locked || this.viewMode;
+      this.readOnly = opts.readOnly === true;
+      this.grid = opts.grid ?? 0;
       ensureStyle(parent.ownerDocument);
       const d5 = parent.ownerDocument;
       this.root = d5.createElement("div");
@@ -33017,20 +32912,9 @@ ${parts.join(",\n")}
     mode = { kind: "idle" };
     editing = null;
     els = /* @__PURE__ */ new Map();
-    /** snapping to the grid while moving and resizing (the dots of the background are one grid step apart) */
-    snapOn = false;
-    step = 24;
+    grid = 0;
     fitted = false;
-    /** what is true now: no changes can be made (either the app says so, or the person chose view mode) */
     readOnly = false;
-    locked = false;
-    viewMode = false;
-    embedded = false;
-    listeners = /* @__PURE__ */ new Set();
-    notifyQueued = false;
-    menu = null;
-    btnSnap = null;
-    btnMode = null;
     destroyed = false;
     pointers = /* @__PURE__ */ new Map();
     pinch = null;
@@ -33055,154 +32939,9 @@ ${parts.join(",\n")}
       if (this.editing && !ids.has(this.editing)) this.editing = null;
       this.render();
     }
-    /** The app forbids changes (a read-only page): the person cannot switch to editing. */
     setReadOnly(on) {
-      this.locked = on;
-      this.readOnly = this.locked || this.viewMode;
+      this.readOnly = on;
       this.render();
-    }
-    get isViewMode() {
-      return this.readOnly;
-    }
-    get isLocked() {
-      return this.locked;
-    }
-    get snapping() {
-      return this.snapOn;
-    }
-    /** The grid step while moving or resizing: nothing when snapping is off. */
-    get grid() {
-      return this.snapOn ? this.step : 0;
-    }
-    /** View mode: nothing can be changed, and a click on a card goes straight to what it shows. */
-    setViewMode(on) {
-      if (this.locked && !on) return;
-      this.viewMode = on;
-      this.readOnly = this.locked || on;
-      if (this.readOnly) {
-        this.closeMenu();
-        this.stopEdit();
-        this.mode = { kind: "idle" };
-      }
-      this.host.pref?.set("view", on);
-      this.render();
-    }
-    setSnap(on) {
-      this.snapOn = on;
-      this.host.pref?.set("snap", on);
-      this.render();
-    }
-    /** Be told when what the canvas shows changes (the canvas, the selection, view mode): for panes beside it. */
-    subscribe(fn) {
-      this.listeners.add(fn);
-      return () => void this.listeners.delete(fn);
-    }
-    notify() {
-      if (this.notifyQueued || this.listeners.size === 0) return;
-      this.notifyQueued = true;
-      queueMicrotask(() => {
-        this.notifyQueued = false;
-        if (!this.destroyed) for (const f5 of [...this.listeners]) f5();
-      });
-    }
-    /** The box that holds every node: for sizing a canvas shown small. */
-    get contentBounds() {
-      return boundsOf(this.canvas.nodes);
-    }
-    /** Scroll the view just enough to bring a node (or the middle of an arrow) into sight. */
-    reveal(id2) {
-      const n3 = nodeById(this.canvas, id2);
-      const e4 = n3 ? null : this.canvas.edges.find((x5) => x5.id === id2);
-      const ends = e4 ? this.edgeEnds(e4) : null;
-      const r4 = n3 ?? (ends ? { x: ends.geo.mid.x - 1, y: ends.geo.mid.y - 1, width: 2, height: 2 } : null);
-      if (!r4) return;
-      const s4 = this.size();
-      const pad = 40;
-      const x0 = r4.x * this.vp.zoom + this.vp.x, y0 = r4.y * this.vp.zoom + this.vp.y;
-      const x1 = x0 + r4.width * this.vp.zoom, y1 = y0 + r4.height * this.vp.zoom;
-      let { x: x4, y: y5 } = this.vp;
-      if (x0 < pad) x4 += pad - x0;
-      else if (x1 > s4.width - pad) x4 -= Math.min(x1 - (s4.width - pad), x0 - pad);
-      if (y0 < pad) y5 += pad - y0;
-      else if (y1 > s4.height - pad) y5 -= Math.min(y1 - (s4.height - pad), y0 - pad);
-      if (x4 !== this.vp.x || y5 !== this.vp.y) {
-        this.vp = { ...this.vp, x: x4, y: y5 };
-        this.fitted = true;
-        this.render();
-      }
-    }
-    // ---- what the properties pane does to the selection
-    /** Change fields of the selected nodes (colour, shape, border, a group's label ...). A field set to `undefined` is taken out. */
-    patchSelectedNodes(patch) {
-      if (this.readOnly) return;
-      let next = this.canvas;
-      for (const n3 of this.canvas.nodes) if (this.selection.has(n3.id)) next = updateNode(next, n3.id, patch);
-      this.commit(next);
-    }
-    patchSelectedEdges(patch) {
-      if (this.readOnly) return;
-      let next = this.canvas;
-      for (const e4 of this.canvas.edges) if (this.selection.has(e4.id)) next = updateEdge(next, e4.id, patch);
-      this.commit(next);
-    }
-    /** Put the selected node at a place and size (a group takes what is inside it along when it moves). */
-    setBox(id2, box) {
-      const n3 = nodeById(this.canvas, id2);
-      if (this.readOnly || !n3) return;
-      let next = this.canvas;
-      const x4 = box.x ?? n3.x, y5 = box.y ?? n3.y;
-      if (x4 !== n3.x || y5 !== n3.y) next = moveNodes(next, [id2], x4 - n3.x, y5 - n3.y);
-      const cur2 = nodeById(next, id2);
-      if (box.width !== void 0 || box.height !== void 0) next = resizeNode(next, id2, { x: cur2.x, y: cur2.y, width: box.width ?? cur2.width, height: box.height ?? cur2.height });
-      this.commit(next);
-    }
-    /** Put a picture of the workspace behind the selected cards (null takes it away). `how`: cover (fills the card), ratio (all of it shows), repeat (tiled). */
-    setBackgroundImage(path2, how) {
-      this.patchSelectedNodes({ background: path2 ?? void 0, backgroundStyle: path2 === null || how === void 0 || how === "cover" ? void 0 : how });
-    }
-    /** Ask for a picture, and make sure it can be shown. */
-    async pickImage() {
-      const raw2 = await (this.host.chooseImage ?? this.host.chooseFile)();
-      if (!raw2) return null;
-      const path2 = raw2.replace(/^\/+/, "");
-      if (!IMAGE_FILE.test(path2)) return null;
-      return path2;
-    }
-    /** Ask for a picture and put it behind the selected cards. */
-    async chooseBackgroundImage() {
-      if (this.readOnly) return;
-      const path2 = await this.pickImage();
-      if (path2 !== null) this.setBackgroundImage(path2, this.selectedStyle());
-    }
-    selectedStyle() {
-      const n3 = this.canvas.nodes.find((x4) => this.selection.has(x4.id));
-      return n3?.backgroundStyle === "ratio" || n3?.backgroundStyle === "repeat" ? n3.backgroundStyle : void 0;
-    }
-    /** Ask for a picture and write it into a note card, at the end of its text, as a picture in the page's own way. */
-    async insertImage(id2) {
-      const n3 = nodeById(this.canvas, id2);
-      if (this.readOnly || !n3 || n3.type !== "text") return;
-      const path2 = await this.pickImage();
-      if (path2 === null) return;
-      const name2 = (path2.split("/").pop() ?? path2).replace(/\.[^.]+$/, "");
-      const dest = /[\s()]/.test(path2) ? `</${path2}>` : `/${path2}`;
-      const cur2 = nodeById(this.canvas, id2);
-      if (!cur2 || cur2.type !== "text") return;
-      const text8 = cur2.text === "" ? "" : cur2.text.endsWith("\n\n") ? cur2.text : `${cur2.text}${cur2.text.endsWith("\n") ? "\n" : "\n\n"}`;
-      this.stopEdit();
-      this.commit(updateNode(this.canvas, id2, { text: `${text8}![${name2}](${dest})` }));
-    }
-    cycleArrowheads() {
-      if (this.readOnly) return;
-      this.commit(cycleArrows(this.canvas, [...this.selection]));
-    }
-    align(how) {
-      if (this.readOnly) return;
-      this.commit(alignNodes(this.canvas, [...this.selection].filter((id2) => nodeById(this.canvas, id2)), how));
-    }
-    distribute(axis) {
-      if (this.readOnly) return;
-      this.commit(distributeNodes(this.canvas, [...this.selection].filter((id2) => nodeById(this.canvas, id2)), axis));
     }
     /** Show everything. */
     fit() {
@@ -33223,8 +32962,6 @@ ${parts.join(",\n")}
     destroy() {
       this.destroyed = true;
       this.sizeObserver?.disconnect();
-      this.closeMenu();
-      this.listeners.clear();
       for (const e4 of this.els.values()) e4.mounted?.destroy();
       this.els.clear();
       this.root.remove();
@@ -33265,12 +33002,11 @@ ${parts.join(",\n")}
         if (!rec) {
           const el4 = this.world.ownerDocument.createElement("div");
           el4.dataset.node = n3.id;
-          const shape2 = this.world.ownerDocument.createElement("div");
           const body = this.world.ownerDocument.createElement("div");
           body.className = "cv-body";
-          el4.append(shape2, body);
+          el4.append(body);
           this.world.append(el4);
-          rec = { el: el4, shape: shape2, body, sig: "", mounted: null, editing: false };
+          rec = { el: el4, body, sig: "", mounted: null, editing: false };
           this.els.set(n3.id, rec);
         }
         const { el: el3 } = rec;
@@ -33283,39 +33019,6 @@ ${parts.join(",\n")}
         const color3 = cssColor(n3.color);
         if (color3) el3.style.setProperty("--cv-color", color3);
         else el3.style.removeProperty("--cv-color");
-        const fillCss = typeof n3.fill === "string" ? cssColor(n3.fill) : null;
-        if (fillCss) {
-          const preset = /^[1-6]$/.test(String(n3.fill));
-          el3.style.setProperty("--cv-bg", preset ? `color-mix(in srgb, ${fillCss} 24%, var(--cv-card, var(--card-bg, var(--editor-bg, #fff))))` : fillCss);
-          const ink = preset ? null : inkOn(fillCss);
-          if (ink) el3.style.setProperty("--cv-ink", ink);
-          else el3.style.removeProperty("--cv-ink");
-        } else {
-          el3.style.removeProperty("--cv-bg");
-          el3.style.removeProperty("--cv-ink");
-        }
-        const bgUrl = typeof n3.background === "string" && n3.background !== "" ? this.host.imageUrl?.(n3.background) ?? null : null;
-        if (bgUrl) {
-          const how = n3.backgroundStyle === "ratio" ? ["contain", "no-repeat"] : n3.backgroundStyle === "repeat" ? ["auto", "repeat"] : ["cover", "no-repeat"];
-          el3.style.setProperty("--cv-img", `url(${JSON.stringify(bgUrl)})`);
-          el3.style.setProperty("--cv-img-size", how[0]);
-          el3.style.setProperty("--cv-img-repeat", how[1]);
-          el3.dataset.image = "1";
-        } else {
-          el3.style.removeProperty("--cv-img");
-          el3.style.removeProperty("--cv-img-size");
-          el3.style.removeProperty("--cv-img-repeat");
-          delete el3.dataset.image;
-        }
-        const shape = n3.type === "group" && !["rounded", "rectangle"].includes(shapeOf(n3)) ? "rounded" : shapeOf(n3);
-        el3.dataset.shape = shape;
-        rec.shape.className = `cv-shape cv-shape-${shape}`;
-        const bs = borderStyleOf(n3);
-        if (bs) el3.style.setProperty("--cv-bs", bs);
-        else el3.style.removeProperty("--cv-bs");
-        const bw = typeof n3.borderWidth === "number" && n3.borderWidth >= 0 && n3.borderWidth <= 12 ? n3.borderWidth : null;
-        if (bw !== null) el3.style.setProperty("--cv-bw", `${bw}px`);
-        else el3.style.removeProperty("--cv-bw");
         this.fill(n3, rec);
         this.handles(n3, rec.el);
         this.expander(n3, rec.el);
@@ -33328,8 +33031,6 @@ ${parts.join(",\n")}
       }
       this.drawEdges();
       this.drawToolbar();
-      this.syncButtons();
-      this.notify();
     }
     fill(n3, rec) {
       const live = this.visible(n3);
@@ -33353,8 +33054,7 @@ ${parts.join(",\n")}
         rec.mounted = this.host.mountText(rec.body, n3, {
           edit: editing,
           onText: (text8) => this.commitText(n3.id, text8),
-          onDone: () => this.stopEdit(),
-          view: () => this.readOnly
+          onDone: () => this.stopEdit()
         });
         if (editing) rec.mounted.focus();
         return;
@@ -33380,6 +33080,7 @@ ${parts.join(",\n")}
         body.replaceChildren(el3);
       }
       if (el3.textContent !== label2) el3.textContent = label2;
+      if (typeof n3.background === "string" && n3.background) body.parentElement?.setAttribute("data-background", n3.background);
     }
     /** A page card has a button to open it out (to show the page) and to fold it up again (to show only its name). */
     expander(n3, el3) {
@@ -33479,9 +33180,8 @@ ${parts.join(",\n")}
         path2.setAttribute("d", ends.geo.d);
         path2.setAttribute("class", "cv-edge-line");
         path2.setAttribute("stroke", color3);
-        const heads = arrowEnds(e4);
-        if (heads.to) path2.setAttribute("marker-end", "url(#cv-arrow)");
-        if (heads.from) path2.setAttribute("marker-start", "url(#cv-arrow)");
+        if ((e4.toEnd ?? "arrow") === "arrow") path2.setAttribute("marker-end", "url(#cv-arrow)");
+        if (e4.fromEnd === "arrow") path2.setAttribute("marker-start", "url(#cv-arrow)");
         g4.append(hit, path2);
         if (typeof e4.label === "string" && e4.label !== "") {
           const t5 = d5.createElementNS(ns, "text");
@@ -33553,8 +33253,7 @@ ${parts.join(",\n")}
         return;
       }
       tb.hidden = false;
-      const heads = edges[0] ? arrowEnds(edges[0]) : null;
-      const sig = `${nodes.length > 0}/${nodes.length > 1}/${edges.length > 0}/${edges.length > 0 && nodes.length === 0 ? edges[0]?.id : ""}/${heads ? `${heads.from}${heads.to}` : ""}`;
+      const sig = `${nodes.length > 0}/${nodes.length > 1}/${edges.length > 0}/${edges.length > 0 && nodes.length === 0 ? edges[0]?.id : ""}`;
       if (sig === this.toolbarSig) {
         this.placeToolbar(nodes, edges);
         return;
@@ -33590,9 +33289,10 @@ ${parts.join(",\n")}
       tb.append(btn("\u2205", "No colour", () => setColor(void 0)));
       tb.append(btn("\u29C9", "Duplicate (Ctrl+D)", () => this.duplicate()));
       if (nodes.length > 0) tb.append(btn("\u25A3", "Group the selection (Ctrl+G)", () => this.groupSelection()));
+      if (nodes.length > 1) tb.append(btn("\u21E4", "Align left", () => this.commit(alignNodes(this.canvas, nodes.map((n3) => n3.id), "left"))));
       if (edges.length > 0 && nodes.length === 0) {
         tb.append(btn("Aa", "Label", () => this.editEdgeLabel(edges[0])));
-        tb.append(btn(arrowGlyph(edges[0]), "Arrowheads: click to change (one end, the other, both, none)", () => this.cycleArrowheads()));
+        tb.append(btn("\u21C4", "Turn the arrow around", () => this.commit(turnEdges(this.canvas, edges.map((e4) => e4.id)))));
       }
       tb.append(btn("\u{1F5D1}", "Delete", () => this.deleteSelection(), "cv-danger"));
       this.placeToolbar(nodes, edges);
@@ -33624,14 +33324,11 @@ ${parts.join(",\n")}
         b4.addEventListener("pointerdown", (e4) => e4.stopPropagation());
         b4.addEventListener("click", run);
         bar2.append(b4);
-        return b4;
       };
       add2("\u{1F4DD}", "Add a note card", () => this.addText(this.centre()));
       add2("\u{1F4C4}", "Add a page or file", () => void this.addFile(this.centre()));
       add2("\u{1F517}", "Add a web link", () => void this.addLink(this.centre()));
       add2("\u25A3", "Add a group", () => this.addEmptyGroup(this.centre()));
-      const snap2 = add2("\u229E", "Snap to the grid while moving and resizing", () => this.setSnap(!this.snapOn));
-      this.btnSnap = snap2;
       return bar2;
     }
     zoomControls() {
@@ -33652,33 +33349,7 @@ ${parts.join(",\n")}
       add2("+", "Zoom in", () => this.zoomBy(1.25));
       add2("\u2212", "Zoom out", () => this.zoomBy(0.8));
       add2("\u2922", "Show everything", () => this.fit());
-      if (!this.embedded) {
-        const mode = d5.createElement("button");
-        mode.type = "button";
-        mode.className = "cv-btn cv-mode";
-        mode.addEventListener("pointerdown", (e4) => e4.stopPropagation());
-        mode.addEventListener("click", () => this.setViewMode(!this.readOnly));
-        bar2.append(mode);
-        this.btnMode = mode;
-      }
       return bar2;
-    }
-    /** The buttons that are switches show whether they are on. */
-    syncButtons() {
-      const sn = this.btnSnap;
-      if (sn) {
-        sn.setAttribute("aria-pressed", String(this.snapOn));
-        sn.classList.toggle("cv-on", this.snapOn);
-        sn.title = this.snapOn ? "Snapping to the grid: on (click to turn off)" : "Snapping to the grid: off (click to turn on)";
-        sn.setAttribute("aria-label", sn.title);
-      }
-      const m4 = this.btnMode;
-      if (m4) {
-        m4.textContent = this.readOnly ? "\u270E" : "\u{1F441}";
-        m4.disabled = this.locked;
-        m4.title = this.locked ? "This page cannot be changed" : this.readOnly ? "View mode is on: click to edit the canvas" : "Switch to view mode: no changes, and a click on a card goes there";
-        m4.setAttribute("aria-label", m4.title);
-      }
     }
     centre() {
       const s4 = this.size();
@@ -33819,7 +33490,7 @@ ${parts.join(",\n")}
       r4.addEventListener("wheel", (e4) => this.wheel(e4), { passive: false });
       r4.addEventListener("mousedown", (e4) => {
         const t5 = e4.target;
-        if (t5.closest(".cv-toolbar, .cv-palette, .cv-zoom, .cv-expand, .cv-menu") && !t5.closest("input, textarea")) e4.preventDefault();
+        if (t5.closest(".cv-toolbar, .cv-palette, .cv-zoom, .cv-expand") && !t5.closest("input, textarea")) e4.preventDefault();
       });
       r4.addEventListener("dragover", (e4) => {
         if (this.readOnly || !e4.dataTransfer || !this.host.canDrop?.([...e4.dataTransfer.types])) return;
@@ -33837,11 +33508,7 @@ ${parts.join(",\n")}
       r4.addEventListener("contextmenu", (e4) => {
         if (this.inControl(e4.target)) return;
         e4.preventDefault();
-        this.contextMenu(e4);
       });
-      r4.addEventListener("pointerdown", (e4) => {
-        if (this.menu && !e4.target.closest?.(".cv-menu")) this.closeMenu();
-      }, true);
     }
     /** Is the target a text field or an editor *inside* the canvas (the canvas itself may sit inside the page editor)? */
     inField(target) {
@@ -33850,7 +33517,7 @@ ${parts.join(",\n")}
     }
     /** Is the target one of the canvas's own controls, or a field? Those handle their own events. */
     inControl(target) {
-      const x4 = target?.closest?.(".cv-toolbar, .cv-palette, .cv-zoom, .cv-menu");
+      const x4 = target?.closest?.(".cv-toolbar, .cv-palette, .cv-zoom");
       return !!x4 && this.root.contains(x4) || this.inField(target);
     }
     hit(ev) {
@@ -33889,9 +33556,10 @@ ${parts.join(",\n")}
       }
       if (ev.button !== 0) return;
       if (this.readOnly) {
-        if (!h5.node && this.selection.size > 0) this.selection.clear();
-        this.mode = { kind: "pan", from: p5, vp: { ...this.vp }, ...h5.node ? { click: h5.node } : {} };
-        this.render();
+        if (h5.node) this.selection = /* @__PURE__ */ new Set([h5.node]);
+        else this.mode = { kind: "pan", from: p5, vp: { ...this.vp } };
+        if (h5.node) this.render();
+        else this.render();
         return;
       }
       if (h5.port && h5.node) {
@@ -34010,10 +33678,7 @@ ${parts.join(",\n")}
       const m4 = this.mode;
       this.mode = { kind: "idle" };
       this.rubberEl.hidden = true;
-      if (m4.kind === "pan" && m4.click) {
-        const q4 = this.pointOf(ev);
-        if (Math.hypot(q4.x - m4.from.x, q4.y - m4.from.y) < 4) this.activate(m4.click, ev);
-      } else if (m4.kind === "move" && m4.moved) {
+      if (m4.kind === "move" && m4.moved) {
         const done = this.canvas;
         this.canvas = m4.base;
         this.commit(done);
@@ -34047,21 +33712,14 @@ ${parts.join(",\n")}
       }
       this.root.releasePointerCapture?.(ev.pointerId);
     }
-    /** View mode: a click on a card. A page opens, an address opens, a link inside the text of a card is followed. */
-    activate(id2, ev) {
-      const n3 = nodeById(this.canvas, id2);
-      if (!n3) return;
-      this.selection = /* @__PURE__ */ new Set([id2]);
-      this.render();
-      if (n3.type === "file") this.host.openFile(n3);
-      else if (n3.type === "link") this.host.openUrl(n3.url);
-      else if (n3.type === "text") {
-        const under = this.root.ownerDocument.elementFromPoint(ev.clientX, ev.clientY);
-        if (under) this.host.followIn?.(under);
-      }
-    }
     dbl(ev) {
-      if (this.readOnly) return;
+      if (this.readOnly) {
+        const h6 = this.hit(ev);
+        const n3 = h6.node ? nodeById(this.canvas, h6.node) : void 0;
+        if (n3?.type === "file") this.host.openFile(n3);
+        else if (n3?.type === "link") this.host.openUrl(n3.url);
+        return;
+      }
       if (this.inControl(ev.target)) return;
       const h5 = this.hit(ev);
       if (h5.node) {
@@ -34108,113 +33766,7 @@ ${parts.join(",\n")}
       input.focus();
       input.select();
     }
-    // ---------------------------------------------------------------- the right-click menu
-    closeMenu() {
-      this.menu?.remove();
-      this.menu = null;
-    }
-    contextMenu(ev) {
-      this.closeMenu();
-      if (this.readOnly) return;
-      const h5 = this.hit(ev);
-      const at = toCanvasPoint(this.vp, this.pointOf(ev));
-      if (h5.node && !this.selection.has(h5.node)) this.selection = /* @__PURE__ */ new Set([h5.node]);
-      else if (h5.edge && !h5.node && !this.selection.has(h5.edge)) this.selection = /* @__PURE__ */ new Set([h5.edge]);
-      else if (!h5.node && !h5.edge) this.selection.clear();
-      this.render();
-      const nodes = this.canvas.nodes.filter((n3) => this.selection.has(n3.id));
-      const edges = this.canvas.edges.filter((e4) => this.selection.has(e4.id));
-      const items = [];
-      const sep = () => void (items.length > 0 && !items[items.length - 1]?.sep && items.push({ label: "", sep: true }));
-      if (nodes.length === 1) {
-        const n3 = nodes[0];
-        if (n3.type === "text") items.push({ label: "Edit", run: () => this.startEdit(n3.id) });
-        else if (n3.type === "file") items.push({ label: "Open Page", run: () => this.host.openFile(n3) });
-        else if (n3.type === "link") items.push({ label: "Open Link", run: () => this.host.openUrl(n3.url) });
-        else if (n3.type === "group") items.push({ label: "Rename Group", run: () => this.editGroupLabel(n3.id) });
-      }
-      if (nodes.length > 1) {
-        items.push({ label: "Align", head: true });
-        for (const [label2, how] of [["Align Left", "left"], ["Align Horizontal Center", "hcenter"], ["Align Right", "right"], ["Align Top", "top"], ["Align Vertical Center", "vcenter"], ["Align Bottom", "bottom"]]) items.push({ label: label2, run: () => this.align(how) });
-        if (nodes.length > 2) {
-          items.push({ label: "Space Evenly Across", run: () => this.distribute("horizontal") });
-          items.push({ label: "Space Evenly Down", run: () => this.distribute("vertical") });
-        }
-      }
-      if (nodes.length > 0) {
-        sep();
-        items.push({ label: "Duplicate", run: () => this.duplicate() }, { label: "Group", run: () => this.groupSelection() });
-        if (nodes.length === 1 && nodes[0].type === "text") items.push({ label: "Insert Image\u2026", run: () => void this.insertImage(nodes[0].id) });
-        items.push({ label: "Set Background Image\u2026", run: () => void this.chooseBackgroundImage() });
-        if (nodes.some((n3) => typeof n3.background === "string" && n3.background !== "")) items.push({ label: "Remove Background Image", run: () => this.setBackgroundImage(null) });
-        items.push({ label: "Bring to Front", run: () => this.commit(bringToFront(this.canvas, nodes.map((n3) => n3.id))) }, { label: "Send to Back", run: () => this.commit(sendToBack(this.canvas, nodes.map((n3) => n3.id))) });
-      }
-      if (edges.length > 0 && nodes.length === 0) {
-        const e4 = edges[0];
-        items.push({ label: "Edit Label", run: () => this.editEdgeLabel(e4) }, { label: `Arrowheads (${arrowGlyph(e4)}): Next`, run: () => this.cycleArrowheads() });
-      }
-      if (nodes.length > 0 || edges.length > 0) {
-        sep();
-        items.push({ label: "Delete", danger: true, run: () => this.deleteSelection() });
-      }
-      if (!h5.node && !h5.edge) {
-        items.push({ label: "Add Note Card Here", run: () => this.addText(at) }, { label: "Add Page\u2026", run: () => void this.addFile(at) }, { label: "Add Web Link\u2026", run: () => void this.addLink(at) }, { label: "Add Group Here", run: () => this.addEmptyGroup(at) });
-        sep();
-        items.push({ label: "Select All", run: () => this.select(this.canvas.nodes.map((n3) => n3.id)) }, { label: "Show Everything", run: () => this.fit() });
-      }
-      const d5 = this.root.ownerDocument;
-      const menu = d5.createElement("div");
-      menu.className = "cv-menu";
-      menu.setAttribute("role", "menu");
-      for (const it of items) {
-        if (it.sep) {
-          const l5 = d5.createElement("div");
-          l5.className = "cv-menu-sep";
-          menu.append(l5);
-        } else if (it.head) {
-          const l5 = d5.createElement("div");
-          l5.className = "cv-menu-head";
-          l5.textContent = it.label;
-          menu.append(l5);
-        } else {
-          const b4 = d5.createElement("button");
-          b4.type = "button";
-          b4.setAttribute("role", "menuitem");
-          b4.className = `cv-menu-item${it.danger ? " cv-danger" : ""}`;
-          b4.textContent = it.label;
-          b4.addEventListener("click", (e4) => {
-            e4.stopPropagation();
-            this.closeMenu();
-            it.run?.();
-          });
-          menu.append(b4);
-        }
-      }
-      const p5 = this.pointOf(ev);
-      menu.style.left = `${p5.x}px`;
-      menu.style.top = `${p5.y}px`;
-      this.root.append(menu);
-      this.menu = menu;
-      const box = this.root.getBoundingClientRect();
-      const mb = menu.getBoundingClientRect();
-      menu.style.left = `${Math.max(4, Math.min(p5.x, box.width - mb.width - 4))}px`;
-      menu.style.top = `${Math.max(4, Math.min(p5.y, box.height - mb.height - 4))}px`;
-      menu.querySelector(".cv-menu-item")?.focus();
-      menu.addEventListener("keydown", (e4) => {
-        e4.stopPropagation();
-        if (e4.key === "Escape") {
-          this.closeMenu();
-          this.root.focus({ preventScroll: true });
-        } else if (e4.key === "ArrowDown" || e4.key === "ArrowUp") {
-          e4.preventDefault();
-          const all2 = [...menu.querySelectorAll(".cv-menu-item")];
-          const i5 = all2.indexOf(d5.activeElement);
-          all2[(i5 + (e4.key === "ArrowDown" ? 1 : -1) + all2.length) % all2.length]?.focus();
-        }
-      });
-    }
     wheel(ev) {
-      if (this.embedded && !(ev.ctrlKey || ev.metaKey)) return;
       ev.preventDefault();
       const p5 = this.pointOf(ev);
       if (ev.ctrlKey || ev.metaKey) {
@@ -34328,15 +33880,20 @@ ${parts.join(",\n")}
     }
     return { x: x4, y: y5, width, height };
   }
-  function inkOn(css3) {
-    const m4 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(css3);
-    if (!m4) return null;
-    const [r4, g4, b4] = [m4[1], m4[2], m4[3]].map((x4) => parseInt(x4, 16) / 255).map((c4) => c4 <= 0.03928 ? c4 / 12.92 : ((c4 + 0.055) / 1.055) ** 2.4);
-    return 0.2126 * r4 + 0.7152 * g4 + 0.0722 * b4 > 0.4 ? "#1e1e1e" : "#ffffff";
-  }
-  function arrowGlyph(e4) {
-    const a4 = arrowEnds(e4);
-    return a4.from && a4.to ? "\u2194" : a4.to ? "\u2192" : a4.from ? "\u2190" : "\u2014";
+  function turnEdges(canvas, ids) {
+    return {
+      ...canvas,
+      edges: canvas.edges.map((e4) => {
+        if (!ids.includes(e4.id)) return e4;
+        const { fromNode, fromSide, toNode, toSide, fromEnd, toEnd, ...rest } = e4;
+        const out = { ...rest, id: e4.id, fromNode: toNode, toNode: fromNode };
+        if (toSide) out.fromSide = toSide;
+        if (fromSide) out.toSide = fromSide;
+        if (toEnd) out.fromEnd = toEnd;
+        if (fromEnd) out.toEnd = fromEnd;
+        return out;
+      })
+    };
   }
   var styled = /* @__PURE__ */ new WeakSet();
   function ensureStyle(doc2) {
@@ -34383,8 +33940,6 @@ ${parts.join(",\n")}
       this.wrap = wrap2;
       view.dom.append(wrap2);
       views.set(view, this.cv);
-      o4.onCanvas?.(this.cv, true);
-      this.onCanvas = o4.onCanvas;
       wrap2.addEventListener("keydown", (e4) => {
         const field = e4.target.closest(".cm-editor, textarea, input");
         const nested = !!field && field !== view.dom && wrap2.contains(field);
@@ -34404,7 +33959,6 @@ ${parts.join(",\n")}
     view;
     wrap;
     cv;
-    onCanvas;
     /** The text changed other than by the canvas (undo, a sync, a restore): show it. */
     update(u5) {
       if (!u5.docChanged || u5.transactions.some((t5) => t5.annotation(fromCanvas))) return;
@@ -34412,7 +33966,6 @@ ${parts.join(",\n")}
       if (parsed2.ok) this.cv.setCanvas(parsed2.canvas);
     }
     destroy() {
-      this.onCanvas?.(this.cv, false);
       this.cv.destroy();
       this.wrap.remove();
       if (views.get(this.view) === this.cv) views.delete(this.view);
@@ -45786,7 +45339,7 @@ ${m4[1]}\`\`\`` },
       const asCanvas = canvas && !!this.opts.canvas && parseCanvas(doc2).ok;
       const base3 = plain2 || canvas ? this.plainExtensions : this.extensions;
       const extra = [];
-      if (asCanvas) extra.push(canvasTheme, canvasMode({ host: this.opts.canvas, readOnly: readOnly2, onSave: this.opts.onSave, ...this.opts.onCanvas ? { onCanvas: this.opts.onCanvas } : {} }));
+      if (asCanvas) extra.push(canvasTheme, canvasMode({ host: this.opts.canvas, readOnly: readOnly2, onSave: this.opts.onSave }));
       if (readOnly2) extra.push(this.readOnlyExtensions());
       return EditorState.create({ doc: doc2, extensions: extra.length > 0 ? [base3, ...extra] : base3 });
     }
@@ -78885,24 +78438,6 @@ ${lines.join("\n")}
     saveState = y3("saved");
     conflict = y3(null);
     outline = y3([]);
-    /** The canvas on screen (when the open page is a `.canvas`), for the objects and properties in the right sidebar. */
-    canvasView = y3(null);
-    /** Counts up whenever that canvas, its selection or its mode changes, so panes that show it redraw. */
-    canvasTick = y3(0);
-    canvasUnsub = null;
-    setCanvasView(cv, present) {
-      if (!present) {
-        if (this.canvasView.value !== cv) return;
-        this.canvasUnsub?.();
-        this.canvasUnsub = null;
-        this.canvasView.value = null;
-      } else {
-        this.canvasUnsub?.();
-        this.canvasView.value = cv;
-        this.canvasUnsub = cv.subscribe(() => void this.canvasTick.value++);
-      }
-      this.canvasTick.value++;
-    }
     activeHeading = y3(-1);
     /** the theme the open page's front matter names with `presentationTheme:`; null when the page is not a presentation */
     presentationTheme = y3(null);
@@ -83177,7 +82712,6 @@ presentationTheme: ${name2}`;
     ["queries.md", "Queries, saved queries and views", "Finding pages by their attributes; tables, boards and relations (including backattribute)."],
     ["tables.md", "Tables", "Tables in a page and views of queries."],
     ["templates.md", "Templates and dynamic blocks", "Starting pages from templates, and the templates that come with the app."],
-    ["expressions.md", "Expressions and formulas", "Sums, counts, averages, largest and smallest over a query; formula attributes; the functions."],
     ["canvas.md", "Canvases", "Free-form pages of cards, pictures and arrows (.canvas files)."],
     ["code-blocks.md", "Code blocks", "Fenced code, running it, wrapping and scrolling."],
     ["search-and-replace.md", "Search and replace", "Searching one page or the whole workspace."],
@@ -88990,11 +88524,11 @@ Last, a second note.[^2]
     const toUnit = (cm) => Math.round((u5 === "in" ? cm / 2.54 : cm) * 100) / 100;
     const fromUnit = (n3) => u5 === "in" ? n3 * 2.54 : n3;
     const num4 = (v4, d5) => Number.isFinite(Number(v4)) && v4.trim() !== "" ? Number(v4) : d5;
-    const Num2 = ({ label: label2, value: value2, on, step = 1 }) => /* @__PURE__ */ u4("label", { class: "se-field", children: [
+    const Num = ({ label: label2, value: value2, on, step = 1 }) => /* @__PURE__ */ u4("label", { class: "se-field", children: [
       /* @__PURE__ */ u4("span", { children: label2 }),
       /* @__PURE__ */ u4("input", { type: "number", step, value: value2, onInput: (e4) => on(num4(e4.currentTarget.value, value2)) })
     ] });
-    const Len = ({ label: label2, cm, on }) => /* @__PURE__ */ u4(Num2, { label: `${label2} (${u5 === "in" ? "in" : "cm"})`, step: u5 === "in" ? 0.05 : 0.1, value: toUnit(cm), on: (n3) => on(fromUnit(n3)) });
+    const Len = ({ label: label2, cm, on }) => /* @__PURE__ */ u4(Num, { label: `${label2} (${u5 === "in" ? "in" : "cm"})`, step: u5 === "in" ? 0.05 : 0.1, value: toUnit(cm), on: (n3) => on(fromUnit(n3)) });
     const Font = ({ label: label2, value: value2, on }) => /* @__PURE__ */ u4("label", { class: "se-field", children: [
       /* @__PURE__ */ u4("span", { children: label2 }),
       /* @__PURE__ */ u4("input", { type: "text", list: "export-fonts", value: value2, onInput: (e4) => on(e4.currentTarget.value) })
@@ -89031,9 +88565,9 @@ Last, a second note.[^2]
       /* @__PURE__ */ u4(Len, { label: "Margins", cm: set2.page.marginCm, on: (cm) => upd({ page: { ...set2.page, marginCm: cm } }) }),
       /* @__PURE__ */ u4("h4", { children: "Text" }),
       /* @__PURE__ */ u4(Font, { label: "Font", value: set2.body.font, on: (f5) => upd({ body: { ...set2.body, font: f5 } }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Size (pt)", step: 0.5, value: set2.body.sizePt, on: (n3) => upd({ body: { ...set2.body, sizePt: n3 } }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Line spacing", step: 0.1, value: set2.body.lineHeight, on: (n3) => upd({ body: { ...set2.body, lineHeight: n3 } }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Space after paragraph (pt)", value: set2.body.paragraphAfter, on: (n3) => upd({ body: { ...set2.body, paragraphAfter: n3 } }) }),
+      /* @__PURE__ */ u4(Num, { label: "Size (pt)", step: 0.5, value: set2.body.sizePt, on: (n3) => upd({ body: { ...set2.body, sizePt: n3 } }) }),
+      /* @__PURE__ */ u4(Num, { label: "Line spacing", step: 0.1, value: set2.body.lineHeight, on: (n3) => upd({ body: { ...set2.body, lineHeight: n3 } }) }),
+      /* @__PURE__ */ u4(Num, { label: "Space after paragraph (pt)", value: set2.body.paragraphAfter, on: (n3) => upd({ body: { ...set2.body, paragraphAfter: n3 } }) }),
       /* @__PURE__ */ u4(Len, { label: "First-line indent", cm: set2.body.firstLineIndentCm, on: (cm) => upd({ body: { ...set2.body, firstLineIndentCm: Math.max(0, cm) } }) }),
       set2.body.firstLineIndentCm > 0 && /* @__PURE__ */ u4(Check, { label: "Indent the paragraph after a heading too", value: set2.body.indentAfterHeading, on: (b4) => upd({ body: { ...set2.body, indentAfterHeading: b4 } }) }),
       /* @__PURE__ */ u4(Color2, { label: "Colour", value: set2.body.color, on: (c4) => upd({ body: { ...set2.body, color: c4 } }) }),
@@ -89045,16 +88579,16 @@ Last, a second note.[^2]
         n3
       ] }, n3)) }),
       /* @__PURE__ */ u4(Font, { label: "Font", value: h5.font, on: (f5) => setH({ font: f5 }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Size (pt)", step: 0.5, value: h5.sizePt, on: (n3) => setH({ sizePt: n3 }) }),
+      /* @__PURE__ */ u4(Num, { label: "Size (pt)", step: 0.5, value: h5.sizePt, on: (n3) => setH({ sizePt: n3 }) }),
       /* @__PURE__ */ u4(Color2, { label: "Colour", value: h5.color, on: (c4) => setH({ color: c4 }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Space before (pt)", value: h5.before, on: (n3) => setH({ before: n3 }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Space after (pt)", value: h5.after, on: (n3) => setH({ after: n3 }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Line height", step: 0.05, value: h5.lineHeight, on: (n3) => setH({ lineHeight: Math.max(0.8, Math.min(3, n3)) }) }),
+      /* @__PURE__ */ u4(Num, { label: "Space before (pt)", value: h5.before, on: (n3) => setH({ before: n3 }) }),
+      /* @__PURE__ */ u4(Num, { label: "Space after (pt)", value: h5.after, on: (n3) => setH({ after: n3 }) }),
+      /* @__PURE__ */ u4(Num, { label: "Line height", step: 0.05, value: h5.lineHeight, on: (n3) => setH({ lineHeight: Math.max(0.8, Math.min(3, n3)) }) }),
       /* @__PURE__ */ u4(Check, { label: "Bold", value: h5.bold, on: (b4) => setH({ bold: b4 }) }),
       /* @__PURE__ */ u4(Check, { label: "Italic", value: h5.italic, on: (b4) => setH({ italic: b4 }) }),
       /* @__PURE__ */ u4("h4", { children: "Code" }),
       /* @__PURE__ */ u4(Font, { label: "Font", value: set2.code.font, on: (f5) => upd({ code: { ...set2.code, font: f5 } }) }),
-      /* @__PURE__ */ u4(Num2, { label: "Size (pt)", step: 0.5, value: set2.code.sizePt, on: (n3) => upd({ code: { ...set2.code, sizePt: n3 } }) }),
+      /* @__PURE__ */ u4(Num, { label: "Size (pt)", step: 0.5, value: set2.code.sizePt, on: (n3) => upd({ code: { ...set2.code, sizePt: n3 } }) }),
       /* @__PURE__ */ u4(Color2, { label: "Background", value: set2.code.background, on: (c4) => upd({ code: { ...set2.code, background: c4 } }) }),
       /* @__PURE__ */ u4("h4", { children: "Blockquotes" }),
       /* @__PURE__ */ u4(Color2, { label: "Colour", value: set2.blockquote.color, on: (c4) => upd({ blockquote: { ...set2.blockquote, color: c4 } }) }),
@@ -89069,7 +88603,7 @@ Last, a second note.[^2]
           /* @__PURE__ */ u4("option", { value: "end", children: "At the end (endnotes)" })
         ] })
       ] }),
-      /* @__PURE__ */ u4(Num2, { label: "Size (pt)", step: 0.5, value: set2.footnotes.sizePt, on: (n3) => upd({ footnotes: { ...set2.footnotes, sizePt: n3 } }) }),
+      /* @__PURE__ */ u4(Num, { label: "Size (pt)", step: 0.5, value: set2.footnotes.sizePt, on: (n3) => upd({ footnotes: { ...set2.footnotes, sizePt: n3 } }) }),
       /* @__PURE__ */ u4(Color2, { label: "Colour", value: set2.footnotes.color, on: (c4) => upd({ footnotes: { ...set2.footnotes, color: c4 } }) }),
       /* @__PURE__ */ u4(Check, { label: "Italic", value: set2.footnotes.italic, on: (b4) => upd({ footnotes: { ...set2.footnotes, italic: b4 } }) }),
       /* @__PURE__ */ u4("h4", { children: "Tables, links, lists" }),
@@ -91316,29 +90850,14 @@ Last, a second note.[^2]
   }
 
   // src/renderer/views/embedHost.ts
-  function inline2(parent, text8, fill, exprFill, run, images) {
-    const re = /(!\[[^\]\n]*\]\((?:<[^>\n]+>|[^)\n]+)\)|\[\[\$\{[^}\n]+\}[^\]\n]*\]\]|\$\{[^}\n]+\}|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|!?\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\))/g;
+  function inline2(parent, text8, fill, exprFill, run) {
+    const re = /(\[\[\$\{[^}\n]+\}[^\]\n]*\]\]|\$\{[^}\n]+\}|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|!?\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\))/g;
     let last2 = 0;
     for (let m4 = re.exec(text8); m4; m4 = re.exec(text8)) {
       if (m4.index > last2) parent.append(text8.slice(last2, m4.index));
       const t5 = m4[0];
       let el3;
-      if (t5.startsWith("![") && !t5.startsWith("![[")) {
-        const im = /^!\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^)\s]+))/.exec(t5);
-        const href = im ? im[2] ?? im[3] ?? "" : "";
-        const src = images && href ? images(href) : null;
-        if (src) {
-          const img = document.createElement("img");
-          img.className = "cv-md-img";
-          img.alt = im?.[1] ?? "";
-          img.src = src;
-          img.draggable = false;
-          el3 = img;
-        } else {
-          el3 = document.createElement("span");
-          el3.textContent = im?.[1] || t5;
-        }
-      } else if (t5.startsWith("${") || t5.startsWith("[[${")) {
+      if (t5.startsWith("${") || t5.startsWith("[[${")) {
         const f5 = findExpressions(t5)[0];
         el3 = document.createElement("span");
         if (exprFill && f5 && f5.length === t5.length) exprFill(el3, f5.expr, f5.link, f5.label);
@@ -91362,8 +90881,6 @@ Last, a second note.[^2]
         el3 = document.createElement("span");
         el3.className = "embed-link";
         el3.textContent = t5.replace(/^!?\[\[(?:[^\]|]*\|)?|\]\]$/g, "");
-        const w5 = /^!?\[\[([^\]|#]+)/.exec(t5);
-        if (w5) el3.dataset.wiki = w5[1].trim();
       } else {
         const b4 = run ? /^\[([^\]]*)\]\(\s*<?([^)>]+?)>?\s*\)$/.exec(t5) : null;
         const rule = b4 ? AUTOMATION_LINK.exec(b4[2]) : null;
@@ -91391,11 +90908,6 @@ Last, a second note.[^2]
           el3 = document.createElement("span");
           el3.className = "embed-link";
           el3.textContent = /^\[([^\]]*)\]/.exec(t5)?.[1] ?? t5;
-          const dest = /\]\(\s*<?([^)>]+?)>?\s*\)$/.exec(t5)?.[1];
-          if (dest) {
-            if (/^https?:\/\//i.test(dest)) el3.dataset.url = dest;
-            else el3.dataset.md = dest;
-          }
         }
       }
       parent.append(el3);
@@ -91403,7 +90915,7 @@ Last, a second note.[^2]
     }
     if (last2 < text8.length) parent.append(text8.slice(last2));
   }
-  function renderMini(text8, fill, viewFill, exprFill, run, images) {
+  function renderMini(text8, fill, viewFill, exprFill, run) {
     const out = document.createDocumentFragment();
     const lines = text8.split("\n");
     let para = [];
@@ -91411,7 +90923,7 @@ Last, a second note.[^2]
     const flush = () => {
       if (para.length) {
         const p5 = document.createElement("p");
-        inline2(p5, para.join(" "), fill, exprFill, run, images);
+        inline2(p5, para.join(" "), fill, exprFill, run);
         out.append(p5);
         para = [];
       }
@@ -91443,7 +90955,7 @@ Last, a second note.[^2]
         flush();
         list4 = null;
         const e4 = document.createElement(`h${h5[1].length}`);
-        inline2(e4, h5[2], fill, exprFill, run, images);
+        inline2(e4, h5[2], fill, exprFill, run);
         out.append(e4);
       } else if (li) {
         flush();
@@ -91453,13 +90965,13 @@ Last, a second note.[^2]
         }
         const item = document.createElement("li");
         if (li[2] !== void 0) item.textContent = li[2] === " " ? "\u2610 " : "\u2611 ";
-        inline2(item, li[3], fill, exprFill, run, images);
+        inline2(item, li[3], fill, exprFill, run);
         list4.append(item);
       } else if (q4) {
         flush();
         list4 = null;
         const b4 = document.createElement("blockquote");
-        inline2(b4, q4[1], fill, exprFill, run, images);
+        inline2(b4, q4[1], fill, exprFill, run);
         out.append(b4);
       } else if (line2.trim() === "") {
         flush();
@@ -91480,10 +90992,7 @@ Last, a second note.[^2]
       },
       async expression(expr) {
         const m4 = /^(this|\[\[([^\]\n]+)\])\.([^\s.{}[\]]+)$/.exec(expr.trim());
-        if (!m4) {
-          const r4 = await ctl.ws.evaluateExpression(ctl.current.value?.path ?? null, expr.trim());
-          return r4.ok ? { ok: true, values: r4.list.map((text8) => ({ text: text8 })) } : { ok: false, error: r4.error };
-        }
+        if (!m4) return { ok: false, error: `Cannot read \u201C${expr.trim()}\u201D. Write this.name or [[Page]].name.` };
         const from = ctl.current.value?.path ?? "";
         let path2 = from;
         if (m4[2] !== void 0) {
@@ -91581,63 +91090,8 @@ Last, a second note.[^2]
             }
           );
         };
-        let shownCanvas = null;
-        const dropCanvas = () => {
-          shownCanvas?.destroy();
-          shownCanvas = null;
-          el3.classList.remove("cv-embed");
-        };
-        const drawCanvas = (ok3) => {
-          const parsed2 = parseCanvas(ok3.text);
-          if (!parsed2.ok) {
-            dropCanvas();
-            el3.textContent = "";
-            const w5 = document.createElement("span");
-            w5.className = "embed-error";
-            w5.textContent = `\u26A0 ${parsed2.error}`;
-            el3.append(w5);
-            return;
-          }
-          if (shownCanvas && el3.contains(shownCanvas.root)) {
-            shownCanvas.setCanvas(parsed2.canvas);
-            return;
-          }
-          dropCanvas();
-          el3.textContent = "";
-          el3.classList.add("cv-embed");
-          el3.title = `${spec.raw} \u2014 from ${ok3.source}`;
-          const stage = document.createElement("div");
-          const box = boundsOf(parsed2.canvas.nodes);
-          const width = el3.clientWidth || 700;
-          const height = box ? Math.round(Math.min(640, Math.max(180, Math.min(1, (width - 80) / Math.max(1, box.width)) * box.height + 80))) : 140;
-          stage.style.height = `${height}px`;
-          el3.append(stage);
-          shownCanvas = new CanvasView(stage, { ...createCanvasHost(ctl), onChange: () => {
-          } }, parsed2.canvas, { readOnly: true, embedded: true });
-          shownCanvas.root.classList.add("cv-embedded");
-          const bar2 = document.createElement("div");
-          bar2.className = "cv-embed-bar";
-          const name2 = document.createElement("span");
-          name2.className = "cv-embed-title";
-          name2.textContent = (ok3.source.split("/").pop() ?? ok3.source).replace(/\.canvas$/i, "");
-          const edit2 = document.createElement("button");
-          edit2.type = "button";
-          edit2.className = "pill-button small";
-          edit2.textContent = "Edit";
-          edit2.title = `Open ${ok3.source} in a new tab to edit it`;
-          edit2.setAttribute("aria-label", `Edit the canvas ${name2.textContent} in a new tab`);
-          edit2.onclick = () => void ctl.openInNewTab(ok3.source);
-          bar2.append(name2, edit2);
-          el3.append(bar2);
-        };
         const draw = () => {
           dropViews();
-          if (spec.block && state && state.ok && /\.canvas$/i.test(state.source)) {
-            el3.classList.remove("cm-embed-bad");
-            drawCanvas(state);
-            return;
-          }
-          dropCanvas();
           el3.textContent = "";
           el3.classList.toggle("cm-embed-bad", state !== null && !state.ok);
           if (!state) {
@@ -91751,7 +91205,6 @@ Last, a second note.[^2]
           seq2++;
           stop();
           dropViews();
-          dropCanvas();
         } };
       }
     };
@@ -91764,28 +91217,24 @@ Last, a second note.[^2]
   var stem = (path2) => (path2.split("/").pop() ?? path2).replace(/\.[^.]+$/, "");
   function createCanvasHost(ctl) {
     return {
-      pref: {
-        get: (key2) => localStorage.getItem(`cave-notes.canvas.${key2}`) === "1",
-        set: (key2, value2) => localStorage.setItem(`cave-notes.canvas.${key2}`, value2 ? "1" : "0")
-      },
-      // view mode: a click on a link inside the text of a card goes there
-      followIn(target) {
-        const t5 = target.closest("[data-wiki], [data-url], [data-md]");
-        if (!t5) return false;
-        if (t5.dataset.url) ctl.openUrl(t5.dataset.url);
-        else if (t5.dataset.wiki) void ctl.followLink({ syntax: "wiki", target: t5.dataset.wiki, fragment: null, text: null, from: 0, to: 0 });
-        else if (t5.dataset.md) void ctl.followLink({ syntax: "md", target: t5.dataset.md, fragment: null, text: null, from: 0, to: 0 });
-        return true;
-      },
       mountText(el3, node2, opts) {
         if (!opts.edit) {
+          let onLink2 = function(e4) {
+            const t5 = e4.target.closest(".embed-link");
+            if (t5) e4.stopPropagation();
+          };
+          var onLink = onLink2;
           const draw = (text8) => {
-            el3.replaceChildren(renderMini(text8, void 0, void 0, void 0, void 0, ctl.assetUrl));
+            el3.replaceChildren(renderMini(text8));
             el3.classList.add("cv-md");
           };
           draw(node2.text);
+          el3.addEventListener("click", onLink2);
           return { update: draw, focus() {
-          }, destroy: () => el3.replaceChildren() };
+          }, destroy: () => {
+            el3.removeEventListener("click", onLink2);
+            el3.replaceChildren();
+          } };
         }
         const ed = new NoteEditor({
           parent: el3,
@@ -91887,41 +91336,6 @@ Last, a second note.[^2]
         const file = dt.getData("application/x-cave-file");
         return file ? [file] : [];
       },
-      // pictures behind a card, and chosen for one: a file of the workspace, by its path from the top
-      imageUrl: (path2) => ctl.assetUrlFor("", `/${path2.replace(/^\/+/, "")}`),
-      chooseImage: () => new Promise((resolve) => {
-        const spec = {
-          kind: "prompt",
-          title: "Choose a Picture",
-          body: "Type the path of a picture of this workspace, from its top folder, for example Pictures/map.png.",
-          label: "Picture",
-          value: "",
-          confirm: "Choose",
-          submit: async (name2) => {
-            const path2 = name2.trim().replace(/^\/+/, "");
-            if (!IMAGE2.test(path2)) return "That is not a picture (png, jpg, gif, webp, svg, avif or bmp).";
-            const src = ctl.assetUrlFor("", `/${path2}`);
-            const ok3 = src ? await new Promise((done) => {
-              const im = new Image();
-              im.onload = () => done(true);
-              im.onerror = () => done(false);
-              im.src = src;
-            }) : false;
-            if (!ok3) return `There is no picture at \u201C${path2}\u201D.`;
-            resolve(path2);
-            return null;
-          }
-        };
-        ctl.dialog.value = spec;
-        const stop = j3(() => {
-          if (ctl.dialog.value !== spec) {
-            queueMicrotask(() => {
-              stop();
-              resolve(null);
-            });
-          }
-        });
-      }),
       openFile: (node2) => void ctl.openCanvasFile(node2.file),
       openUrl: (url) => ctl.openUrl(url),
       chooseFile: () => new Promise((resolve) => {
@@ -92249,8 +91663,7 @@ Last, a second note.[^2]
         resolveAsset: ctl.assetUrl,
         viewBlock: createViewHost(ctl),
         embed: createEmbedHost(ctl),
-        canvas: createCanvasHost(ctl),
-        onCanvas: (cv, present) => ctl.setCanvasView(cv, present)
+        canvas: createCanvasHost(ctl)
       });
       ctl.attachEditor(ed);
       const scroller = ed.view.scrollDOM;
@@ -92827,179 +92240,14 @@ ${STATUS[status] ?? status}` : where;
     ] });
   }
 
-  // src/renderer/components/CanvasPanes.tsx
-  var GLYPH = { text: "\u{1F4DD}", file: "\u{1F4C4}", link: "\u{1F517}", group: "\u25A3" };
-  function CanvasObjects({ ctl, cv }) {
-    void ctl.canvasTick.value;
-    const canvas = cv.current;
-    const selected = new Set(cv.selected);
-    const rows = objectTree(canvas);
-    const pick3 = (id2, e4) => {
-      const add2 = e4.shiftKey || e4.ctrlKey || e4.metaKey;
-      const next = add2 ? selected.has(id2) ? cv.selected.filter((x4) => x4 !== id2) : [...cv.selected, id2] : [id2];
-      cv.select(next);
-      cv.reveal(id2);
-    };
-    return /* @__PURE__ */ u4("div", { class: "cv-pane", children: [
-      /* @__PURE__ */ u4("div", { class: "cv-objects", role: "listbox", "aria-label": "Objects on the canvas", "aria-multiselectable": "true", children: [
-        rows.length === 0 && canvas.edges.length === 0 && /* @__PURE__ */ u4("p", { class: "empty-note", children: "This canvas is empty. Double-click it to add a note card." }),
-        rows.map(({ node: node2, depth: depth2 }) => /* @__PURE__ */ u4("button", { role: "option", "aria-selected": selected.has(node2.id), class: `cv-obj ${selected.has(node2.id) ? "on" : ""}`, style: { paddingLeft: `${8 + depth2 * 16}px` }, onClick: (e4) => pick3(node2.id, e4), title: `${NODE_KIND[node2.type] ?? ""}: ${describeNode(node2)}`, children: [
-          /* @__PURE__ */ u4("span", { class: "cv-obj-icon", "aria-hidden": "true", children: GLYPH[node2.type] }),
-          /* @__PURE__ */ u4("span", { class: "cv-obj-name", children: describeNode(node2) })
-        ] }, node2.id)),
-        canvas.edges.length > 0 && /* @__PURE__ */ u4("h3", { class: "cv-obj-head", children: "Arrows" }),
-        canvas.edges.map((e4) => {
-          const a4 = canvas.nodes.find((n3) => n3.id === e4.fromNode);
-          const b4 = canvas.nodes.find((n3) => n3.id === e4.toNode);
-          return /* @__PURE__ */ u4("button", { role: "option", "aria-selected": selected.has(e4.id), class: `cv-obj ${selected.has(e4.id) ? "on" : ""}`, style: { paddingLeft: "8px" }, onClick: (ev) => pick3(e4.id, ev), children: [
-            /* @__PURE__ */ u4("span", { class: "cv-obj-icon", "aria-hidden": "true", children: arrowGlyph(e4) }),
-            /* @__PURE__ */ u4("span", { class: "cv-obj-name", children: [
-              e4.label ? `${e4.label}: ` : "",
-              a4 ? describeNode(a4) : "?",
-              " \u2192 ",
-              b4 ? describeNode(b4) : "?"
-            ] })
-          ] }, e4.id);
-        })
-      ] }),
-      /* @__PURE__ */ u4(Properties, { cv })
-    ] });
-  }
-  function Num({ label: label2, value: value2, min, onSet, disabled }) {
-    return /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-      /* @__PURE__ */ u4("span", { children: label2 }),
-      /* @__PURE__ */ u4("input", { type: "number", step: "1", ...min !== void 0 ? { min } : {}, value: Math.round(value2), disabled, onChange: (e4) => {
-        const v4 = Number(e4.currentTarget.value);
-        if (Number.isFinite(v4)) onSet(v4);
-      } })
-    ] });
-  }
-  function Colors({ label: label2 = "Colour", color: color3, disabled, onSet }) {
-    const css3 = cssColor(color3);
-    return /* @__PURE__ */ u4("div", { class: "cv-field cv-colors", role: "group", "aria-label": label2, children: [
-      /* @__PURE__ */ u4("span", { children: label2 }),
-      /* @__PURE__ */ u4("div", { class: "cv-swatches", children: [
-        Object.entries(PRESET_COLORS).map(([k3, c4]) => /* @__PURE__ */ u4("button", { type: "button", class: `cv-sw ${color3 === k3 ? "on" : ""}`, style: { background: c4 }, title: PRESET_NAMES[k3], "aria-label": PRESET_NAMES[k3], "aria-pressed": color3 === k3, disabled, onClick: () => onSet(k3) }, k3)),
-        /* @__PURE__ */ u4("button", { type: "button", class: `cv-sw none ${color3 === void 0 ? "on" : ""}`, title: "No colour", "aria-label": "No colour", "aria-pressed": color3 === void 0, disabled, onClick: () => onSet(void 0), children: "\u2205" }),
-        /* @__PURE__ */ u4("input", { type: "color", class: "cv-custom", title: `Another colour for the ${label2.toLowerCase()}`, "aria-label": `Another colour for the ${label2.toLowerCase()}`, value: css3 && css3.length === 7 ? css3 : "#808080", disabled, onChange: (e4) => onSet(e4.currentTarget.value) })
-      ] })
-    ] });
-  }
-  function Properties({ cv }) {
-    const canvas = cv.current;
-    const nodes = canvas.nodes.filter((n3) => cv.selected.includes(n3.id));
-    const edges = canvas.edges.filter((e4) => cv.selected.includes(e4.id));
-    const off = cv.isViewMode;
-    if (nodes.length === 0 && edges.length === 0) return /* @__PURE__ */ u4("div", { class: "cv-props", children: /* @__PURE__ */ u4("p", { class: "empty-note", children: "Select something on the canvas to see its properties." }) });
-    const note = off ? /* @__PURE__ */ u4("p", { class: "cv-props-note", children: "View mode is on: switch to edit mode (the pencil at the bottom right of the canvas) to change things." }) : null;
-    if (nodes.length === 0) return /* @__PURE__ */ u4(EdgeProps, { cv, edge: edges[0], count: edges.length, off, note });
-    const one2 = nodes.length === 1 ? nodes[0] : null;
-    const same = (f5) => nodes.every((n3) => f5(n3) === f5(nodes[0])) ? f5(nodes[0]) : void 0;
-    const color3 = same((n3) => typeof n3.color === "string" ? n3.color : "") || void 0;
-    const fill = same((n3) => typeof n3.fill === "string" ? n3.fill : "") || void 0;
-    const bgPath = same((n3) => typeof n3.background === "string" ? n3.background : "") || void 0;
-    const bgStyle = same((n3) => n3.backgroundStyle === "ratio" || n3.backgroundStyle === "repeat" ? n3.backgroundStyle : "cover");
-    const shape = same((n3) => shapeOf(n3));
-    const border = same((n3) => borderStyleOf(n3) ?? "");
-    const width = same((n3) => typeof n3.borderWidth === "number" ? n3.borderWidth : -1);
-    const onlyGroups = nodes.every((n3) => n3.type === "group");
-    const shapes = onlyGroups ? SHAPES.filter((s4) => s4 === "rounded" || s4 === "rectangle") : nodes.some((n3) => n3.type === "group") ? SHAPES.filter((s4) => s4 === "rounded" || s4 === "rectangle") : SHAPES;
-    return /* @__PURE__ */ u4("div", { class: "cv-props", children: [
-      /* @__PURE__ */ u4("h3", { class: "cv-obj-head", children: one2 ? `${NODE_KIND[one2.type]}: properties` : `${nodes.length} objects: properties` }),
-      note,
-      one2 && /* @__PURE__ */ u4("div", { class: "cv-grid", children: [
-        /* @__PURE__ */ u4(Num, { label: "X", value: one2.x, disabled: off, onSet: (v4) => cv.setBox(one2.id, { x: v4 }) }),
-        /* @__PURE__ */ u4(Num, { label: "Y", value: one2.y, disabled: off, onSet: (v4) => cv.setBox(one2.id, { y: v4 }) }),
-        /* @__PURE__ */ u4(Num, { label: "Width", value: one2.width, min: 60, disabled: off, onSet: (v4) => cv.setBox(one2.id, { width: v4 }) }),
-        /* @__PURE__ */ u4(Num, { label: "Height", value: one2.height, min: 40, disabled: off, onSet: (v4) => cv.setBox(one2.id, { height: v4 }) })
-      ] }),
-      one2?.type === "group" && /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Name" }),
-        /* @__PURE__ */ u4("input", { type: "text", value: typeof one2.label === "string" ? one2.label : "", disabled: off, onChange: (e4) => cv.patchSelectedNodes({ label: e4.currentTarget.value.trim() || void 0 }) })
-      ] }),
-      one2?.type === "link" && /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Address" }),
-        /* @__PURE__ */ u4("input", { type: "text", value: String(one2.url), disabled: off, onChange: (e4) => {
-          const v4 = e4.currentTarget.value.trim();
-          if (/^https?:\/\//i.test(v4)) cv.patchSelectedNodes({ url: v4 });
-        } })
-      ] }),
-      one2?.type === "file" && /* @__PURE__ */ u4("p", { class: "cv-props-note", children: String(one2.file) }),
-      /* @__PURE__ */ u4(Colors, { label: "Border colour", color: color3, disabled: off, onSet: (c4) => cv.patchSelectedNodes({ color: c4 }) }),
-      /* @__PURE__ */ u4(Colors, { label: "Fill colour", color: fill, disabled: off, onSet: (c4) => cv.patchSelectedNodes({ fill: c4 }) }),
-      /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Shape" }),
-        /* @__PURE__ */ u4("select", { disabled: off, value: shape ?? "", onChange: (e4) => cv.patchSelectedNodes({ shape: e4.currentTarget.value === "rounded" ? void 0 : e4.currentTarget.value }), children: [
-          shape === void 0 && /* @__PURE__ */ u4("option", { value: "", children: "(mixed)" }),
-          shapes.map((s4) => /* @__PURE__ */ u4("option", { value: s4, children: SHAPE_NAMES[s4] }, s4))
-        ] })
-      ] }),
-      /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Border" }),
-        /* @__PURE__ */ u4("select", { disabled: off, value: border ?? "", onChange: (e4) => cv.patchSelectedNodes({ borderStyle: e4.currentTarget.value || void 0 }), children: [
-          border === void 0 && /* @__PURE__ */ u4("option", { value: "", disabled: true, children: "(mixed)" }),
-          /* @__PURE__ */ u4("option", { value: "", children: "Default" }),
-          BORDER_STYLES.map((b4) => /* @__PURE__ */ u4("option", { value: b4, children: b4[0].toUpperCase() + b4.slice(1) }, b4))
-        ] })
-      ] }),
-      /* @__PURE__ */ u4("div", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Background picture" }),
-        bgPath !== void 0 && bgPath !== "" && /* @__PURE__ */ u4("p", { class: "cv-props-note", children: bgPath }),
-        /* @__PURE__ */ u4("div", { class: "cv-swatches", children: [
-          /* @__PURE__ */ u4("button", { type: "button", class: "pill-button small", disabled: off, onClick: () => void cv.chooseBackgroundImage(), children: bgPath ? "Change\u2026" : "Choose\u2026" }),
-          !!bgPath && /* @__PURE__ */ u4("button", { type: "button", class: "pill-button small", disabled: off, onClick: () => cv.setBackgroundImage(null), children: "Remove" })
-        ] })
-      ] }),
-      !!bgPath && /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Picture fits" }),
-        /* @__PURE__ */ u4("select", { disabled: off, value: bgStyle ?? "cover", onChange: (e4) => cv.setBackgroundImage(bgPath, e4.currentTarget.value), children: [
-          /* @__PURE__ */ u4("option", { value: "cover", children: "Fill the card" }),
-          /* @__PURE__ */ u4("option", { value: "ratio", children: "Show all of it" }),
-          /* @__PURE__ */ u4("option", { value: "repeat", children: "Tile it" })
-        ] })
-      ] }),
-      one2?.type === "text" && /* @__PURE__ */ u4("div", { class: "cv-field", children: /* @__PURE__ */ u4("button", { type: "button", class: "pill-button small", disabled: off, onClick: () => void cv.insertImage(one2.id), children: "Insert a picture into the text\u2026" }) }),
-      /* @__PURE__ */ u4(Num, { label: "Border width", value: width === void 0 || width < 0 ? 2 : width, min: 0, disabled: off, onSet: (v4) => cv.patchSelectedNodes({ borderWidth: Math.max(0, Math.min(12, v4)) }) })
-    ] });
-  }
-  function EdgeProps({ cv, edge, count: count2, off, note }) {
-    const nodes = cv.current.nodes;
-    const name2 = (id2) => {
-      const n3 = nodes.find((x4) => x4.id === id2);
-      return n3 ? describeNode(n3) : "?";
-    };
-    return /* @__PURE__ */ u4("div", { class: "cv-props", children: [
-      /* @__PURE__ */ u4("h3", { class: "cv-obj-head", children: count2 === 1 ? "Arrow: properties" : `${count2} arrows: properties` }),
-      note,
-      count2 === 1 && /* @__PURE__ */ u4("p", { class: "cv-props-note", children: [
-        name2(edge.fromNode),
-        " \u2192 ",
-        name2(edge.toNode)
-      ] }),
-      count2 === 1 && /* @__PURE__ */ u4("label", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Label" }),
-        /* @__PURE__ */ u4("input", { type: "text", value: typeof edge.label === "string" ? edge.label : "", disabled: off, onChange: (e4) => cv.patchSelectedEdges({ label: e4.currentTarget.value.trim() || void 0 }) })
-      ] }),
-      /* @__PURE__ */ u4(Colors, { color: typeof edge.color === "string" ? edge.color : void 0, disabled: off, onSet: (c4) => cv.patchSelectedEdges({ color: c4 }) }),
-      /* @__PURE__ */ u4("div", { class: "cv-field", children: [
-        /* @__PURE__ */ u4("span", { children: "Arrowheads" }),
-        /* @__PURE__ */ u4("button", { type: "button", class: "pill-button small", disabled: off, onClick: () => cv.cycleArrowheads(), title: "One end, the other end, both, none", children: [
-          arrowGlyph(edge),
-          " Change"
-        ] })
-      ] })
-    ] });
-  }
-
   // src/renderer/components/RightSidebar.tsx
   var isAutomationButton = (l5) => /^automation:/i.test(l5.target.trim());
   function RightSidebar({ ctl }) {
     const tab = ctl.settings.value.rightTab;
-    const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? "");
     const linkCount = ctl.links.value.filter((l5) => (l5.kind !== "page" || l5.target !== "") && !isAutomationButton(l5)).length;
     return /* @__PURE__ */ u4("div", { class: "right-sidebar", children: [
       /* @__PURE__ */ u4("div", { class: "segmented", role: "tablist", "aria-label": "Sidebar view", children: [
-        /* @__PURE__ */ u4("button", { role: "tab", "aria-selected": tab === "outline", class: tab === "outline" ? "on" : "", onClick: () => ctl.setRightTab("outline"), children: onCanvas ? "Objects" : "Outline" }),
+        /* @__PURE__ */ u4("button", { role: "tab", "aria-selected": tab === "outline", class: tab === "outline" ? "on" : "", onClick: () => ctl.setRightTab("outline"), children: "Outline" }),
         /* @__PURE__ */ u4("button", { role: "tab", "aria-selected": tab === "links", class: tab === "links" ? "on" : "", onClick: () => ctl.setRightTab("links"), children: [
           "Links",
           linkCount + ctl.backlinks.value.length > 0 ? /* @__PURE__ */ u4("span", { class: "count", children: linkCount + ctl.backlinks.value.length }) : null
@@ -93027,8 +92275,6 @@ ${STATUS[status] ?? status}` : where;
     const items = ctl.outline.value;
     const active = ctl.activeHeading.value;
     const cur2 = ctl.current.value;
-    const cv = ctl.canvasView.value;
-    if (cur2?.exists && cv && /\.canvas$/i.test(cur2.path)) return /* @__PURE__ */ u4(CanvasObjects, { ctl, cv });
     if (!cur2?.exists) return /* @__PURE__ */ u4("p", { class: "empty-note", children: "Open a page to see its headings." });
     if (items.length === 0) return /* @__PURE__ */ u4("p", { class: "empty-note", children: "This page has no headings yet. Start a line with # to add one." });
     const heads = items.filter((i5) => i5.kind !== "list");
@@ -93809,7 +93055,6 @@ ${STATUS[status] ?? status}` : where;
   function MobileDrawer({ ctl, rootKey }) {
     const pane = drawerPane.value;
     const config2 = ctl.activeConfig.value;
-    const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? "");
     const close2 = () => {
       if (ctl.settings.value.showLeft) ctl.toggleLeft();
     };
@@ -93828,7 +93073,7 @@ ${STATUS[status] ?? status}` : where;
       /* @__PURE__ */ u4("div", { class: "drawer-tabs segmented", role: "tablist", "aria-label": "Menu section", children: [
         PANES.filter((p5) => !(config2 && p5.id === "links")).map((p5) => /* @__PURE__ */ u4("button", { role: "tab", "aria-selected": pane === p5.id, class: pane === p5.id ? "on" : "", onClick: () => pick3(p5.id), children: [
           /* @__PURE__ */ u4(Icon, { name: p5.icon, size: 16 }),
-          /* @__PURE__ */ u4("span", { class: "drawer-tab-label", children: p5.id === "outline" && onCanvas ? "Objects" : p5.label })
+          /* @__PURE__ */ u4("span", { class: "drawer-tab-label", children: p5.label })
         ] }, p5.id)),
         /* @__PURE__ */ u4("button", { class: "drawer-close", "aria-label": "Close", onClick: close2, children: /* @__PURE__ */ u4(Icon, { name: "close", size: 16 }) })
       ] }),

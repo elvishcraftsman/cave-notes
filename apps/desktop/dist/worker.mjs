@@ -8496,9 +8496,9 @@ var require_ZipFileWorker = __commonJS({
       this.currentFile = streamInfo["file"].name;
       var streamedContent = this.streamFiles && !streamInfo["file"].dir;
       if (streamedContent) {
-        var record2 = generateZipParts(streamInfo, streamedContent, false, this.currentSourceOffset, this.zipPlatform, this.encodeFileName);
+        var record = generateZipParts(streamInfo, streamedContent, false, this.currentSourceOffset, this.zipPlatform, this.encodeFileName);
         this.push({
-          data: record2.fileRecord,
+          data: record.fileRecord,
           meta: { percent: 0 }
         });
       } else {
@@ -8508,8 +8508,8 @@ var require_ZipFileWorker = __commonJS({
     ZipFileWorker.prototype.closedSource = function(streamInfo) {
       this.accumulate = false;
       var streamedContent = this.streamFiles && !streamInfo["file"].dir;
-      var record2 = generateZipParts(streamInfo, streamedContent, true, this.currentSourceOffset, this.zipPlatform, this.encodeFileName);
-      this.dirRecords.push(record2.dirRecord);
+      var record = generateZipParts(streamInfo, streamedContent, true, this.currentSourceOffset, this.zipPlatform, this.encodeFileName);
+      this.dirRecords.push(record.dirRecord);
       if (streamedContent) {
         this.push({
           data: generateDataDescriptors(streamInfo),
@@ -8517,7 +8517,7 @@ var require_ZipFileWorker = __commonJS({
         });
       } else {
         this.push({
-          data: record2.fileRecord,
+          data: record.fileRecord,
           meta: { percent: 0 }
         });
         while (this.contentBuffer.length) {
@@ -15780,9 +15780,9 @@ var require_lexer = __commonJS({
         }
       }
       *parseQuotedScalar() {
-        const quote2 = this.charAt(0);
-        let end = this.buffer.indexOf(quote2, this.pos + 1);
-        if (quote2 === "'") {
+        const quote = this.charAt(0);
+        let end = this.buffer.indexOf(quote, this.pos + 1);
+        if (quote === "'") {
           while (end !== -1 && this.buffer[end + 1] === "'")
             end = this.buffer.indexOf("'", end + 2);
         } else {
@@ -17321,7 +17321,7 @@ function cleanStyleSet(raw, base = BUILTIN_STYLES[0]) {
   const page = r.page ?? {};
   const body = r.body ?? {};
   const code = r.code ?? {};
-  const quote2 = r.blockquote ?? r.quote ?? {};
+  const quote = r.blockquote ?? r.quote ?? {};
   const table = r.table ?? {};
   const notes = r.footnotes ?? {};
   const link = r.link ?? {};
@@ -17337,7 +17337,7 @@ function cleanStyleSet(raw, base = BUILTIN_STYLES[0]) {
     body: { font: str(body.font, base.body.font), sizePt: num(body.sizePt, 6, 36, base.body.sizePt), color: hex(body.color, base.body.color), lineHeight: num(body.lineHeight, 1, 3, base.body.lineHeight), justify: bool(body.justify, base.body.justify), paragraphAfter: num(body.paragraphAfter, 0, 48, base.body.paragraphAfter), firstLineIndentCm: num(body.firstLineIndentCm, 0, 5, base.body.firstLineIndentCm), indentAfterHeading: bool(body.indentAfterHeading, base.body.indentAfterHeading) },
     headings,
     code: { font: str(code.font, base.code.font), sizePt: num(code.sizePt, 6, 36, base.code.sizePt), color: hex(code.color, base.code.color), background: hex(code.background, base.code.background) },
-    blockquote: { color: hex(quote2.color, base.blockquote.color), italic: bool(quote2.italic, base.blockquote.italic), indentCm: num(quote2.indentCm, 0, 4, base.blockquote.indentCm), bar: hex(quote2.bar, base.blockquote.bar) },
+    blockquote: { color: hex(quote.color, base.blockquote.color), italic: bool(quote.italic, base.blockquote.italic), indentCm: num(quote.indentCm, 0, 4, base.blockquote.indentCm), bar: hex(quote.bar, base.blockquote.bar) },
     table: { headerBackground: hex(table.headerBackground, base.table.headerBackground), border: hex(table.border, base.table.border) },
     footnotes: { sizePt: num(notes.sizePt, 5, 24, base.footnotes.sizePt), color: hex(notes.color, base.footnotes.color), italic: bool(notes.italic, base.footnotes.italic), endnotes: bool(notes.endnotes, base.footnotes.endnotes) },
     link: { color: hex(link.color, base.link.color), underline: bool(link.underline, base.link.underline) },
@@ -19833,8 +19833,8 @@ var require_get_intrinsic = /* @__PURE__ */ __commonJSMin(((exports, module) => 
     if (first === "%" && last !== "%") throw new $SyntaxError("invalid intrinsic syntax, expected closing `%`");
     else if (last === "%" && first !== "%") throw new $SyntaxError("invalid intrinsic syntax, expected opening `%`");
     var result = [];
-    $replace(string, rePropName, function(match, number, quote2, subString) {
-      result[result.length] = quote2 ? $replace(subString, reEscapeChar, "$1") : number || match;
+    $replace(string, rePropName, function(match, number, quote, subString) {
+      result[result.length] = quote ? $replace(subString, reEscapeChar, "$1") : number || match;
     });
     return result;
   };
@@ -24795,14 +24795,14 @@ var require_js2xml = /* @__PURE__ */ __commonJSMin(((exports, module) => {
   function writeAttributes(attributes, options, depth) {
     if (options.ignoreAttributes) return "";
     if ("attributesFn" in options) attributes = options.attributesFn(attributes, currentElementName, currentElement);
-    var key, attr, attrName, quote2, result = [];
+    var key, attr, attrName, quote, result = [];
     for (key in attributes) if (attributes.hasOwnProperty(key) && attributes[key] !== null && attributes[key] !== void 0) {
-      quote2 = options.noQuotesForNativeAttributes && typeof attributes[key] !== "string" ? "" : '"';
+      quote = options.noQuotesForNativeAttributes && typeof attributes[key] !== "string" ? "" : '"';
       attr = "" + attributes[key];
       attr = attr.replace(/"/g, "&quot;");
       attrName = "attributeNameFn" in options ? options.attributeNameFn(key, attr, currentElementName, currentElement) : key;
       result.push(options.spaces && options.indentAttributes ? writeIndentation(options, depth + 1, false) : " ");
-      result.push(attrName + "=" + quote2 + ("attributeValueFn" in options ? options.attributeValueFn(attr, key, currentElementName, currentElement) : attr) + quote2);
+      result.push(attrName + "=" + quote + ("attributeValueFn" in options ? options.attributeValueFn(attr, key, currentElementName, currentElement) : attr) + quote);
     }
     if (attributes && Object.keys(attributes).length && options.spaces && options.indentAttributes) result.push(writeIndentation(options, depth, false));
     return result.join("");
@@ -38455,180 +38455,6 @@ function describe(s) {
   return out;
 }
 
-// ../../packages/service/src/formulas.ts
-import { DateValue, evalExpr, hostCalls, isDateValue, parseDateValue, parseExpr, queryValue, rewritePageRefs, startOfDay } from "@cave-notes/core-automation";
-var NOT_ATTRIBUTES = /* @__PURE__ */ new Set(["under", "over", "parent", "children", "links-to", "backlinks", "linked-from", "path", "heading", "title", "body", "has", "is", "sort", "saved", "filename", "filetype", "mtime"]);
-var stem = (p) => p.replace(/\.[^./]+$/, "");
-var quote = (v) => `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-function substituteQuery(query, here) {
-  const out = [];
-  let cur = "";
-  let q = false;
-  const flush = () => {
-    if (cur !== "") out.push(cur);
-    cur = "";
-  };
-  for (const c of query) {
-    if (c === '"') q = !q;
-    if (/\s/.test(c) && !q) flush();
-    else cur += c;
-  }
-  flush();
-  const me = here ? stem(here) : null;
-  const parent = me && me.includes("/") ? me.slice(0, me.lastIndexOf("/")) : null;
-  const words = [];
-  for (let t of out) {
-    if (t.includes("$this")) {
-      if (me === null) continue;
-      const m = /^(-?)([A-Za-z][\w.-]*):\$this$/.exec(t);
-      t = m && !NOT_ATTRIBUTES.has(m[2].toLowerCase()) && !/^[a-z]+\.(year|month|day|weekday|week)$/i.test(m[2]) ? `${m[1]}${m[2]}:${quote(`[[${me}]]`)}` : t.replace("$this", quote(me));
-    }
-    if (t.includes("$parent")) {
-      if (parent === null) continue;
-      t = t.replace("$parent", quote(parent));
-    }
-    words.push(t);
-  }
-  return words.join(" ");
-}
-var typed = (e) => e.type === "number" ? e.num : e.type === "bool" ? e.num === 1 : e.type === "date" ? parseDateValue(e.text) ?? e.text : e.text;
-function record(host2, path10) {
-  const info = host2.index.getPage(path10);
-  if (!info) return null;
-  const rec = {};
-  for (const [k, v] of Object.entries(info.attributes)) rec[k] = v.length === 0 ? null : v.length === 1 ? typed(v[0]) : v.map(typed);
-  rec.title = info.title;
-  rec.path = path10;
-  rec.name = (path10.split("/").pop() ?? path10).replace(/\.[^.]+$/, "");
-  return rec;
-}
-var FormulaRun = class {
-  constructor(host2, now = /* @__PURE__ */ new Date()) {
-    this.host = host2;
-    this.now = now;
-  }
-  host;
-  now;
-  queries = /* @__PURE__ */ new Map();
-  find(query, attr, here) {
-    const text2 = substituteQuery(query, here);
-    const key = `${text2}\0${attr ?? ""}`;
-    const hit = this.queries.get(key);
-    if (hit) return hit;
-    const r = this.host.index.search(text2, { limit: 1e5, count: false, prefixLast: false });
-    if (r.errors.length > 0) throw new Error(r.errors[0]);
-    const pages = r.results.filter((x) => !x.isVirtual);
-    const values = [];
-    if (attr !== null) {
-      const want = attr.toLowerCase();
-      for (const p of pages) {
-        const name = p.path.split("/").pop() ?? p.path;
-        if (want === "title") values.push({ type: "string", text: p.title, num: null });
-        else if (want === "path") values.push({ type: "string", text: p.path, num: null });
-        else if (want === "filename") values.push({ type: "string", text: name, num: null });
-        else if (want === "filetype") values.push({ type: "string", text: name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "", num: null });
-        else {
-          const info = this.host.index.getPage(p.path);
-          const k = info ? Object.keys(info.attributes).find((x) => x.toLowerCase() === want) : void 0;
-          if (info && k) {
-            for (const e of info.attributes[k]) if (e.text !== "") values.push({ type: e.type, text: e.text, num: e.num ?? null });
-          }
-        }
-      }
-    }
-    const out = { count: pages.length, titles: pages.map((p) => p.title), values };
-    this.queries.set(key, out);
-    return out;
-  }
-  /** Work out an expression written for page `here` (null: for no page). */
-  async evaluate(here, expr) {
-    let tree;
-    try {
-      tree = parseExpr(rewritePageRefs(expr));
-    } catch (e) {
-      return { ok: false, error: e.message };
-    }
-    const store = /* @__PURE__ */ new Map();
-    for (const c of hostCalls(tree)) {
-      try {
-        if (c.kind === "page") {
-          const path10 = await this.host.resolvePage(c.args[0], here ?? "");
-          const rec = path10 ? record(this.host, path10) : null;
-          store.set(c.key, rec ?? { __error: `there is no page called \u201C${c.args[0]}\u201D` });
-        } else {
-          store.set(c.key, queryValue(c.name, c.args, this.find(c.args[0], c.args[1] ?? null, here)));
-        }
-      } catch (e) {
-        store.set(c.key, { __error: e.message });
-      }
-    }
-    const today2 = startOfDay(new DateValue(this.now.getTime(), false));
-    const ctx = { this: here ? record(this.host, here) : null, today: today2, now: new DateValue(this.now.getTime(), false), __host: store };
-    try {
-      return { ok: true, value: evalExpr(tree, ctx) };
-    } catch (e) {
-      return { ok: false, error: e.message };
-    }
-  }
-};
-var numberText = (n) => String(Number(n.toPrecision(12)));
-function rowsFor(value) {
-  const items = Array.isArray(value) ? value : [value];
-  const rows = items.filter((v) => v !== null && v !== void 0 && v !== "").map((v) => {
-    if (typeof v === "number" && Number.isFinite(v)) return { type: "number", text: numberText(v), num: Number(v.toPrecision(12)) };
-    if (typeof v === "boolean") return { type: "bool", text: String(v), num: v ? 1 : 0 };
-    if (isDateValue(v)) {
-      const t = v.toString();
-      const ms = Date.parse(t.replace(" ", "T"));
-      return { type: "date", text: t, num: Number.isNaN(ms) ? v.ms : ms };
-    }
-    return { type: "string", text: typeof v === "number" ? String(v) : String(v), num: null };
-  });
-  return rows.length > 0 ? rows : [{ type: "string", text: "", num: null }];
-}
-function valueText(value) {
-  const items = Array.isArray(value) ? value : [value];
-  return items.filter((v) => v !== null && v !== void 0).map((v) => typeof v === "number" ? numberText(v) : isDateValue(v) ? v.toString() : typeof v === "object" ? JSON.stringify(v) : String(v)).join(", ");
-}
-function recomputeFormulas(host2) {
-  return (async () => {
-    const db = host2.index.db;
-    const rows = db.prepare("SELECT a.page_id AS pid, p.path AS path, a.key AS key, a.formula AS formula FROM attrs a JOIN pages p ON p.id = a.page_id WHERE a.formula IS NOT NULL AND a.idx = 0").all();
-    if (rows.length === 0) return false;
-    let any = false;
-    const problems = /* @__PURE__ */ new Map();
-    for (let pass = 0; pass < 3; pass++) {
-      const run = new FormulaRun(host2);
-      problems.clear();
-      let changed = false;
-      for (const r of rows) {
-        const res = await run.evaluate(r.path, r.formula);
-        if (!res.ok) {
-          const p = problems.get(r.path) ?? { pid: r.pid, messages: [] };
-          p.messages.push(`${r.key}: ${res.error}`);
-          problems.set(r.path, p);
-          continue;
-        }
-        const next = rowsFor(res.value);
-        const old = db.prepare("SELECT type, text_value AS text, num_value AS num FROM attrs WHERE page_id = ? AND key = ? ORDER BY idx").all(r.pid, r.key);
-        if (old.length === next.length && old.every((o, i) => o.type === next[i].type && o.text === next[i].text && (o.num ?? null) === next[i].num)) continue;
-        db.transaction(() => {
-          db.prepare("DELETE FROM attrs WHERE page_id = ? AND key = ?").run(r.pid, r.key);
-          next.forEach((n, i) => db.prepare("INSERT INTO attrs (page_id, key, type, text_value, num_value, idx, formula) VALUES (?, ?, ?, ?, ?, ?, ?)").run(r.pid, r.key, n.type, n.text, n.num, i, i === 0 ? r.formula : null));
-        })();
-        changed = true;
-      }
-      if (!changed) break;
-      any = true;
-    }
-    db.transaction(() => {
-      db.prepare("DELETE FROM diagnostics WHERE kind = 'formula'").run();
-      for (const p of problems.values()) for (const m of p.messages) db.prepare("INSERT INTO diagnostics (page_id, kind, message) VALUES (?, 'formula', ?)").run(p.pid, m);
-    })();
-    return any;
-  })();
-}
-
 // ../../packages/service/src/automation.ts
 var import_yaml5 = __toESM(require_dist(), 1);
 import { fs as fs6, host, path as path6, randomHex } from "@cave-notes/platform";
@@ -38898,20 +38724,20 @@ var AutomationRunner = class _AutomationRunner {
       },
       async createPage(spec) {
         let parent;
-        let stem2;
+        let stem;
         if (spec.path) {
           const full = normalizePagePath(refToPath(spec.path));
           parent = parentPage2(full);
-          stem2 = pageName(full);
+          stem = pageName(full);
         } else {
           parent = spec.parent === null || spec.parent === "" ? null : normalizePagePath(refToPath(spec.parent));
-          stem2 = normalizeName(spec.name);
+          stem = normalizeName(spec.name);
         }
-        const target = `${parent === null ? "" : `${pageFolder2(parent)}/`}${stem2}${defaultNoteExt2()}`;
+        const target = `${parent === null ? "" : `${pageFolder2(parent)}/`}${stem}${defaultNoteExt2()}`;
         const exists = await d.pageInfo(target).catch(() => null) ?? null;
         const onDisk = await fs6.stat(self2.abs(target)).then(() => true, () => false);
         if (onDisk || exists && !exists.isVirtual) return { path: exists?.path ?? target, created: false };
-        const made = await d.createPage(parent, stem2, spec.content ?? void 0);
+        const made = await d.createPage(parent, stem, spec.content ?? void 0);
         return { path: made, created: true };
       },
       async movePage(p, destination) {
@@ -39162,9 +38988,9 @@ async function removeRuleFromFile(file2, id) {
 var sha13 = (data) => sha1Of(data);
 var EMPTY_CANVAS = '{\n	"nodes":[],\n	"edges":[]\n}';
 var withCanvas = (exts) => exts.some((e) => e.toLowerCase() === ".canvas") ? [...exts] : [...exts, ".canvas"];
-function titleOfTyped(name, stem2) {
-  const typed2 = name.normalize("NFC").trim().replace(/\.(md|markdown|canvas)$/i, "").trim();
-  return typed2 === "" ? stem2 : typed2;
+function titleOfTyped(name, stem) {
+  const typed = name.normalize("NFC").trim().replace(/\.(md|markdown|canvas)$/i, "").trim();
+  return typed === "" ? stem : typed;
 }
 var posix = path9.posix;
 var READ_ONLY_METHODS = /* @__PURE__ */ new Set([
@@ -39317,7 +39143,6 @@ var WorkspaceService = class {
     };
     progressSink = (p) => this.onIndexProgress(o, p);
     this.ws = o;
-    this.installFormulas(o);
     this.globalDir = lite ? null : opts.globalDir ?? null;
     this.appConfigDir = lite || single || config ? null : opts.appConfigDir ?? null;
     this.shippedDefaultsDir = opts.shippedDefaultsDir ?? null;
@@ -39335,69 +39160,6 @@ var WorkspaceService = class {
     if (docs) return { root, name: "Documentation", config: true, docs: true };
     if (config) return { root, name: `${path9.basename(path9.dirname(root))} (config)`, config: true };
     return single ? { root, name: pageName2(single), single: true } : { root, name: path9.basename(root) };
-  }
-  // ---------------------------------------------------------------- formulas (`${…}` values worked out from other pages)
-  formulaHost(o) {
-    return {
-      index: o.index,
-      resolvePage: async (name, from) => {
-        const r = await this.resolveLink({ syntax: "wiki", target: name }, from);
-        return r.kind === "page" && r.status === "ok" ? r.path : null;
-      }
-    };
-  }
-  /**
-   * An attribute written `${expression}` is worked out here and its result is what the index (and so every view, query and
-   * page) sees; the file keeps the formula. It is worked out again whenever the index changes, and now and then, since
-   * a formula may use today's date.
-   */
-  installFormulas(o) {
-    if (o.single || o.config) return;
-    let running = false;
-    let again = false;
-    const run = async () => {
-      if (running) {
-        again = true;
-        return;
-      }
-      running = true;
-      try {
-        do {
-          again = false;
-          if (this.ws !== o) return;
-          if (await recomputeFormulas(this.formulaHost(o))) this.emit("index:updated", { path: null });
-        } while (again);
-      } catch (e) {
-        log.warn("formulas could not be worked out", e);
-      } finally {
-        running = false;
-      }
-    };
-    const idx = o.index;
-    for (const name of ["refresh", "reconcile", "rebuild", "reloadSchema", "setInherited"]) {
-      const orig = idx[name].bind(o.index);
-      idx[name] = async (...a) => {
-        const r = await orig(...a);
-        await run();
-        return r;
-      };
-    }
-    const timer = setInterval(() => {
-      if (this.ws !== o) clearInterval(timer);
-      else void run();
-    }, 30 * 60 * 1e3);
-    timer.unref?.();
-  }
-  /** The value of an expression written in the text of a page (or anywhere else a `${…}` is allowed), as text and as a list. */
-  async evaluateExpression(path10, expr) {
-    const o = this.open;
-    const res = await new FormulaRun(this.formulaHost(o)).evaluate(path10, expr);
-    if (!res.ok) return res;
-    const v = res.value;
-    const items = Array.isArray(v) ? v : [v];
-    const list = items.filter((x) => x !== null && x !== void 0 && x !== "").map((x) => valueText(x));
-    const kind = list.length === 0 ? "empty" : Array.isArray(v) ? "list" : typeof v === "number" ? "number" : typeof v === "boolean" ? "bool" : typeof v === "object" ? "date" : "text";
-    return { ok: true, text: valueText(v), list, kind };
   }
   globalDir = null;
   /** the app's own settings folder (its plugins and templates), and the folder with what ships with the app */
@@ -40237,7 +39999,7 @@ var WorkspaceService = class {
     const file2 = this.abs(page);
     const dir = path9.dirname(file2);
     const exists = async (x) => fs9.stat(x).then(() => true, () => false);
-    const stem2 = pageFolder3(page);
+    const stem = pageFolder3(page);
     let siblings = "";
     try {
       const names = await fs9.readdir(dir);
@@ -40248,7 +40010,7 @@ var WorkspaceService = class {
       siblings = " dir-unreadable";
     }
     log.warn(
-      `readPage: ${code} page=${page} abs=${file2} root-exists=${await exists(o.root)} dir-exists=${await exists(dir)} folder-of-pages-exists=${await exists(this.abs(stem2))} index-knows-page=${o.index.getPage(page) !== null}${siblings}`
+      `readPage: ${code} page=${page} abs=${file2} root-exists=${await exists(o.root)} dir-exists=${await exists(dir)} folder-of-pages-exists=${await exists(this.abs(stem))} index-knows-page=${o.index.getPage(page) !== null}${siblings}`
     );
   }
   noteOwnWrite(page, hash) {
@@ -40373,8 +40135,8 @@ var WorkspaceService = class {
   }
   async createPage(parent, name, content, template, mergeDefault) {
     const o = this.open;
-    const stem2 = fileStem(name);
-    const title = titleOfTyped(name, stem2);
+    const stem = fileStem(name);
+    const title = titleOfTyped(name, stem);
     const canvas = !o.config && noteExtOf(name.trim()) === ".canvas";
     const ext = canvas ? ".canvas" : o.config && !o.docs ? configCreateExt(parent) : defaultNoteExt3();
     let text2 = content;
@@ -40386,7 +40148,7 @@ var WorkspaceService = class {
         text2 = content === void 0 ? made : mergeWithTemplate(made, content);
       }
     }
-    const created = await o.tree.createPage(parent, stem2, text2 ?? (ext === ".md" ? `# ${title}
+    const created = await o.tree.createPage(parent, stem, text2 ?? (ext === ".md" ? `# ${title}
 
 ` : ext === ".canvas" ? EMPTY_CANVAS : ""), ext);
     await o.index.refresh([created]);
@@ -40468,28 +40230,28 @@ var WorkspaceService = class {
   /** Is there a page or folder with this name where a page of that name would go? */
   async pageNameTaken(parent, name) {
     const o = this.open;
-    const stem2 = fileStem(name);
+    const stem = fileStem(name);
     const dir = parent === null ? "" : pageFolder3(parent);
     const rel = (n) => dir ? `${dir}/${n}` : n;
     const exists = (r) => fs9.stat(this.absDir(r)).then(() => true, () => false);
-    if (await exists(rel(stem2))) return true;
-    for (const ext of [.../* @__PURE__ */ new Set([defaultNoteExt3(), ".md", ".txt"])]) if (await exists(rel(`${stem2}${ext}`))) return true;
+    if (await exists(rel(stem))) return true;
+    for (const ext of [.../* @__PURE__ */ new Set([defaultNoteExt3(), ".md", ".txt"])]) if (await exists(rel(`${stem}${ext}`))) return true;
     void o;
     return false;
   }
   /** A page that gets the first free `Name.1`, `Name.2` … as its file name while its own text keeps the plain title. */
   async createPageNumbered(parent, name, content, mergeDefault) {
     const o = this.open;
-    const stem2 = fileStem(name);
+    const stem = fileStem(name);
     let n = 1;
-    while (await this.pageNameTaken(parent, `${stem2}.${n}`)) n++;
+    while (await this.pageNameTaken(parent, `${stem}.${n}`)) n++;
     let text2 = content;
     if (mergeDefault) {
       const want = await defaultTemplateName(o.root, parent);
       const t = want ? await findTemplate(o.root, parent, want, this.appTemplates) : null;
-      if (t) text2 = mergeWithTemplate(instantiate(t.text, titleOfTyped(name, stem2)), content);
+      if (t) text2 = mergeWithTemplate(instantiate(t.text, titleOfTyped(name, stem)), content);
     }
-    const created = await o.tree.createPage(parent, `${stem2}.${n}`, text2);
+    const created = await o.tree.createPage(parent, `${stem}.${n}`, text2);
     await o.index.refresh([created]);
     await this.stampTodayDefaults(o, created);
     o.lookup = null;
@@ -40507,9 +40269,9 @@ var WorkspaceService = class {
     const page = normalizePagePath2(p);
     const parent = parentPage3(page);
     const ext = noteExtOf(page) ?? "";
-    const stem2 = pageName2(page);
-    const m = /^(.*)\.(\d+)$/.exec(stem2);
-    const base = m ? m[1] : stem2;
+    const stem = pageName2(page);
+    const m = /^(.*)\.(\d+)$/.exec(stem);
+    const base = m ? m[1] : stem;
     const dir = parent === null ? "" : pageFolder3(parent);
     const rel = (name2) => dir ? `${dir}/${name2}` : name2;
     const taken = async (name2) => await fs9.stat(this.absDir(rel(`${name2}${ext}`))).then(() => true, () => false) || await fs9.stat(this.absDir(rel(name2))).then(() => true, () => false);
@@ -40601,9 +40363,9 @@ var WorkspaceService = class {
     if (st.isDirectory() && (path9.resolve(destDir) + path9.sep).startsWith(path9.resolve(srcAbs) + path9.sep)) throw Object.assign(new Error("A folder cannot go into itself."), { code: "INVALID" });
     const action = (await fs9.stat(destDir)).dev === st.dev ? actions.same : actions.other;
     const ext = st.isFile() ? path9.extname(srcAbs) : "";
-    const stem2 = path9.basename(srcAbs, ext);
-    let name = `${stem2}${ext}`;
-    for (let n = 1; await fs9.stat(path9.join(destDir, name)).then(() => true, () => false); n++) name = `${stem2}.${n}${ext}`;
+    const stem = path9.basename(srcAbs, ext);
+    let name = `${stem}${ext}`;
+    for (let n = 1; await fs9.stat(path9.join(destDir, name)).then(() => true, () => false); n++) name = `${stem}.${n}${ext}`;
     const dest = path9.join(destDir, name);
     if (action === "move") {
       try {
@@ -40634,8 +40396,8 @@ var WorkspaceService = class {
   async promoteVirtual(p, content) {
     const o = this.open;
     const page = normalizePagePath2(p);
-    const stem2 = pageName2(page);
-    const done = await o.tree.promoteVirtual(page, content ?? (page.toLowerCase().endsWith(".md") ? `# ${stem2}
+    const stem = pageName2(page);
+    const done = await o.tree.promoteVirtual(page, content ?? (page.toLowerCase().endsWith(".md") ? `# ${stem}
 
 ` : ""));
     await o.index.refresh([done]);
@@ -41490,9 +41252,9 @@ ${import_yaml7.default.stringify(entry)}---
     if (there) return { path: `${folder}/${base}`, rel: there };
     await fs9.mkdir(this.absDir(folder), { recursive: true });
     const ext = path9.extname(base);
-    const stem2 = ext ? base.slice(0, -ext.length) : base;
+    const stem = ext ? base.slice(0, -ext.length) : base;
     let name = base;
-    for (let n = 1; await fs9.stat(this.absDir(`${folder}/${name}`)).then(() => true, () => false); n++) name = `${stem2}.${n}${ext}`;
+    for (let n = 1; await fs9.stat(this.absDir(`${folder}/${name}`)).then(() => true, () => false); n++) name = `${stem}.${n}${ext}`;
     const rel = `${folder}/${name}`;
     await fs9.copyFile(srcAbs, this.absDir(rel), fs9.constants.COPYFILE_EXCL);
     if (isNoteFile3(name)) {
