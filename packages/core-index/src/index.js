@@ -1,6 +1,6 @@
 export { openIndex } from './indexer.js';
 export { parseQuery, tokenize, setWeekStart, getWeekStart, HIGHLIGHT_START, HIGHLIGHT_END } from './query.js';
-export { isPageOnly, keywordOf, linkTarget, normalizeGlobals, normalizeSchema, parseChildren, parseSchemaText, resolveInheritance, rootState } from './attrs.js';
+export { formulaOf, isPageOnly, keywordOf, linkTarget, normalizeGlobals, normalizeSchema, parseChildren, parseSchemaText, resolveInheritance, rootState } from './attrs.js';
 export { SCHEMA_VERSION, setDefaultDriver } from './db.js';
 export { buildLookup, resolvePageLink } from './resolve.js';
 export { pageByStem, stripNoteExt, hasNoteExt } from './exts.js';

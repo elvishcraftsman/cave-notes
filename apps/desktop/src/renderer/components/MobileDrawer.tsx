@@ -23,6 +23,8 @@ const PANES: Array<{ id: DrawerPane; label: string; icon: IconName }> = [
 export function MobileDrawer({ ctl, rootKey }: { ctl: Controller; rootKey: string }): JSX.Element {
   const pane = drawerPane.value;
   const config = ctl.activeConfig.value;
+  // a canvas has no headings: its tab lists the objects on it
+  const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? '');
   const close = (): void => {
     if (ctl.settings.value.showLeft) ctl.toggleLeft();
   };
@@ -44,7 +46,7 @@ export function MobileDrawer({ ctl, rootKey }: { ctl: Controller; rootKey: strin
         {PANES.filter((p) => !(config && p.id === 'links')).map((p) => (
           <button key={p.id} role="tab" aria-selected={pane === p.id} class={pane === p.id ? 'on' : ''} onClick={() => pick(p.id)}>
             <Icon name={p.icon} size={16} />
-            <span class="drawer-tab-label">{p.label}</span>
+            <span class="drawer-tab-label">{p.id === 'outline' && onCanvas ? 'Objects' : p.label}</span>
           </button>
         ))}
         <button class="drawer-close" aria-label="Close" onClick={close}>

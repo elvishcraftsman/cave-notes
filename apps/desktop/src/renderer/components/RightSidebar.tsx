@@ -4,18 +4,20 @@ import type { Controller } from '../controller';
 import type { LinkInfo } from '../../shared/api';
 import { Icon, type IconName } from './icons';
 import { stripExt } from '../paths';
+import { CanvasObjects } from './CanvasPanes';
 
 /** `[=Label](automation:rule-id)` is a button, not a link to anywhere. */
 const isAutomationButton = (l: { target: string }): boolean => /^automation:/i.test(l.target.trim());
 
 export function RightSidebar({ ctl }: { ctl: Controller }): JSX.Element {
   const tab = ctl.settings.value.rightTab;
+  const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? '');
   const linkCount = ctl.links.value.filter((l) => (l.kind !== 'page' || l.target !== '') && !isAutomationButton(l)).length;
   return (
     <div class="right-sidebar">
       <div class="segmented" role="tablist" aria-label="Sidebar view">
         <button role="tab" aria-selected={tab === 'outline'} class={tab === 'outline' ? 'on' : ''} onClick={() => ctl.setRightTab('outline')}>
-          Outline
+          {onCanvas ? 'Objects' : 'Outline'}
         </button>
         <button role="tab" aria-selected={tab === 'links'} class={tab === 'links' ? 'on' : ''} onClick={() => ctl.setRightTab('links')}>
           Links{linkCount + ctl.backlinks.value.length > 0 ? <span class="count">{linkCount + ctl.backlinks.value.length}</span> : null}
@@ -50,6 +52,9 @@ export function Outline({ ctl }: { ctl: Controller }): JSX.Element {
   const items: OutlineItem[] = ctl.outline.value;
   const active = ctl.activeHeading.value;
   const cur = ctl.current.value;
+  const cv = ctl.canvasView.value;
+  // a canvas has no headings: its sidebar lists what is on it, and the properties of what is selected
+  if (cur?.exists && cv && /\.canvas$/i.test(cur.path)) return <CanvasObjects ctl={ctl} cv={cv} />;
   if (!cur?.exists) return <p class="empty-note">Open a page to see its headings.</p>;
   if (items.length === 0) return <p class="empty-note">This page has no headings yet. Start a line with # to add one.</p>;
   const heads = items.filter((i) => i.kind !== 'list');

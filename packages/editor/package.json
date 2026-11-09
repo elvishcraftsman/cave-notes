@@ -23,6 +23,7 @@
     "@codemirror/view": "*",
     "@lezer/common": "*",
     "@lezer/highlight": "*",
+    "@cave-notes/ui-canvas": "0.1.0",
     "@lezer/markdown": "*",
     "yaml": "*"
   },

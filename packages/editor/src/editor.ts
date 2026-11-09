@@ -7,6 +7,8 @@ import { createSearchPanel } from './searchPanel';
 import { yamlDocument, yamlHints } from './yamlHints';
 import { addFrontmatter, attributeBar, hasFrontmatter } from './attributes';
 import { viewBlockHost, type ViewBlockHost } from './blocks';
+import { parseCanvas } from '@cave-notes/ui-canvas';
+import { canvasFlag, canvasMode, canvasTheme, canvasViewOf, type CanvasEditorHost } from './canvas';
 import { conflicts } from './conflicts';
 import { divs } from './divs';
 import { codeActions, codeActionsTheme, codeRunHost, type CodeRunHost } from './codeActions';
@@ -23,9 +25,10 @@ import { type FollowableLink, linkAt } from './links';
 import { type LinkStatus, fullRender, livePreview, refreshPreview } from './livePreview';
 import { markdownSupport } from './markdown';
 import { extractOutline, findHeading, isHeading, type OutlineItem } from './outline';
-import { LEFT_DOUBLE, LEFT_SINGLE, smartQuotes } from './smartQuotes';
+import { LEFT_DOUBLE, LEFT_SINGLE, replaceWrappingMark, smartQuotes } from './smartQuotes';
 import { noteTheme } from './theme';
 import { codeScroll } from './codeScroll';
+import { selectAll, type HtmlRenderer } from './selectAll';
 
 /** The first `# Heading` of a page: its text and the 1-based line it is on. Frontmatter and fenced code are skipped. */
 export function findFirstH1(lines: Iterable<string>, limit = 400): { text: string; line: number } | null {
@@ -110,10 +113,16 @@ export interface EditorOptions {
   smartQuotes?: boolean;
   /** Typing -- writes an en dash and --- an em dash (undo gives the hyphens back). Default true. */
   dashes?: boolean;
+  /** Draws a `.canvas` file as a canvas (see `load`'s `canvas` option). Without it such a file is shown as plain text. */
+  canvas?: CanvasEditorHost;
+  /** The canvas on screen, when a `.canvas` file is shown (`present`), and when it goes. */
+  onCanvas?: (cv: import('@cave-notes/ui-canvas').CanvasView, present: boolean) => void;
   /** Right-click opens the formatting menu (default true). */
   formatMenu?: boolean;
   /** The menu also opens when text is selected with the mouse (default true). */
   selectionMenu?: boolean;
+  /** Turns the page into HTML for "Select all as HTML" then copy; without it the page as drawn is copied. */
+  renderHtml?: HtmlRenderer;
   /** Spell checker for the right-click menu: suggestions for a misspelt word and "Add to Dictionary". */
   spell?: SpellHost;
   /** Thesaurus for the right-click menu: synonyms to replace a single word with. */
@@ -282,6 +291,7 @@ export class NoteEditor {
     return [
       history(),
       drawSelection(),
+      replaceWrappingMark(o.smartQuotes !== false), // a lone quote or bracket that is selected is replaced, not wrapped
       closeBrackets(),
       // curly pairs are brackets too, so Backspace between them removes both; the rest is the Markdown default
       Prec.high(EditorState.languageData.of(() => [{ closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`', LEFT_DOUBLE, LEFT_SINGLE] } }])),
@@ -307,6 +317,7 @@ export class NoteEditor {
         }),
       ),
       o.formatMenu === false ? [] : formatMenu({ onSelection: o.selectionMenu !== false, ...(o.spell ? { spell: o.spell } : {}), ...(o.thesaurus ? { thesaurus: o.thesaurus } : {}) }),
+      selectAll(o.renderHtml),
       fenceAutoClose(),
       footnotes(),
       listEnterKeepsSpace(),
@@ -473,9 +484,19 @@ export class NoteEditor {
   }
 
   /** A fresh editor state (own undo history) for a document. Keep it to restore the page later. `plain`: show it as plain text. */
-  createState(doc: string, plain = false, readOnly = false): EditorState {
-    const base = plain ? this.plainExtensions : this.extensions;
-    return EditorState.create({ doc, extensions: readOnly ? [base, this.readOnlyExtensions()] : base });
+  createState(doc: string, plain = false, readOnly = false, canvas = false): EditorState {
+    // a file that is not a canvas (not JSON, say) stays text: drawing on it would overwrite what someone wrote
+    const asCanvas = canvas && !!this.opts.canvas && parseCanvas(doc).ok;
+    const base = plain || canvas ? this.plainExtensions : this.extensions; // a canvas file is never Markdown: a canvas, or (if broken) plain text
+    const extra: Extension[] = [];
+    if (asCanvas) extra.push(canvasTheme, canvasMode({ host: this.opts.canvas as CanvasEditorHost, readOnly, onSave: this.opts.onSave, ...(this.opts.onCanvas ? { onCanvas: this.opts.onCanvas } : {}) }));
+    if (readOnly) extra.push(this.readOnlyExtensions());
+    return EditorState.create({ doc, extensions: extra.length > 0 ? [base, ...extra] : base });
+  }
+
+  /** Is the document on screen shown as a canvas? */
+  isCanvas(): boolean {
+    return this.view.state.facet(canvasFlag);
   }
 
   /**
@@ -518,8 +539,8 @@ export class NoteEditor {
   }
 
   /** Show a document in a fresh state; `plain` shows it as plain text, as a settings file is shown. */
-  load(text: string, opts: { plain?: boolean; readOnly?: boolean } = {}): void {
-    this.setState(this.createState(text, opts.plain === true, opts.readOnly === true));
+  load(text: string, opts: { plain?: boolean; readOnly?: boolean; canvas?: boolean } = {}): void {
+    this.setState(this.createState(text, opts.plain === true, opts.readOnly === true, opts.canvas === true));
     // footnotes that are out of order are put in order when a page is opened
     const fixes = opts.plain || opts.readOnly ? [] : openingFixes(text);
     if (fixes.length > 0) this.applyChanges(fixes);
@@ -583,7 +604,9 @@ export class NoteEditor {
   }
 
   focus(): void {
-    this.view.focus();
+    const cv = canvasViewOf(this.view);
+    if (cv) cv.root.focus({ preventScroll: true });
+    else this.view.focus();
   }
 
   /** Tell the editor how much of its bottom edge is covered, so the cursor is scrolled into the part that can be seen. */

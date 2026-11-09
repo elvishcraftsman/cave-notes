@@ -425,14 +425,27 @@ test('dates with a single-digit month or day are dates', async () => {
   assert.equal(parseDate('2026-2-31'), null);
 });
 
-test('unlisted pages stay out of results unless the query names the attribute', async (t) => {
+test('pages hidden from queries stay out of results unless the query names hidden', async (t) => {
   const root = await tmpRoot(t);
-  await ws(root).writeAll({ 'A.md': '# A\nword', 'B.md': '---\nunlisted: true\n---\n# B\nword', 'C.md': '---\nunlisted: false\n---\n# C\nword' });
+  await ws(root).writeAll({
+    'A.md': '# A\nword',
+    'B.md': '---\nhidden: true\n---\n# B\nword',
+    'C.md': '---\nhidden: false\n---\n# C\nword',
+    'D.md': '---\nhidden: queries\n---\n# D\nword',
+    'E.md': '---\nhidden: search\n---\n# E\nword',
+    'F.md': '---\nhidden: all\n---\n# F\nword',
+  });
   const idx = await openIndex(root, { dbPath: ':memory:' });
   t.after(() => idx.close());
   await idx.reconcile();
-  assert.deepEqual(q(idx, 'word'), ['A.md', 'C.md']);
-  assert.deepEqual(q(idx, 'word unlisted:true'), ['B.md']);
-  assert.deepEqual(q(idx, 'has:unlisted'), ['B.md', 'C.md']);
-  assert.deepEqual(q(idx, 'word -unlisted:true'), ['A.md', 'C.md']);
+  // views and rules (no hideFrom) see pages hidden from the search pane, but not those hidden from queries
+  assert.deepEqual(q(idx, 'word'), ['A.md', 'C.md', 'E.md']);
+  assert.deepEqual(idx.search('word', { hideFrom: 'search' }).results.map((r) => r.path).sort(), ['A.md', 'C.md']);
+  // asking for them brings them back; hidden:query also finds `all` and `true`
+  assert.deepEqual(q(idx, 'word hidden:query'), ['B.md', 'D.md', 'F.md']);
+  assert.deepEqual(q(idx, 'word hidden:queries'), ['B.md', 'D.md', 'F.md']);
+  assert.deepEqual(q(idx, 'word hidden:all'), ['F.md']);
+  assert.deepEqual(q(idx, 'word hidden:true'), ['B.md']);
+  assert.deepEqual(q(idx, 'has:hidden word'), ['B.md', 'C.md', 'D.md', 'E.md', 'F.md']);
+  assert.deepEqual(q(idx, 'word -hidden:query'), ['A.md', 'C.md', 'E.md']);
 });

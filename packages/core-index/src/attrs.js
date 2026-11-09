@@ -183,6 +183,12 @@ export function withImplied(data, defs) {
   return out;
 }
 
+/** The expression of a value that is nothing but `${expression}`, else null. */
+export function formulaOf(v) {
+  const m = /^\$\{([^}\n]+)\}$/.exec(String(v).trim());
+  return m ? m[1].trim() : null;
+}
+
 export function buildAttrs(rawData, schema) {
   const rows = [];
   const problems = [];
@@ -190,6 +196,12 @@ export function buildAttrs(rawData, schema) {
   const data = withImplied(rawData, defs);
 
   const add = (key, v, idx, forced) => {
+    // a value written `${expression}` is worked out later (by the workspace, which can read other pages); until then it is its own text
+    const f = typeof v === 'string' ? formulaOf(v) : null;
+    if (f !== null) {
+      rows.push({ key, type: 'string', text: v.trim(), num: null, idx, formula: f });
+      return;
+    }
     const def = defs.get(key.toLowerCase());
     const type = forced ?? (def ? (def.type === 'list' ? (def.values ? 'enum' : def.of) : def.type) : null);
     if (type) {

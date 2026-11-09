@@ -1,6 +1,8 @@
 import { AUTOMATION_LINK, drawExpression, fillQueryLinks, findExpressions, type EmbedHost, type EmbedSpec } from '@cave-notes/editor';
 import { effect } from '@preact/signals';
 import { resolveQuery } from '@cave-notes/ui-views';
+import { CanvasView, boundsOf, parseCanvas } from '@cave-notes/ui-canvas';
+import { createCanvasHost } from '../canvas/host';
 import { h, render } from 'preact';
 import type { Controller } from '../controller';
 import { ViewBlock } from './ViewBlock';
@@ -15,14 +17,34 @@ type ExprFill = (el: HTMLElement, expr: string, link: boolean, label: string | n
 /** Runs the automation rule a `[=Label](automation:rule-id)` button names. */
 type RunRule = (ruleId: string) => void;
 
-function inline(parent: HTMLElement, text: string, fill?: QueryFill, exprFill?: ExprFill, run?: RunRule): void {
-  const re = /(\[\[\$\{[^}\n]+\}[^\]\n]*\]\]|\$\{[^}\n]+\}|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|!?\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\))/g;
+/** Where a picture written in the text (`![alt](path)`) can be loaded from, or null when it cannot. */
+export type ImageSrc = (href: string) => string | null;
+
+function inline(parent: HTMLElement, text: string, fill?: QueryFill, exprFill?: ExprFill, run?: RunRule, images?: ImageSrc): void {
+  const re = /(!\[[^\]\n]*\]\((?:<[^>\n]+>|[^)\n]+)\)|\[\[\$\{[^}\n]+\}[^\]\n]*\]\]|\$\{[^}\n]+\}|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|!?\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\))/g;
   let last = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (m.index > last) parent.append(text.slice(last, m.index));
     const t = m[0];
     let el: HTMLElement;
-    if (t.startsWith('${') || t.startsWith('[[${')) {
+    if (t.startsWith('![') && !t.startsWith('![[')) {
+      // a picture: drawn when the app can find the file, else its description
+      const im = /^!\[([^\]]*)\]\(\s*(?:<([^>]+)>|([^)\s]+))/.exec(t);
+      const href = im ? (im[2] ?? im[3] ?? '') : '';
+      const src = images && href ? images(href) : null;
+      if (src) {
+        const img = document.createElement('img');
+        img.className = 'cv-md-img';
+        img.alt = im?.[1] ?? '';
+        img.src = src;
+        img.draggable = false;
+        el = img;
+      } else {
+        el = document.createElement('span');
+        el.textContent = im?.[1] || t;
+      }
+    }
+    else if (t.startsWith('${') || t.startsWith('[[${')) {
       const f = findExpressions(t)[0];
       el = document.createElement('span');
       if (exprFill && f && f.length === t.length) exprFill(el, f.expr, f.link, f.label);
@@ -38,7 +60,12 @@ function inline(parent: HTMLElement, text: string, fill?: QueryFill, exprFill?: 
       if (m) fill(el, m[1]!.trim(), m[2] ?? null);
       else el.textContent = t;
     }
-    else if (t.includes('[[')) { el = document.createElement('span'); el.className = 'embed-link'; el.textContent = t.replace(/^!?\[\[(?:[^\]|]*\|)?|\]\]$/g, ''); }
+    else if (t.includes('[[')) {
+      el = document.createElement('span'); el.className = 'embed-link'; el.textContent = t.replace(/^!?\[\[(?:[^\]|]*\|)?|\]\]$/g, '');
+      // where it points, so that a canvas in view mode can follow it
+      const w = /^!?\[\[([^\]|#]+)/.exec(t);
+      if (w) el.dataset.wiki = w[1]!.trim();
+    }
     else {
       // `[=Label](automation:rule-id)` is a button that runs the rule, as it is in the page itself
       const b = run ? /^\[([^\]]*)\]\(\s*<?([^)>]+?)>?\s*\)$/.exec(t) : null;
@@ -53,7 +80,11 @@ function inline(parent: HTMLElement, text: string, fill?: QueryFill, exprFill?: 
         el.textContent = b[1]!.replace(/^\s*=\s?/, '');
         el.onclick = (e) => { e.preventDefault(); e.stopPropagation(); run!(id); };
         el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); run!(id); } };
-      } else { el = document.createElement('span'); el.className = 'embed-link'; el.textContent = /^\[([^\]]*)\]/.exec(t)?.[1] ?? t; }
+      } else {
+        el = document.createElement('span'); el.className = 'embed-link'; el.textContent = /^\[([^\]]*)\]/.exec(t)?.[1] ?? t;
+        const dest = /\]\(\s*<?([^)>]+?)>?\s*\)$/.exec(t)?.[1];
+        if (dest) { if (/^https?:\/\//i.test(dest)) el.dataset.url = dest; else el.dataset.md = dest; }
+      }
     }
     parent.append(el);
     last = m.index + t.length;
@@ -62,13 +93,13 @@ function inline(parent: HTMLElement, text: string, fill?: QueryFill, exprFill?: 
 }
 
 /** A small, read-only picture of Markdown: headings, paragraphs, lists, task items, quotes and code blocks. */
-export function renderMini(text: string, fill?: QueryFill, viewFill?: ViewFill, exprFill?: ExprFill, run?: RunRule): DocumentFragment {
+export function renderMini(text: string, fill?: QueryFill, viewFill?: ViewFill, exprFill?: ExprFill, run?: RunRule, images?: ImageSrc): DocumentFragment {
   const out = document.createDocumentFragment();
   const lines = text.split('\n');
   let para: string[] = [];
   let list: HTMLElement | null = null;
   const flush = (): void => {
-    if (para.length) { const p = document.createElement('p'); inline(p, para.join(' '), fill, exprFill, run); out.append(p); para = []; }
+    if (para.length) { const p = document.createElement('p'); inline(p, para.join(' '), fill, exprFill, run, images); out.append(p); para = []; }
   };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -91,15 +122,15 @@ export function renderMini(text: string, fill?: QueryFill, viewFill?: ViewFill, 
     const h = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
     const li = /^(\s*)(?:[-*+]|\d+[.)])\s+(?:\[( |x|X)\]\s+)?(.*)$/.exec(line);
     const q = /^>\s?(.*)$/.exec(line);
-    if (h) { flush(); list = null; const e = document.createElement(`h${h[1]!.length}`); inline(e, h[2]!, fill, exprFill, run); out.append(e); }
+    if (h) { flush(); list = null; const e = document.createElement(`h${h[1]!.length}`); inline(e, h[2]!, fill, exprFill, run, images); out.append(e); }
     else if (li) {
       flush();
       if (!list) { list = document.createElement('ul'); out.append(list); }
       const item = document.createElement('li');
       if (li[2] !== undefined) item.textContent = li[2] === ' ' ? '☐ ' : '☑ ';
-      inline(item, li[3]!, fill, exprFill, run);
+      inline(item, li[3]!, fill, exprFill, run, images);
       list.append(item);
-    } else if (q) { flush(); list = null; const b = document.createElement('blockquote'); inline(b, q[1]!, fill, exprFill, run); out.append(b); }
+    } else if (q) { flush(); list = null; const b = document.createElement('blockquote'); inline(b, q[1]!, fill, exprFill, run, images); out.append(b); }
     else if (line.trim() === '') { flush(); list = null; }
     else para.push(line.trim());
   }
@@ -125,7 +156,11 @@ export function createEmbedHost(ctl: Controller): EmbedHost {
     },
     async expression(expr) {
       const m = /^(this|\[\[([^\]\n]+)\])\.([^\s.{}[\]]+)$/.exec(expr.trim());
-      if (!m) return { ok: false, error: `Cannot read “${expr.trim()}”. Write this.name or [[Page]].name.` };
+      if (!m) {
+        // anything beyond reading one attribute is worked out by the workspace: sums and counts over a query, arithmetic, text and date functions
+        const r = await ctl.ws.evaluateExpression(ctl.current.value?.path ?? null, expr.trim());
+        return r.ok ? { ok: true, values: r.list.map((text) => ({ text })) } : { ok: false, error: r.error };
+      }
       const from = ctl.current.value?.path ?? '';
       let path = from;
       if (m[2] !== undefined) {
@@ -226,8 +261,66 @@ export function createEmbedHost(ctl: Controller): EmbedHost {
         );
       };
 
+      // a canvas named by an embed is shown as a canvas (view mode), not as its text
+      let shownCanvas: CanvasView | null = null;
+      const dropCanvas = (): void => {
+        shownCanvas?.destroy();
+        shownCanvas = null;
+        el.classList.remove('cv-embed');
+      };
+      const drawCanvas = (ok: { text: string; source: string }): void => {
+        const parsed = parseCanvas(ok.text);
+        if (!parsed.ok) {
+          dropCanvas();
+          el.textContent = '';
+          const w = document.createElement('span');
+          w.className = 'embed-error';
+          w.textContent = `⚠ ${parsed.error}`;
+          el.append(w);
+          return;
+        }
+        // a canvas already on show keeps its zoom and place when the canvas changes
+        if (shownCanvas && el.contains(shownCanvas.root)) {
+          shownCanvas.setCanvas(parsed.canvas);
+          return;
+        }
+        dropCanvas();
+        el.textContent = '';
+        el.classList.add('cv-embed');
+        el.title = `${spec.raw} — from ${ok.source}`;
+        const stage = document.createElement('div');
+        const box = boundsOf(parsed.canvas.nodes);
+        const width = el.clientWidth || 700;
+        // tall enough for everything to show at the width it has (never more than most of a screen)
+        const height = box ? Math.round(Math.min(640, Math.max(180, Math.min(1, (width - 80) / Math.max(1, box.width)) * box.height + 80))) : 140;
+        stage.style.height = `${height}px`;
+        el.append(stage);
+        shownCanvas = new CanvasView(stage, { ...createCanvasHost(ctl), onChange: () => {} }, parsed.canvas, { readOnly: true, embedded: true });
+        shownCanvas.root.classList.add('cv-embedded');
+        const bar = document.createElement('div');
+        bar.className = 'cv-embed-bar';
+        const name = document.createElement('span');
+        name.className = 'cv-embed-title';
+        name.textContent = (ok.source.split('/').pop() ?? ok.source).replace(/\.canvas$/i, '');
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'pill-button small';
+        edit.textContent = 'Edit';
+        edit.title = `Open ${ok.source} in a new tab to edit it`;
+        edit.setAttribute('aria-label', `Edit the canvas ${name.textContent} in a new tab`);
+        edit.onclick = () => void ctl.openInNewTab(ok.source);
+        bar.append(name, edit);
+        el.append(bar);
+      };
+
       const draw = (): void => {
         dropViews();
+        if (spec.block && state && state.ok && /\.canvas$/i.test(state.source)) {
+          el.classList.remove('cm-embed-bad');
+          drawCanvas(state);
+          return;
+        }
+        dropCanvas();
         el.textContent = '';
         el.classList.toggle('cm-embed-bad', state !== null && !state.ok);
         if (!state) { el.append(spec.block ? 'Loading…' : '…'); return; }
@@ -317,7 +410,7 @@ export function createEmbedHost(ctl: Controller): EmbedHost {
         void ctl.viewTick.value;
         if (!editing) void load();
       });
-      return { destroy: () => { seq++; stop(); dropViews(); } };
+      return { destroy: () => { seq++; stop(); dropViews(); dropCanvas(); } };
     },
   };
   return host;

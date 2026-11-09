@@ -7,7 +7,9 @@
 //   2026-11-03T18:54:28.152Z WARN  [main      ] blocked 1840 ms (event loop). doing: openWorkspace Theology (4.1 s so far) | fs queue 38, 3 running
 //
 // The worker of each workspace sends its own log lines here (`[ws:Theology]`), so one file tells the whole story.
+import { pluginBusy } from './caveFs';
 import type { createPluginFs } from './pluginFs';
+import { withTimeout } from './timeout';
 
 type Fs = ReturnType<typeof createPluginFs>;
 type Level = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
@@ -33,6 +35,9 @@ export class PhoneLog {
   private nextDoing = 1;
   private fsStats = { ops: 0, ms: 0, byOp: new Map<string, number>(), maxQueue: 0, maxWait: 0, bytes: 0, since: Date.now(), timer: null as ReturnType<typeof setTimeout> | null };
   private fsState = { running: 0, queued: 0 };
+  /** the last lines, kept in memory too: the log window must show something even when the file cannot be written */
+  private memory: string[] = [];
+  private writeError: string | null = null;
   private lastTick = Date.now();
   private foreground = true;
 
@@ -76,16 +81,25 @@ export class PhoneLog {
   // ---------------------------------------------------------------- writing
 
   line(level: Level, who: string, text: string): void {
-    this.buffer.push(`${new Date().toISOString()} ${level.padEnd(5)} [${who.padEnd(10)}] ${text}\n`);
+    const l = `${new Date().toISOString()} ${level.padEnd(5)} [${who.padEnd(10)}] ${text}\n`;
+    this.remember(l);
+    this.buffer.push(l);
     if (level === 'ERROR' || this.buffer.length > 80) void this.flush();
     else if (!this.timer) this.timer = setTimeout(() => void this.flush(), 1500);
   }
 
   /** A line the worker's logger made (it has its own time and name already). */
   raw(line: string): void {
-    this.buffer.push(line.endsWith('\n') ? line : `${line}\n`);
+    const l = line.endsWith('\n') ? line : `${line}\n`;
+    this.remember(l);
+    this.buffer.push(l);
     if (this.buffer.length > 80) void this.flush();
     else if (!this.timer) this.timer = setTimeout(() => void this.flush(), 1500);
+  }
+
+  private remember(l: string): void {
+    this.memory.push(l);
+    if (this.memory.length > 800) this.memory.splice(0, this.memory.length - 600);
   }
 
   flush(): Promise<void> {
@@ -97,8 +111,10 @@ export class PhoneLog {
     this.writing = this.writing.then(async () => {
       try {
         await this.fs.appendFile(this.file, text);
-      } catch {
-        /* a log must never stop the app */
+        this.writeError = null;
+      } catch (e) {
+        // a log must never stop the app, but the log window says that the file is not being written
+        this.writeError = (e as Error)?.message ?? String(e);
       }
     });
     return this.writing;
@@ -106,6 +122,14 @@ export class PhoneLog {
 
   /** Keep a copy where it can be fetched with a file manager (or sent from it): the end of the log, in Download. */
   async publish(): Promise<void> {
+    try {
+      await withTimeout(this.publishNow(), 8000, 'copying the log');
+    } catch (e) {
+      this.line('WARN', 'main', `${(e as Error).message}${this.busy()}`);
+    }
+  }
+
+  private async publishNow(): Promise<void> {
     await this.flush();
     try {
       const old = await this.fs.readFile(`${this.file}.1`, 'utf8').then(String, () => '');
@@ -113,18 +137,38 @@ export class PhoneLog {
       const all = old + now;
       await this.fs.mkdir(this.copyTo.replace(/\/[^/]*$/, ''), { recursive: true });
       await this.fs.writeFile(this.copyTo, all.length > KEEP_BYTES ? all.slice(all.length - KEEP_BYTES) : all);
-    } catch {
-      /* no Download folder, or no permission: the log in the app's folder is still there */
+    } catch (e) {
+      this.line('WARN', 'main', `the log could not be copied to ${this.copyTo}: ${(e as Error)?.message ?? e}`);
     }
+  }
+
+  private busy(): string {
+    const b = pluginBusy();
+    return b ? ` (the phone's file layer is busy with: ${b})` : '';
   }
 
   /** The text of the log for the Logs window: the earlier file and this one. */
   async read(): Promise<string> {
+    let all = '';
+    let note = '';
+    try {
+      all = await withTimeout(this.readFiles(), 3000, 'reading the log file');
+    } catch (e) {
+      note = `!! ${(e as Error).message}${this.busy()}. These are the lines of this run, kept in memory.\n`;
+    }
+    // the file could not be written or read: what this run has said is still here
+    if (!note && (this.writeError || all.trim() === '')) {
+      note = this.writeError ? `!! The log file could not be written (${this.writeError}). These are the lines of this run, kept in memory.\n` : '!! The log file is empty or cannot be read. These are the lines of this run, kept in memory.\n';
+    }
+    if (note) all = note + this.memory.join('');
+    return all.length > 400_000 ? `… (the start is left out; the whole log is in ${this.copyTo})\n${all.slice(all.length - 400_000)}` : all;
+  }
+
+  private async readFiles(): Promise<string> {
     await this.flush();
     const old = await this.fs.readFile(`${this.file}.1`, 'utf8').then(String, () => '');
     const now = await this.fs.readFile(this.file, 'utf8').then(String, () => '');
-    const all = old + now;
-    return all.length > 400_000 ? `… (the start is left out; the whole log is in ${this.copyTo})\n${all.slice(all.length - 400_000)}` : all;
+    return old + now;
   }
 
   // ---------------------------------------------------------------- what the page is doing
@@ -148,8 +192,9 @@ export class PhoneLog {
   private doingNow(): string {
     const now = Date.now();
     const list = [...this.doing.values()].sort((a, b) => a.since - b.since).slice(0, 4).map((d) => `${d.what} (${this.secs(now - d.since)} so far)`);
+    const plugin = pluginBusy();
     const fs = this.fsState.running + this.fsState.queued > 0 ? `fs ${this.fsState.running} running, ${this.fsState.queued} waiting` : '';
-    return [list.join(', '), fs].filter(Boolean).join(' | ') || 'nothing known';
+    return [list.join(', '), fs, plugin ? `plugin: ${plugin}` : ''].filter(Boolean).join(' | ') || 'nothing known';
   }
 
   /** Called by the file layer for each operation: how long it waited for its turn, how long it ran, how much it brought back. */

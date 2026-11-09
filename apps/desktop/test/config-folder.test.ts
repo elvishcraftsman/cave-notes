@@ -62,8 +62,8 @@ describe('showing templates in the tree', () => {
     expect((await svc.listChildren(null)).find((i) => i.path === 'Solo.md')?.hasChildren).toBe(false);
   });
 
-  it('an unlisted page that is not a template is kept out of the tree too, and shown with the others when asked', async () => {
-    await write('Notes/Unlisted.md', '---\nunlisted: true\n---\n# Unlisted');
+  it('a page hidden from the tree that is not a template is kept out of it, and shown with the others when asked', async () => {
+    await write('Notes/Unlisted.md', '---\nhidden: files\n---\n# Unlisted');
     await open();
     expect((await svc.listChildren('Notes.md')).map((i) => i.path)).toEqual(['Notes/Plain.md']);
     const kids = await svc.listChildren('Notes.md', { unlisted: true });
@@ -71,7 +71,7 @@ describe('showing templates in the tree', () => {
     expect(kids.find((i) => i.path === 'Notes/Unlisted.md')?.template).toBeUndefined();
   });
 
-  it('brings the unlisted pages (templates among them) back, marked, when asked; hidden pages stay hidden', async () => {
+  it('brings the pages hidden from the tree (templates among them) back, marked, when asked', async () => {
     await open();
     const top = await svc.listChildren(null, { unlisted: true });
     expect(top.map((i) => i.path)).toEqual(['Notes.md', 'Solo.md', 'Top template.md']);
@@ -79,7 +79,7 @@ describe('showing templates in the tree', () => {
     expect(top.find((i) => i.path === 'Notes.md')?.template).toBeUndefined();
     expect(top.find((i) => i.path === 'Solo.md')?.hasChildren).toBe(true);
     const kids = await svc.listChildren('Notes.md', { unlisted: true });
-    expect(kids.map((i) => i.path)).toEqual(['Notes/Meeting.md', 'Notes/Plain.md']); // the hidden page stays hidden
+    expect(kids.map((i) => i.path)).toEqual(['Notes/Meeting.md', 'Notes/Plain.md', 'Notes/Secret.md']); // `hidden: true` hides from the tree too
     expect(kids[0]).toMatchObject({ template: true });
   });
 });

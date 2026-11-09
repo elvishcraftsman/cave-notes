@@ -205,7 +205,7 @@ export function createPluginFs(plugin: CaveFsPlugin, { statCacheMs = 2000, treeC
     async primeTree(root: string): Promise<{ count: number; ms: number; truncated: boolean }> {
       const base = norm(root);
       const started = now();
-      const t = await call('scandir', root, plugin.tree({ path: base }));
+      const t = await call('scandir', root, plugin.tree({ path: base, limit: 60000, maxMs: 15000 }));
       if (t.truncated) return { count: t.count, ms: now() - started, truncated: true };
       const at = now();
       const kids = new Map<string, FsEntry[]>([[base, []]]);

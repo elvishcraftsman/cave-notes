@@ -25,7 +25,7 @@ export interface CaveFsPlugin {
   requestAccess(): Promise<void>;
   list(opts: { path: string }): Promise<{ entries: FsEntry[] }>;
   /** Everything under a folder in one call, one line per entry: `d|f`, size, modified ms, path below the folder, separated by `|`. */
-  tree(opts: { path: string; limit?: number }): Promise<{ data: string; count: number; truncated: boolean }>;
+  tree(opts: { path: string; limit?: number; maxMs?: number }): Promise<{ data: string; count: number; truncated: boolean }>;
   read(opts: { path: string }): Promise<{ text: string; size: number; mtime: number }>;
   /** Writes to a temporary file beside the target, then renames it over the target. */
   write(opts: { path: string; text: string }): Promise<{ size: number; mtime: number }>;
@@ -45,4 +45,28 @@ export interface CaveFsPlugin {
   appPaths(): Promise<{ files: string; cache: string }>;
 }
 
-export const CaveFs = registerPlugin<CaveFsPlugin>('CaveFs');
+const raw = registerPlugin<CaveFsPlugin>('CaveFs');
+
+/** Calls to the plugin that have not come back yet: what the log says when the phone's file layer seems stuck. */
+const inflight = new Map<number, { op: string; target: string; at: number }>();
+let nextCall = 1;
+
+export function pluginBusy(now = Date.now()): string {
+  const list = [...inflight.values()].sort((a, b) => a.at - b.at).slice(0, 4);
+  return list.map((c) => `${c.op} ${c.target.replace(/^\/storage\/emulated\/0\//, '')} (${Math.round((now - c.at) / 1000)} s)`).join(', ');
+}
+
+/** The plugin with every call noted while it runs (the plugin object itself is a proxy and is not wrapped as a whole). */
+export function traced(plugin: CaveFsPlugin): CaveFsPlugin {
+  const out: Record<string, unknown> = {};
+  for (const k of ['hasAccess', 'requestAccess', 'list', 'tree', 'read', 'write', 'stat', 'mkdir', 'readBase64', 'writeBase64', 'rename', 'remove', 'copyFile', 'realpath', 'appPaths'] as const) {
+    out[k] = (opts?: { path?: string; from?: string }) => {
+      const id = nextCall++;
+      inflight.set(id, { op: k, target: opts?.path ?? opts?.from ?? '', at: Date.now() });
+      return (plugin[k] as (o?: unknown) => Promise<unknown>)(opts).finally(() => inflight.delete(id));
+    };
+  }
+  return out as unknown as CaveFsPlugin;
+}
+
+export const CaveFs: CaveFsPlugin = traced(raw);

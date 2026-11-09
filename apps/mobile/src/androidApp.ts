@@ -2,13 +2,15 @@
 // service Web Worker per open workspace, and the events that come back from them.
 import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
+import { setFs } from '@cave-notes/platform';
 import { createWebWorkerHost, type WebWorkerHost } from '@cave-notes/service/web-host';
 import { scanForWorkspaces, scanRoots } from '@cave-notes/service/scan';
 import { promoteFolder, removeWorkspace, workspaceStatus } from '@cave-notes/service/workspaces';
 import { DESKTOP_CAPABILITIES, type Capabilities, type EventMap, type MainApi, type WorkerApi } from '@cave-notes/service/api';
 import { capabilitiesOf, CaveError, partialMainApi, type Deps } from '../../desktop/src/renderer/bridge';
 import { AndroidSettings } from './androidSettings';
-import { CaveFs } from './caveFs';
+import { CaveFs, pluginBusy } from './caveFs';
+import { withTimeout } from './timeout';
 import { chooseFolder } from './folderPicker';
 import { limitFs } from './limitFs';
 import { PhoneLog } from './phoneLog';
@@ -38,10 +40,44 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
   // the app's own files (settings, log) go through a layer of their own: a write through the layer the service uses makes it
   // forget the listings it has just been given, which is what indexing runs on
   const own = createPluginFs(CaveFs);
+  // the page itself (checking a folder before it is opened as a workspace, looking for workspaces, removing one) uses the shared fs
+  // too, and until it is told which one to use it has none on a phone: opening a folder failed at once
+  setFs(limitFs(createPluginFs(CaveFs)) as never);
   const settings = new AndroidSettings(own, `${paths.files}/settings.json`);
   await settings.load();
   const plog = new PhoneLog(own, `${paths.files}/logs`, '/storage/emulated/0/Download/cave-notes-log.txt');
   await plog.start();
+  // whatever goes wrong anywhere in the page is written down: errors that nobody caught, and what the app prints to its console
+  window.addEventListener('error', (e) => plog.line('ERROR', 'window', `${e.message} (${String(e.filename).replace(/^.*\//, '')}:${e.lineno}:${e.colno})`));
+  window.addEventListener('unhandledrejection', (e) => plog.line('ERROR', 'window', `unhandled: ${(e.reason as Error | undefined)?.stack ?? String(e.reason)}`));
+  for (const level of ['error', 'warn'] as const) {
+    const original = console[level].bind(console);
+    console[level] = (...args: unknown[]) => {
+      plog.line(level === 'error' ? 'ERROR' : 'WARN', 'console', args.map((a) => (a instanceof Error ? a.stack ?? a.message : typeof a === 'string' ? a : JSON.stringify(a))).join(' ').slice(0, 1500));
+      original(...args);
+    };
+  }
+  /** Run a step of opening a workspace, and say when it starts, how long it took, how it ended, and (every 10 s) that it is still going. */
+  const step = async <T>(what: string, run: () => Promise<T>): Promise<T> => {
+    const at = Date.now();
+    plog.line('INFO', 'open', `${what}: start`);
+    const timer = setInterval(() => plog.line('WARN', 'open', `${what}: still going after ${Math.round((Date.now() - at) / 1000)} s`), 10_000);
+    try {
+      const v = await run();
+      plog.line('INFO', 'open', `${what}: done in ${Date.now() - at} ms`);
+      return v;
+    } catch (e) {
+      plog.line('ERROR', 'open', `${what}: failed after ${Date.now() - at} ms: ${(e as Error)?.stack ?? String(e)}`);
+      throw e;
+    } finally {
+      clearInterval(timer);
+    }
+  };
+  // when the phone's file layer has been busy with one call for a while, say which
+  setInterval(() => {
+    const b = pluginBusy();
+    if (/\((?:[89]|\d\d+) s\)/.test(b)) plog.line('WARN', 'fs', `a file call is taking long: ${b}`);
+  }, 5000);
   plog.line('INFO', 'main', `settings loaded: ${settings.get().tabs.length} tab(s) saved, active ${settings.get().activeTab}`);
 
   // ---- events: from the workers (with the workspace they came from) to whoever listens
@@ -57,9 +93,14 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
   // what a worker asks of the files goes through the page's main thread: a few operations at a time, so the page stays usable
   const workerFs = limitFs(fs, { onDone: (op, target, wait, run, bytes, state) => plog.fsDone(op, target, wait, run, bytes, state) });
   const startHost = async (root: string): Promise<WebWorkerHost> => {
-    wasm ??= new Uint8Array(await (await fetch('sqlite3.wasm')).arrayBuffer());
+    wasm ??= await step('load sqlite3.wasm', async () => {
+      const r = await fetch('sqlite3.wasm');
+      if (r.ok === false) throw new Error(`HTTP ${r.status} for sqlite3.wasm`);
+      return new Uint8Array(await r.arrayBuffer());
+    });
     const worker = new Worker('service-worker.js');
-    worker.addEventListener('error', (e) => console.error(`[service worker] ${e.message}`));
+    worker.addEventListener('error', (e) => plog.line('ERROR', 'worker', `${e.message || 'the service worker failed to start'} (${String(e.filename).replace(/^.*\//, '')}:${e.lineno}:${e.colno})`));
+    worker.addEventListener('messageerror', () => plog.line('ERROR', 'worker', 'a message from the service worker could not be read'));
     const host = createWebWorkerHost({
       worker: worker as never,
       fs: workerFs as never,
@@ -67,7 +108,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
     });
     host.onLog((line) => plog.raw(line));
     host.onEvent((event, payload) => emit(event, payload, root));
-    await host.ready;
+    await step(`start the service worker for ${root.split('/').pop()}`, () => host.ready);
     return host;
   };
 
@@ -75,7 +116,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
   const prime = async (root: string, why: string): Promise<void> => {
     const end = plog.begin(`list the whole folder ${root.split('/').pop()} (${why})`, 0);
     try {
-      const r = await workerFs.primeTree(root);
+      const r = await withTimeout(workerFs.primeTree(root), 30_000, 'listing the whole folder');
       end(`${r.count} entries${r.truncated ? ', cut short: listed folder by folder instead' : ''}`);
     } catch (e) {
       end(`failed: ${(e as Error).message}; listed folder by folder instead`);
@@ -89,14 +130,14 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
       get(target, method: string) {
         if (method === 'openWorkspace') {
           return (given: string) => {
-            a.opened ??= prime(root, 'open')
+            a.opened ??= step(`open the workspace ${root.split('/').pop()}`, () => prime(root, 'open')
               .then(() => target.openWorkspace(given, {
                 dataDir: `${paths.files}/index/${hash(root)}`,
                 notes: { exts: settings.get().noteExts, create: settings.get().noteCreate },
                 deviceName: settings.get().deviceName,
                 firstDay: settings.get().firstDayOfWeek,
                 globalsEnabled: false,
-              } as never))
+              } as never)))
               .catch((err: unknown) => {
                 a.opened = null;
                 throw err;
@@ -129,6 +170,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
   const base: Partial<MainApi> = {
     async chooseWorkspace() {
       const picked = await chooseFolder(settings.get().lastWorkspace, 'Open a folder as a workspace');
+      plog.line('INFO', 'open', picked ? `folder chosen: ${picked}` : 'folder picker closed without a choice');
       return picked;
     },
     async getSettings() {
@@ -140,6 +182,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
     async attachWorkspace(root) {
       let a = attached.get(root);
       if (!a) {
+        plog.line('INFO', 'open', `attach ${root}`);
         a = { id: hash(root), host: await startHost(root), opened: null };
         attached.set(root, a);
         settings.remember(root);

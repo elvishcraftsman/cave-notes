@@ -1,3 +1,4 @@
+import type { CanvasView } from '@cave-notes/ui-canvas';
 import { computed, effect, signal } from '@preact/signals';
 import type { EditorState } from '@codemirror/state';
 import { CONFLICT_OPEN, mergeDocuments, pickBase, textChanges } from '@cave-notes/core-sync/pure';
@@ -63,9 +64,9 @@ interface Nav {
   at: number;
 }
 
-/** A page name made from a title: what a file name cannot hold is dropped. */
+/** A page name made from a title: what a file name cannot hold is dropped (so are question marks and a trailing dot; the title keeps them). */
 export function nameFromTitle(title: string): string {
-  return title.replace(/[/\\\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/\.+$/, '').trim();
+  return title.replace(/\?/g, '').replace(/[/\\\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/\.+$/, '').trim();
 }
 
 /** A workspace that is open in at least one tab. */
@@ -139,6 +140,24 @@ export class Controller {
   readonly saveState = signal<'saved' | 'dirty' | 'saving' | 'conflict'>('saved');
   readonly conflict = signal<{ diskHash: string | null } | null>(null);
   readonly outline = signal<OutlineItem[]>([]);
+  /** The canvas on screen (when the open page is a `.canvas`), for the objects and properties in the right sidebar. */
+  readonly canvasView = signal<CanvasView | null>(null);
+  /** Counts up whenever that canvas, its selection or its mode changes, so panes that show it redraw. */
+  readonly canvasTick = signal(0);
+  private canvasUnsub: (() => void) | null = null;
+  setCanvasView(cv: CanvasView, present: boolean): void {
+    if (!present) {
+      if (this.canvasView.value !== cv) return;
+      this.canvasUnsub?.();
+      this.canvasUnsub = null;
+      this.canvasView.value = null;
+    } else {
+      this.canvasUnsub?.();
+      this.canvasView.value = cv;
+      this.canvasUnsub = cv.subscribe(() => void this.canvasTick.value++);
+    }
+    this.canvasTick.value++;
+  }
   readonly activeHeading = signal(-1);
   /** the theme the open page's front matter names with `presentationTheme:`; null when the page is not a presentation */
   readonly presentationTheme = signal<string | null>(null);
@@ -607,6 +626,20 @@ export class Controller {
 
   toggleTheme(): Promise<void> {
     return this.setTheme(this.theme.value === 'dark' ? 'light' : 'dark');
+  }
+
+  /** The icon a workspace chose, kept in the settings so the menus can show it while the workspace is closed. */
+  private rememberIcon(root: string, look: WorkspaceAppearance): void {
+    const known = this.settings.value.workspaceIcons ?? {};
+    if ((known[root] ?? null) === (look.icon ?? null)) return;
+    const { [root]: _old, ...rest } = known;
+    this.patchSettings({ workspaceIcons: look.icon ? { ...rest, [root]: look.icon } : rest });
+  }
+
+  /** The icon a workspace chose (open or not), or null for the default. */
+  iconOf(root: string): string | null {
+    const icon = this.looks.value[root]?.icon ?? this.settings.value.workspaceIcons?.[root] ?? null;
+    return icon;
   }
 
   private patchSettings(patch: Partial<Settings>): void {
@@ -1097,6 +1130,7 @@ export class Controller {
     this.indexTick.value++;
     const look = await ws.getAppearance().catch(() => EMPTY_LOOK);
     this.looks.value = { ...this.looks.value, [info.root]: look };
+    this.rememberIcon(info.root, look);
     void ws.lastMove().then((m) => (sess.lastMove = !!m)).catch(() => {});
     return sess;
   }
@@ -1249,6 +1283,22 @@ export class Controller {
   }
 
   /** In a workspace's settings folder the YAML files are edited as plain text, not as Markdown. */
+  /** Is the page a canvas (a `.canvas` file, drawn as a canvas instead of as text)? */
+  private isCanvasPage(path: string): boolean {
+    return /\.canvas$/i.test(path);
+  }
+
+  /** A file that a canvas card shows was opened: a page opens as a page, anything else with its own program. */
+  async openCanvasFile(path: string): Promise<void> {
+    const info = await this.ws.pageInfo(path).catch(() => null);
+    if (info) {
+      await this.openPage(info.path, { nav: 'push', reveal: true });
+      return;
+    }
+    const abs = await this.ws.filePath(path).catch(() => null);
+    if (abs) await this.main.openPath(abs);
+  }
+
   private isPlainPage(path: string): boolean {
     return !!this.active?.config && /\.ya?ml$/i.test(path);
   }
@@ -1663,6 +1713,7 @@ export class Controller {
     try {
       const look = await sess.ws.setAppearance(patch);
       this.looks.value = { ...this.looks.value, [sess.root]: look };
+      this.rememberIcon(sess.root, look);
     } catch (e) {
       if (before) this.looks.value = { ...this.looks.value, [sess.root]: before };
       this.toast(explain(e));
@@ -1980,7 +2031,7 @@ export class Controller {
     // (opening a workspace, or restoring tabs at start): without this the page is "open" but the editor stays blank.
     const cur = this.current.value;
     if (cur?.exists) {
-      editor.load(this.baseText, { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages });
+      editor.load(this.baseText, { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path) });
       this.outline.value = editor.outline();
       requestAnimationFrame(() => this.updateActiveHeading());
     }
@@ -2060,7 +2111,7 @@ export class Controller {
         // back to the line that was at the top, not to a pixel offset: heights of views and images are only estimates until drawn
         restore = () => ed.restoreScroll(cached.anchor);
       } else {
-        ed.load(data.exists ? data.text : '', { plain: this.isPlainPage(path), readOnly: this.readOnlyPages });
+        ed.load(data.exists ? data.text : '', { plain: this.isPlainPage(path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(path) });
         // the page changed while it was away (or it was never open here): stay near where it was left
         const line = data.exists ? this.scrollLines.get(this.stateKey(path)) : undefined;
         if (line && line > 1) restore = () => ed.scrollToLine(line);
@@ -2121,7 +2172,7 @@ export class Controller {
     this.conflict.value = null;
     this.saveState.value = 'saved';
     this.current.value = { path: cur.path, exists: data.exists };
-    this.editor?.load(data.exists ? data.text : '', { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages });
+    this.editor?.load(data.exists ? data.text : '', { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path) });
     if (this.editor) this.outline.value = this.editor.outline();
     void this.loadLinks();
   }
@@ -3917,6 +3968,36 @@ export class Controller {
     }
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: r.text }, selection: { anchor: view.state.doc.length } });
     view.focus();
+  }
+
+  /** Make a canvas where a page would go (the same placement as New Page). */
+  async newCanvas(mode?: NewPageMode): Promise<void> {
+    if (!this.workspace.value) return;
+    const m = mode ?? this.newPageMode;
+    const ref = this.current.value?.path ?? this.tree.selected;
+    const parent = m === 'top' || !ref ? null : m === 'nested' ? ref : this.tree.parentPath(ref);
+    const where = parent ? stripExt(parent).split('/').pop() : this.workspace.value.name;
+    this.dialog.value = {
+      kind: 'prompt',
+      title: 'New Canvas',
+      body: parent ? `It will be created inside “${where}”.` : 'It will be created at the top level.',
+      label: 'Name',
+      value: '',
+      confirm: 'Create',
+      submit: async (name) => {
+        const typed = name.trim().replace(/\.canvas$/i, '');
+        if (!typed) return 'Enter a name.';
+        try {
+          const created = await this.ws.createPage(parent, `${typed}.canvas`);
+          if (parent) await this.tree.expand(parent);
+          await this.tree.refresh([parent]);
+          await this.openPage(created, { reveal: true });
+          return null;
+        } catch (e) {
+          return explain(e);
+        }
+      },
+    };
   }
 
   async newPageIn(target: string | null): Promise<void> {

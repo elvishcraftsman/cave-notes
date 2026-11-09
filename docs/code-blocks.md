@@ -26,17 +26,19 @@ A block whose first word after the backticks is `bash`, `sh`, `zsh` or `shell` a
 
 While a script runs, the button says **Stop**. When it ends, a small panel under the buttons shows what it printed and how it ended: *Finished*, *Finished with exit code 3*, *Stopped*, or *It ran too long and was stopped* (the limit is 10 minutes). Close the panel with ×. Only the first 16 KB of output is kept.
 
-### Scripts that need a password (`sudo`)
+### Shell blocks open a terminal
 
-Run has no keyboard to type a password on, so a script that uses `sudo`, `su`, `pkexec` or `doas` is opened **in a terminal window** instead (the button then says **Run in terminal**). You can also ask for a terminal on any shell block by writing `terminal` after the language:
+A shell block (`sh`, `bash`, `zsh` or `shell`) opens **in a terminal window** when you press Run (the button says **Run in terminal**). That way scripts can ask for a password (`sudo`, `su`, `pkexec`, `doas`), show progress, and be answered when they ask a question. To run a block quietly instead, with its output in the panel under the block, write `no-terminal` after the language:
 
 ````
-```bash terminal
-sudo dnf upgrade
+```bash no-terminal
+df -h /
 ```
 ````
 
-Cave Notes tries `ptyxis`, `gnome-terminal`, `kgx`, `konsole`, `xfce4-terminal` and a few others, in that order; set the environment variable `CAVE_TERMINAL` (for example `CAVE_TERMINAL=foot`) to prefer another. The window waits for Enter when the script ends so you can read the output, and it removes its temporary files. The same workspace approval as for Run applies. Output is not captured: the panel only says it was opened in a terminal. Automations never open terminals and have no way to type a password, so a `sudo` command in a `shell:` action will not work unattended.
+A script that uses `sudo`, `su`, `pkexec` or `doas` still opens a terminal even then, because it would have nowhere to ask for the password. (`terminal` after the language is still accepted, and means the same as writing nothing.)
+
+Cave Notes tries `ptyxis`, `gnome-terminal`, `kgx`, `konsole`, `xfce4-terminal` and a few others, in that order; set the environment variable `CAVE_TERMINAL` (for example `CAVE_TERMINAL=foot`) to prefer another. The window waits for Enter when the script ends so you can read the output, and it removes its temporary files. The same workspace approval as for Run applies. Output of a script that opened in a terminal is not captured: the panel only says it was opened in a terminal. Automations never open terminals and have no way to type a password, so a `sudo` command in a `shell:` action will not work unattended.
 
 ### Where the script runs
 

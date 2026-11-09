@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { frameObserver } from './frameObserver';
-import { type EditorState, type Extension, type Range, Facet, StateField } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
+import { type EditorState, type Extension, type Range, Facet, StateEffect, StateField } from '@codemirror/state';
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import { TableWidget, tableEnd } from './tables';
 import { RESERVED_VALUES, frontmatterBody, reservedFrontmatter, yamlProblem } from './yamlHints';
 
@@ -95,6 +95,8 @@ export interface ViewBlockApi {
   updateSource(next: string): void;
   /** Show the block's raw text for editing. */
   edit(): void;
+  /** True in a page that cannot change: settings that only remember what was last shown (the open tab) are not written. */
+  readonly readOnly?: boolean;
   /** Delete the whole block from the page (Undo brings it back). */
   remove(): void;
 }
@@ -152,6 +154,9 @@ class ViewBlockWidget extends WidgetType {
         view.dispatch({ changes: { from: inner.from, to: inner.to, insert: next.replace(/\n*$/, '\n') } });
       },
       edit: () => enterBlock(view, el),
+      get readOnly() {
+        return view.state.readOnly;
+      },
       remove: () => {
         const pos = view.posAtDOM(el);
         let node = syntaxTree(view.state).resolveInner(pos, 1);
@@ -219,6 +224,34 @@ class DeleteViewWidget extends WidgetType {
   }
 }
 
+/**
+ * Whether the editor has the focus. A table turns into its Markdown code only while the cursor is in it and the editor is
+ * focused: find and replace selects matches from its own panel (the focus is there), and that must not rewrite the page's look.
+ * Unknown (true) until the editor says otherwise, so a page opened with the cursor in a table still shows its code.
+ */
+const setEditorFocus = StateEffect.define<boolean>();
+const editorFocus = StateField.define<boolean>({
+  create: () => true,
+  update: (v, tr) => {
+    for (const e of tr.effects) if (e.is(setEditorFocus)) return e.value;
+    return v;
+  },
+});
+const focusTracker = ViewPlugin.fromClass(
+  class {
+    constructor(view: EditorView) {
+      // after the state is set up: say whether the editor really has the focus
+      queueMicrotask(() => {
+        try {
+          if (view.state.field(editorFocus) !== view.hasFocus) view.dispatch({ effects: setEditorFocus.of(view.hasFocus) });
+        } catch {
+          /* the view is gone */
+        }
+      });
+    }
+  },
+);
+
 function compute(state: EditorState): DecorationSet {
   const out: Array<Range<Decoration>> = [];
   const sel = state.selection.ranges;
@@ -239,7 +272,8 @@ function compute(state: EditorState): DecorationSet {
       if (ref.name !== 'Table' && ref.name !== 'Frontmatter') return;
       // a table takes the line of sizes right under it (see tables.ts) with it
       const end = ref.name === 'Table' ? tableEnd(state, ref.to) : ref.to;
-      if (inside(ref.from, end)) return false;
+      // a table stays a table in a page that cannot change, and while the focus is elsewhere (the search panel)
+      if (inside(ref.from, end) && !(ref.name === 'Table' && (state.readOnly || state.field(editorFocus, false) === false))) return false;
       const text = state.doc.sliceString(ref.from, end);
       const widget = ref.name === 'Table' ? new TableWidget(text) : new FrontmatterWidget(text);
       out.push(Decoration.replace({ widget, block: true }).range(ref.from, end));
@@ -250,9 +284,14 @@ function compute(state: EditorState): DecorationSet {
 }
 
 export function blockWidgets(): Extension {
-  return StateField.define<DecorationSet>({
-    create: compute,
-    update: (value, tr) => (tr.docChanged || tr.selection || tr.effects.length ? compute(tr.state) : value),
-    provide: (f) => EditorView.decorations.from(f),
-  });
+  return [
+    editorFocus,
+    focusTracker,
+    EditorView.focusChangeEffect.of((_state, focusing) => setEditorFocus.of(focusing)),
+    StateField.define<DecorationSet>({
+      create: compute,
+      update: (value, tr) => (tr.docChanged || tr.selection || tr.effects.length ? compute(tr.state) : value),
+      provide: (f) => EditorView.decorations.from(f),
+    }),
+  ];
 }

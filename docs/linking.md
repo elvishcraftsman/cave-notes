@@ -105,6 +105,7 @@ Grace says: ${[[Grace]].summary}
 - **While you write.** Put the cursor in an expression to see it as text and change it. Expressions inside code and in the attributes block at the top are left alone.
 - **In dynamic text.** Inside text that another page pulls in with `![[page]]`, `this` is the page *showing* the text, as `$this` is, so one shared block can say `${this.writing}` and show each page's own value. `${[[Page]].name}` works there too.
 - **Other workspaces and files.** When the attribute holds a link to a page of another workspace (`[[Theology::Grace]]`) or to a file in one (`[[Sync::1. Main Document.odt]]`), the value is drawn as a link marked ⧉ that opens that page, or the file with its own program. A link to a file of this workspace that is not a note is shown by the file's name only. Reading an attribute *of* a page in another workspace (`${[[Theology::Grace]].summary}`) is not possible yet.
+- **More than an attribute.** An expression can also calculate: `${sum("under:$this", "cost")}` adds up an attribute over the pages a query finds, `${count("status:open")}` counts them, and there are `avg`, `min`, `max` and many more. See [Expressions and formulas](expressions.md).
 - An expression is not a link to a page, so it does not show in backlinks and is never reported as broken.
 
 ## Links to other workspaces

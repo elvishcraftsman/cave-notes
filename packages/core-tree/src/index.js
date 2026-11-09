@@ -10,6 +10,7 @@ export {
   isNoteFile,
   extOf,
   normalizeName,
+  fileStem,
   normalizePagePath,
   pageFolder,
   pageName,

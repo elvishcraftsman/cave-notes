@@ -1,5 +1,5 @@
 import { fs, path, posix, sha1 as platformSha1, randomHex, utf8Bytes, utf8Text, bytesEqual } from '@cave-notes/platform';
-import { parse } from '@cave-notes/core-md';
+import { parse, parseCanvasFile, jsonEscape } from '@cave-notes/core-md';
 import { buildLookup, resolvePageLink, pageByStem } from '@cave-notes/core-index';
 import { pageName, pageFolder, parentPage, noteExtOf } from '@cave-notes/core-tree';
 import { makeMapper, dirOf, encodeLinkPath, relativeLink } from './paths.js';
@@ -163,19 +163,19 @@ async function tryPlan({ tree, index, move, step = () => {}, attempt = 1 }) {
 
     step(`plan: ${X}: parsing`);
     const tp = performance.now();
-    const parsed = parse(text);
+    // a canvas is JSON: its file cards are rewritten in place (the new path escaped as JSON), not as Markdown links
+    const isCanvas = /\.canvas$/i.test(X);
+    const parsed = isCanvas ? parseCanvasFile(text) : parse(text);
     step(`plan: ${X}: parsed in ${ms(tp)} ms, ${parsed.links.length} link(s); computing edits`);
-    const { edits, warnings: w } = editsFor({
-      X,
-      X2: mapPath(X),
-      text,
-      row,
-      parsed,
-      mapPath,
-      byPath,
-      beforeLookup,
-      afterLookup,
-    });
+    const forText = (p) => editsFor({ X, X2: mapPath(X), text, row, parsed: p, mapPath, byPath, beforeLookup, afterLookup });
+    let edits, w;
+    if (isCanvas) {
+      // file cards by their path; wikilinks in text cards as in any page, the new text then escaped to sit inside a JSON string
+      const files = canvasEdits({ text, parsed, mapPath });
+      const wikis = forText({ ...parsed, links: parsed.links.filter((l) => l.syntax === 'wiki') });
+      edits = [...files.edits, ...wikis.edits.map((e) => ({ ...e, newText: jsonEscape(e.newText) }))].sort((p, q) => p.start - q.start);
+      w = [...files.warnings, ...wikis.warnings];
+    } else ({ edits, warnings: w } = forText(parsed));
     step(`plan: ${X}: edits computed (${ms(tf)} ms so far)`);
     warnings.push(...w);
     if (edits.length) {
@@ -201,6 +201,19 @@ async function tryPlan({ tree, index, move, step = () => {}, attempt = 1 }) {
     warnings,
     summary: { pagesMoved: move.pageMoves.length, filesEdited: files.length, linksRewritten, warnings: warnings.length },
   };
+}
+
+/** The edits a canvas needs: each file card whose page or file moved shows the new path. */
+function canvasEdits({ text, parsed, mapPath }) {
+  const edits = [];
+  for (const link of parsed.links) {
+    if (link.syntax !== 'md' || link.pathStart === null || (link.kind !== 'page' && link.kind !== 'file')) continue;
+    const oldTarget = posix.normalize(link.raw);
+    const newTarget = mapPath(oldTarget);
+    if (newTarget === oldTarget) continue;
+    edits.push({ start: link.pathStart, end: link.pathEnd, line: link.line, column: link.column, oldText: text.slice(link.pathStart, link.pathEnd), newText: jsonEscape(newTarget), kind: 'canvas' });
+  }
+  return { edits, warnings: [] };
 }
 
 /** All link edits needed in one file. */

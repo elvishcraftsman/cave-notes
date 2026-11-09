@@ -158,7 +158,7 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
           <MenuItem icon="page" label="Duplicate This Tab" shortcut="Ctrl+T" onClick={() => { setPlus(null); void ctl.newTab(); }} />
           <MenuItem icon="folder" label="Open Folder in New Tab…" onClick={() => { setPlus(null); void ctl.chooseWorkspace(); }} />
           {recent.filter((r) => !tabs.some((t) => t.root === r)).slice(0, 8).map((r) => (
-            <MenuItem key={r} icon="cave" label={r.split('/').pop() || r} onClick={() => { setPlus(null); void ctl.openWorkspace(r); }} />
+            <MenuItem key={r} icon="cave" workspaceIcon={ctl.iconOf(r)} label={r.split('/').pop() || r} onClick={() => { setPlus(null); void ctl.openWorkspace(r); }} />
           ))}
         </FloatingMenu>
       )}

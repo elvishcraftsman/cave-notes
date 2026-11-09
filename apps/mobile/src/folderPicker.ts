@@ -1,6 +1,7 @@
 // A plain folder chooser: the system's own picker hands out content:// addresses, but the app works on real paths (the folder is
 // the same one Syncthing syncs), so it lists real folders itself.
-import { CaveFs } from './caveFs';
+import { CaveFs, pluginBusy } from './caveFs';
+import { withTimeout } from './timeout';
 
 const START = '/storage/emulated/0';
 
@@ -46,7 +47,11 @@ export function chooseFolder(startAt?: string | null, title = 'Choose a folder')
     };
     const show = async (path: string): Promise<void> => {
       try {
-        const { entries } = await CaveFs.list({ path });
+        pathEl.textContent = `${path} …`;
+        const { entries } = await withTimeout(CaveFs.list({ path }), 6000, 'Listing the folder').catch((e: Error) => {
+          const busy = pluginBusy();
+          throw new Error(`${e.message}${busy ? `. The phone's file layer is busy with: ${busy}` : ''}`);
+        });
         current = path;
         pathEl.textContent = path;
         listEl.replaceChildren();

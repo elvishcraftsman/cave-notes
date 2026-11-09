@@ -33,6 +33,7 @@ declare module '@cave-notes/core-tree' {
   export function cleanExt(e: string): string | null;
   export function normalizePagePath(p: string): string;
   export function normalizeName(n: string): string;
+  export function fileStem(n: string): string;
   export function parentPage(p: string): string | null;
   export function pageName(p: string): string;
   export function pageFolder(p: string): string;
@@ -107,7 +108,7 @@ declare module '@cave-notes/core-index' {
   export interface Index {
     root: string;
     tree: Tree;
-    db: { prepare(sql: string): { all(...args: unknown[]): any[]; get(...args: unknown[]): any } };
+    db: { prepare(sql: string): { all(...args: unknown[]): any[]; get(...args: unknown[]): any; run(...args: unknown[]): any }; transaction<T>(fn: () => T): () => T };
     reconcile(): Promise<Record<string, number>>;
     rebuild(): Promise<Record<string, number>>;
     syncFiles(): Promise<void>;
@@ -116,7 +117,7 @@ declare module '@cave-notes/core-index' {
     links(path: string): IndexLink[];
     backlinks(path: string): Array<{ fromPath: string; fromTitle: string; line: number; text: string | null }>;
     allPageRows(): PageRow[];
-    search(query: string, opts?: { limit?: number; offset?: number; count?: boolean; hideFrom?: 'tree' | 'children' | 'search' }): { results: any[]; total: number | null; errors: string[] };
+    search(query: string, opts?: { limit?: number; offset?: number; count?: boolean; hideFrom?: 'tree' | 'children' | 'search' | 'queries' }): { results: any[]; total: number | null; errors: string[] };
     /** The page a path, file name, title or alias points at. */
     resolveRef(ref: string): { path: string; title: string } | null;
     attributeKeys(): any[];
@@ -125,8 +126,9 @@ declare module '@cave-notes/core-index' {
     /** pages kept out of the tree (`hidden: true`, own or inherited); with a parent (null = top level) only its direct children */
     hiddenPaths(parent?: string | null): Set<string>;
     /** the pages whose `hidden` keeps them out of `area` (default: the page tree) */
+    readonly globals: Record<string, unknown>;
+    stateOf(path: string): { attributes: Record<string, unknown>; blocks: Array<{ defaults: string; link?: string; inheritance: string; attrs: Record<string, unknown> }> } | null;
     hiddenOnlyPaths(parent?: string | null, area?: 'tree' | 'children' | 'search'): Set<string>;
-    unlistedPaths(parent?: string | null): Set<string>;
     templatePaths(parent?: string | null): Set<string>;
     /** the icon pages ask for with `icon: name` (path -> icon name); with a parent only its direct children */
     iconPaths(parent?: string | null): Map<string, string>;
@@ -182,6 +184,21 @@ declare module '@cave-notes/core-sync/pure' {
 }
 
 declare module '@cave-notes/core-automation' {
+  export class DateValue {
+    constructor(ms: number, withTime: boolean);
+    readonly ms: number;
+    readonly dateOnly: boolean;
+    toString(): string;
+  }
+  export function isDateValue(v: unknown): v is DateValue;
+  export function startOfDay(v: DateValue): DateValue;
+  export function parseDateValue(s: string): DateValue | null;
+  export function parseExpr(src: string): unknown;
+  export function evalExpr(tree: unknown, ctx: Record<string, unknown>): unknown;
+  export function rewritePageRefs(src: string): string;
+  export function hostCalls(tree: unknown): Array<{ kind: 'query' | 'page'; name: string; args: string[]; key: string }>;
+  export function queryValue(name: string, args: string[], data: { count: number; titles: string[]; values: Array<{ type: string; text: string; num: number | null }> }): unknown;
+  export function stringifyValue(v: unknown): string;
   export interface AutomationPageInfo {
     path: string;
     title: string;

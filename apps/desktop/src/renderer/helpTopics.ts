@@ -6,6 +6,8 @@ export const HELP_TOPICS: Array<[string, string, string]> = [
   ['queries.md', 'Queries, saved queries and views', 'Finding pages by their attributes; tables, boards and relations (including backattribute).'],
   ['tables.md', 'Tables', 'Tables in a page and views of queries.'],
   ['templates.md', 'Templates and dynamic blocks', 'Starting pages from templates, and the templates that come with the app.'],
+  ['expressions.md', 'Expressions and formulas', 'Sums, counts, averages, largest and smallest over a query; formula attributes; the functions.'],
+  ['canvas.md', 'Canvases', 'Free-form pages of cards, pictures and arrows (.canvas files).'],
   ['code-blocks.md', 'Code blocks', 'Fenced code, running it, wrapping and scrolling.'],
   ['search-and-replace.md', 'Search and replace', 'Searching one page or the whole workspace.'],
   ['export-styles.md', 'Export styles', 'Word, OpenDocument and PDF: every setting, headers, footers and page numbers.'],

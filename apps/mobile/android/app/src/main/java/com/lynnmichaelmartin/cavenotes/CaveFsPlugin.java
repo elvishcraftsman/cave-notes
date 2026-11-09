@@ -30,6 +30,8 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.EnumSet;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Real-path file access for Cave Notes: the notes folder is an ordinary folder that Syncthing also syncs.
@@ -44,6 +46,32 @@ import java.util.UUID;
 public class CaveFsPlugin extends Plugin {
     /** A single read is for notes and pictures; refuse to pull a huge file into the WebView by mistake. */
     private static final long MAX_READ_BYTES = 64L * 1024 * 1024;
+
+    /**
+     * Capacitor runs every plugin call on ONE thread, so a single slow call (walking a big folder) kept every other call waiting:
+     * the folder picker showed nothing, the log could not be read or copied. Calls run on a small pool of their own instead, and
+     * the whole-folder listing on a thread of its own with a time and size budget.
+     */
+    private final ExecutorService pool = Executors.newFixedThreadPool(4);
+    private final ExecutorService heavy = Executors.newSingleThreadExecutor();
+
+    private void run(PluginCall call, Runnable body) {
+        pool.execute(() -> guard(call, body));
+    }
+
+    private static void guard(PluginCall call, Runnable body) {
+        try {
+            body.run();
+        } catch (Throwable t) {
+            call.reject(String.valueOf(t.getMessage()), "EIO");
+        }
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        pool.shutdownNow();
+        heavy.shutdownNow();
+    }
 
     private static String codeOf(Exception e) {
         if (e instanceof NoSuchFileException) return "ENOENT";
@@ -73,6 +101,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void hasAccess(PluginCall call) {
+        run(call, () -> hasAccessNow(call));
+    }
+
+    private void hasAccessNow(PluginCall call) {
         JSObject r = new JSObject();
         r.put("granted", Environment.isExternalStorageManager());
         call.resolve(r);
@@ -80,6 +112,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void requestAccess(PluginCall call) {
+        run(call, () -> requestAccessNow(call));
+    }
+
+    private void requestAccessNow(PluginCall call) {
         try {
             Intent intent = new Intent(
                 Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
@@ -97,6 +133,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void list(PluginCall call) {
+        run(call, () -> listNow(call));
+    }
+
+    private void listNow(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         File dir = new File(path);
@@ -134,6 +174,10 @@ public class CaveFsPlugin extends Plugin {
      */
     @PluginMethod
     public void tree(PluginCall call) {
+        heavy.execute(() -> guard(call, () -> treeNow(call)));
+    }
+
+    private void treeNow(PluginCall call) {
         final String path = need(call, "path");
         if (path == null) return;
         final java.nio.file.Path root = new File(path).toPath();
@@ -144,7 +188,8 @@ public class CaveFsPlugin extends Plugin {
         final StringBuilder out = new StringBuilder();
         final int[] count = {0};
         final boolean[] truncated = {false};
-        final int limit = call.getInt("limit", 300000);
+        final int limit = call.getInt("limit", 60000);
+        final long deadline = System.nanoTime() + call.getInt("maxMs", 15000) * 1_000_000L;
         try {
             Files.walkFileTree(
                 root,
@@ -152,7 +197,7 @@ public class CaveFsPlugin extends Plugin {
                 Integer.MAX_VALUE,
                 new SimpleFileVisitor<java.nio.file.Path>() {
                     private FileVisitResult add(java.nio.file.Path p, BasicFileAttributes a, boolean dir) {
-                        if (count[0] >= limit) {
+                        if (count[0] >= limit || out.length() > 6_000_000 || System.nanoTime() > deadline) {
                             truncated[0] = true;
                             return FileVisitResult.TERMINATE;
                         }
@@ -190,6 +235,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void read(PluginCall call) {
+        run(call, () -> readNow(call));
+    }
+
+    private void readNow(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         try {
@@ -211,6 +260,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void readBase64(PluginCall call) {
+        run(call, () -> readBase64Now(call));
+    }
+
+    private void readBase64Now(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         try {
@@ -259,6 +312,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void write(PluginCall call) {
+        run(call, () -> writeNow(call));
+    }
+
+    private void writeNow(PluginCall call) {
         String path = need(call, "path");
         String text = call.getString("text");
         if (path == null) return;
@@ -279,6 +336,10 @@ public class CaveFsPlugin extends Plugin {
     /** flag: "w" replace (temporary file, then rename), "wx" fail with EEXIST if the file is there, "a" append. */
     @PluginMethod
     public void writeBase64(PluginCall call) {
+        run(call, () -> writeBase64Now(call));
+    }
+
+    private void writeBase64Now(PluginCall call) {
         String path = need(call, "path");
         String data = call.getString("data");
         String flag = call.getString("flag", "w");
@@ -305,6 +366,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void stat(PluginCall call) {
+        run(call, () -> statNow(call));
+    }
+
+    private void statNow(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         File f = new File(path);
@@ -318,6 +383,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void mkdir(PluginCall call) {
+        run(call, () -> mkdirNow(call));
+    }
+
+    private void mkdirNow(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         boolean recursive = Boolean.TRUE.equals(call.getBoolean("recursive", false));
@@ -339,6 +408,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void rename(PluginCall call) {
+        run(call, () -> renameNow(call));
+    }
+
+    private void renameNow(PluginCall call) {
         String from = need(call, "from");
         String to = need(call, "to");
         if (from == null || to == null) return;
@@ -357,6 +430,10 @@ public class CaveFsPlugin extends Plugin {
     /** Deletes a file or an empty folder. */
     @PluginMethod
     public void remove(PluginCall call) {
+        run(call, () -> removeNow(call));
+    }
+
+    private void removeNow(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         try {
@@ -369,6 +446,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void copyFile(PluginCall call) {
+        run(call, () -> copyFileNow(call));
+    }
+
+    private void copyFileNow(PluginCall call) {
         String from = need(call, "from");
         String to = need(call, "to");
         if (from == null || to == null) return;
@@ -384,6 +465,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void appPaths(PluginCall call) {
+        run(call, () -> appPathsNow(call));
+    }
+
+    private void appPathsNow(PluginCall call) {
         JSObject r = new JSObject();
         r.put("files", getContext().getFilesDir().getAbsolutePath());
         r.put("cache", getContext().getCacheDir().getAbsolutePath());
@@ -392,6 +477,10 @@ public class CaveFsPlugin extends Plugin {
 
     @PluginMethod
     public void realpath(PluginCall call) {
+        run(call, () -> realpathNow(call));
+    }
+
+    private void realpathNow(PluginCall call) {
         String path = need(call, "path");
         if (path == null) return;
         try {

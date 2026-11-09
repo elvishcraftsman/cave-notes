@@ -81,6 +81,8 @@ export function SidebarToolbar({ ctl }: { ctl: Controller }): JSX.Element {
             {beside && <MenuItem icon="plus" label="New Page Beside This One" shortcut={def === 'sibling' ? 'Default' : undefined} onClick={add('sibling')} />}
             <MenuItem icon="plus" label="New Top-Level Page" shortcut={def === 'top' ? 'Default' : undefined} onClick={add('top')} />
             <div class="menu-separator" />
+            <MenuItem icon="canvas" label="New Canvas…" onClick={() => { setNewMenu(false); void ctl.newCanvas(); }} />
+            <div class="menu-separator" />
             <MenuItem icon="menu" label="Change the Default…" onClick={() => { setNewMenu(false); ctl.openPreferences(); }} />
           </Popover>
         </div>

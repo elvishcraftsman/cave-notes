@@ -2,13 +2,94 @@ import { NoteEditor } from '@cave-notes/editor';
 import { frameObserver } from '@cave-notes/editor';
 import type { JSX } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import type { AttributeSource } from '../../shared/api';
 import type { Controller } from '../controller';
 import { createViewHost } from '../views/ViewBlock';
+import { createCanvasHost } from '../canvas/host';
 import { createEmbedHost } from '../views/embedHost';
 import { ChildrenBar } from './ChildrenBar';
 import { FloatingMenu, MenuItem, StatusPage } from './Overlays';
 import { stripExt } from '../paths';
 import { Icon, WorkspaceIcon } from './icons';
+
+/** Where an attribute comes from, in words. */
+function originLabel(o: AttributeSource['source']): string {
+  switch (o.kind) {
+    case 'page':
+      return 'set on this page';
+    case 'children':
+      return `from the children: block of ${stripExt(o.page)}`;
+    case 'inherited':
+      return `handed down by ${stripExt(o.page)}`;
+    case 'workspace':
+      return 'a workspace-wide attribute';
+    default:
+      return 'a default (schema or template)';
+  }
+}
+
+/** The corner mark that lists every attribute of the page and where each one is set. Sits right of the automations mark. */
+function AttributeIndicator({ ctl }: { ctl: Controller }): JSX.Element | null {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<AttributeSource[] | null>(null);
+  const cur = ctl.current.value;
+  useEffect(() => {
+    setOpen(false);
+    setList(null);
+  }, [cur?.path]);
+  useEffect(() => {
+    if (!open || !cur?.exists) return;
+    let live = true;
+    void ctl.ws.attributeSources(cur.path).then((l) => live && setList(l), () => live && setList([]));
+    return () => {
+      live = false;
+    };
+  }, [open, cur?.path]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    const onDown = (e: MouseEvent): void => {
+      if (!(e.target as HTMLElement).closest?.('.attribute-indicator')) setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [open]);
+  if (!cur?.exists) return null;
+  return (
+    <div class="attribute-indicator">
+      <button class={`automation-button ${open ? 'open' : ''}`} title="Attributes of this page" aria-label="Attributes of this page" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <WorkspaceIcon name="list" size={15} />
+      </button>
+      {open && (
+        <div class="automation-popover attribute-popover" role="dialog" aria-label="Attributes of this page">
+          {list === null ? (
+            <p class="attribute-none">Loading…</p>
+          ) : list.length === 0 ? (
+            <p class="attribute-none">This page has no attributes.</p>
+          ) : (
+            <table class="attribute-table">
+              <tbody>
+                {list.map((a) => (
+                  <tr key={a.key}>
+                    <th scope="row">{a.key}</th>
+                    <td class="attribute-value">{a.value === '' ? <em>blank</em> : a.value}</td>
+                    <td class="attribute-origin">{originLabel(a.source)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** The corner mark of a page that meets the criteria of automation rules; a click shows the rules as they are written. */
 function AutomationIndicator({ ctl }: { ctl: Controller }): JSX.Element | null {
@@ -95,6 +176,8 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       resolveAsset: ctl.assetUrl,
       viewBlock: createViewHost(ctl),
       embed: createEmbedHost(ctl),
+      canvas: createCanvasHost(ctl),
+      onCanvas: (cv, present) => ctl.setCanvasView(cv, present),
     });
     ctl.attachEditor(ed);
     const scroller = ed.view.scrollDOM;
@@ -167,7 +250,7 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
   };
 
   return (
-    <div class={`editor-pane ${showEditor && ctl.automationHits.value.hits.length > 0 && ctl.automationHits.value.path === cur?.path ? 'has-automation' : ''} ${showEditor && ctl.children.value.length > 0 ? 'has-children' : ''} ${ctl.settings.value.childrenDocked ? 'bar-docked' : ''} ${cur && !cur.exists ? 'no-page' : ''}`}>
+    <div class={`editor-pane ${showEditor && cur?.exists ? 'has-attributes' : ''} ${showEditor && ctl.automationHits.value.hits.length > 0 && ctl.automationHits.value.path === cur?.path ? 'has-automation' : ''} ${showEditor && ctl.children.value.length > 0 ? 'has-children' : ''} ${ctl.settings.value.childrenDocked ? 'bar-docked' : ''} ${cur && !cur.exists ? 'no-page' : ''}`}>
       {conflict && (
         <div class="banner" role="alert">
           <span>{conflict.diskHash === null ? 'This page was removed from disk, but you have unsaved changes.' : 'This page changed on disk while you were editing it.'}</span>
@@ -185,7 +268,10 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       )}
 
       <div class={`editor-host ${showEditor ? '' : 'hidden'}`} ref={host} />
-      <AutomationIndicator ctl={ctl} />
+      <div class="page-indicators">
+        <AutomationIndicator ctl={ctl} />
+        <AttributeIndicator ctl={ctl} />
+      </div>
       {showEditor && ctl.scrolledDown.value && (
         <button class="to-top" title="Back to the top of the page" aria-label="Back to the top of the page" onClick={() => ctl.editor?.scrollToTop()}>
           <Icon name="chevron-up" />

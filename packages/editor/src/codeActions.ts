@@ -41,7 +41,7 @@ export interface CodeBlockInfo {
   fenced: boolean;
 }
 
-/** Whether a shell script has to run in a terminal: it asks for a password (sudo, su, pkexec, doas). */
+/** Whether a shell script certainly needs a terminal: it asks for a password (sudo, su, pkexec, doas). Every shell block gets one anyway unless it says `no-terminal`; this tells the app when `no-terminal` cannot work. */
 export function scriptNeedsTerminal(code: string): boolean {
   return /(^|[\s;&|(`])(sudo|su|pkexec|doas)(\s|$)/m.test(code);
 }
@@ -58,11 +58,12 @@ export function codeBlocks(state: EditorState, range?: { from: number; to: numbe
       if (n.name === 'FencedCode') {
         const info = /^\s*(?:```|~~~)\s*([^\s`]*)(.*)$/.exec(state.doc.lineAt(n.from).text);
         const lang = (info?.[1] ?? '').toLowerCase();
-        const marked = /(^|\s)terminal(\s|$)/i.test(info?.[2] ?? '');
+        // a shell block opens a terminal unless it says `no-terminal` after the language (then it runs quietly, output in a panel)
+        const quiet = /(^|\s)no-?terminal(\s|$)/i.test(info?.[2] ?? '');
         if (lang === 'view' && n.to > n.from) return false;
         const inner = fenceInner(state, n.from, n.to);
         const shell = SHELL_LANGS.has(lang);
-        out.push({ from: n.from, to: n.to, innerFrom: inner.from, innerTo: inner.to, lang, shell, terminal: shell && (marked || scriptNeedsTerminal(state.doc.sliceString(inner.from, inner.to))), fenced: true });
+        out.push({ from: n.from, to: n.to, innerFrom: inner.from, innerTo: inner.to, lang, shell, terminal: shell && !quiet, fenced: true });
         return false;
       }
       if (n.name === 'CodeBlock') {

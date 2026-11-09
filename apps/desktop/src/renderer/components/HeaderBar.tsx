@@ -101,16 +101,12 @@ export function MainMenuItems({ ctl, run }: { ctl: Controller; run: (fn: () => v
     <>
       <MenuToolbar ctl={ctl} run={run} />
       <MenuItem icon="folder" label="Open Folder…" shortcut="Ctrl+O" onClick={run(() => void ctl.chooseWorkspace())} />
-      {ctl.workspaceChoices().filter((r) => r !== ws?.root).slice(0, 8).map((r) => (
-        <MenuItem key={r} icon="cave" label={r.split('/').pop() || r} onClick={run(() => void ctl.openWorkspace(r))} />
-      ))}
+      {ws && ctl.caps.exportDocuments && ctl.current.value?.exists && <MenuItem icon="page" label="Export Page…" shortcut="Ctrl+Shift+E" onClick={run(() => ctl.openExport())} />}
       <div class="menu-separator" />
       <MenuItem icon="menu" label="Preferences…" shortcut="Ctrl+," onClick={run(() => ctl.openPreferences())} />
-      {ws && ctl.caps.exportDocuments && ctl.current.value?.exists && <MenuItem icon="page" label="Export Page…" shortcut="Ctrl+Shift+E" onClick={run(() => ctl.openExport())} />}
       {ws && ctl.current.value?.exists && ctl.saved.value.queries.slice(0, 8).map((x) => (
         <MenuItem key={`saved-${x.name}`} icon="table" label={`Insert “${x.title ?? x.name}”`} onClick={run(() => ctl.insertSavedQuery(x.name))} />
       ))}
-      {ws && !single && <MenuItem icon="undo" label="Undo Last Move or Rename" disabled={!ctl.lastMoveAvailable.value} onClick={run(() => void ctl.undoMove())} />}
       <div class="menu-separator" />
       <MenuItem icon="help" label="Help" shortcut="F1" onClick={run(() => ctl.openHelp('docs'))} />
     </>
@@ -122,19 +118,29 @@ function MenuToolbar({ ctl, run }: { ctl: Controller; run: (fn: () => void) => (
   const ws = ctl.workspace.value;
   const ed = ctl.editor;
   const page = !!ws && !!ctl.current.value?.exists;
-  if (!page) return null;
+  const moves = !!ws && !ctl.activeSingle.value;
+  if (!page && !moves) return null;
   return (
     <>
       <div class="menu-toolbar" role="group" aria-label="Edit">
-        <button type="button" class="icon-button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!ed || !ed.canUndo()} onClick={run(() => void ed?.undo())}>
-          <Icon name="undo" />
-        </button>
-        <button type="button" class="icon-button" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled={!ed || !ed.canRedo()} onClick={run(() => void ed?.redo())}>
-          <Icon name="redo" />
-        </button>
-        <button type="button" class="icon-button" title="Page History…" aria-label="Page History" onClick={run(() => ctl.openHistory())}>
-          <Icon name="history" />
-        </button>
+        {page && (
+          <>
+            <button type="button" class="icon-button" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!ed || !ed.canUndo()} onClick={run(() => void ed?.undo())}>
+              <Icon name="undo" />
+            </button>
+            <button type="button" class="icon-button" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled={!ed || !ed.canRedo()} onClick={run(() => void ed?.redo())}>
+              <Icon name="redo" />
+            </button>
+            <button type="button" class="icon-button" title="Page History…" aria-label="Page History" onClick={run(() => ctl.openHistory())}>
+              <Icon name="history" />
+            </button>
+          </>
+        )}
+        {moves && (
+          <button type="button" class="icon-button" title="Undo Last Move or Rename" aria-label="Undo Last Move or Rename" disabled={!ctl.lastMoveAvailable.value} onClick={run(() => void ctl.undoMove())}>
+            <Icon name="undomove" />
+          </button>
+        )}
       </div>
       <div class="menu-separator" />
     </>

@@ -66,6 +66,13 @@ These work on a list or on text.
 | `contains(list_or_text, x)` | True if the list has x, or the text includes it (capitals ignored). |
 | `join(list, ", ")` | A list as text. |
 | `first(list)` | The first item. |
+| `last(list)` | The last item. |
+| `unique(list)` | The list without repeated items. |
+| `sort(list)` | The list in order, smallest first (numbers and dates by value, text without regard to capitals). |
+| `reverse(list)` | The list the other way round. |
+| `range(from, to)` | The whole numbers from one to the other, as a list (at most 1000): `sum(range(1, 10))` is 55. |
+| `split(text, ",")` | Text cut into a list at every separator; the pieces lose their surrounding spaces. |
+| `substr(text, start, length)` | Part of a text: from character `start` (the first is 1), `length` characters (to the end when left out). `substr("Chapter", 1, 4)` is `Chap`. |
 | `len(value)` | The length of a list or text. |
 
 ## Numbers
@@ -76,10 +83,38 @@ These work on a list or on text.
 | `round(n, digits)` | Rounded; digits defaults to 0. |
 | `floor(n)` | Rounded down. |
 | `ceil(n)` | Rounded up. |
-| `min(a, b, ...)` | The smallest number. |
-| `max(a, b, ...)` | The largest number. |
 | `abs(n)` | Without its sign. |
 | `clamp(n, low, high)` | n kept between low and high. |
+| `sqrt(n)` | The square root. |
+| `pow(n, power)` | n to the power: `pow(2, 10)` is 1024. |
+| `percent(part, whole, digits)` | What percentage part is of whole, rounded to `digits` (default 1): `percent(3, 8)` is 37.5. Null when whole is 0. |
+| `fixed(n, digits)` | A number as text with exactly this many decimals: `fixed(2.5, 2)` is `2.50`. |
+| `commas(n, digits)` | A number as text with thousands separators: `commas(1234567.5, 1)` is `1,234,567.5`. Digits defaults to what the number has (at most 3). |
+| `years_between(a, b)` | Whole years from a to b (negative if b is earlier): `years_between(this.born, today)` is an age. |
+
+## Totals, averages, largest and smallest
+
+These work on a list, on several values, or on the pages a query finds (see [Expressions and formulas](../../expressions.md), which explains the query forms). Empty values and text that is no number are skipped, as in a spreadsheet.
+
+| Function | What it gives |
+|---|---|
+| `sum(list)` | The total of the numbers in a list (or in several values); empty values and text are skipped. `sum("query", "attribute")` adds up the attribute over the pages a query finds. |
+| `avg(list)` | The average of the numbers (null when there are none). Also `average` and `mean`. `avg("query", "attribute")` averages over the pages a query finds. |
+| `min(a, b, ...)` | The smallest number: of several values or of a list. `min("query", "attribute")` is the smallest over the pages a query finds. |
+| `max(a, b, ...)` | The largest number: of several values or of a list. `max("query", "attribute")` is the largest over the pages a query finds. |
+| `median(list)` | The middle number of a list. `median("query", "attribute")` works over the pages a query finds. |
+| `product(list)` | The numbers of a list multiplied. |
+| `count(list)` | How many items a list has that are not empty. `count("query")` is how many pages a query finds; `count("query", "attribute")` how many of them have a value for the attribute. |
+
+## Reading pages and queries
+
+These are for expressions in the text of a page and in attribute formulas, where the workspace can look at other pages. They are not available in automation rules (`sum` and the other totals of a *list* are).
+
+| Function | What it gives |
+|---|---|
+| `values("query", "attribute")` | The list of an attribute's values on the pages a query finds (numbers stay numbers). Use it where a list is wanted: `sum(values("under:[[Budget]]", "cost"))`. |
+| `titles("query")` | The titles of the pages a query finds, as a list: `join(titles("status: active"), ", ")`. |
+| `page("Name")` | The page with that name, to read its attributes: `page("Budget").total`. Write `[[Budget]].total` for the same. |
 
 ---
 

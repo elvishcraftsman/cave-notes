@@ -1,6 +1,6 @@
 import { fs, path, sha1, utf8Text } from '@cave-notes/platform';
 import { openTree, pageName, pageFolder, normalizePagePath, ancestors, noteExtensions, extOf } from '@cave-notes/core-tree';
-import { parse as mdParse, setPageExtensions, splitWorkspaceTarget } from '@cave-notes/core-md';
+import { parse as mdParse, parseCanvasFile, setPageExtensions, splitWorkspaceTarget } from '@cave-notes/core-md';
 import { openDatabase } from './db.js';
 import { mergeSection } from './global-tag.js';
 import { readConfig } from './config.js';
@@ -9,7 +9,7 @@ import { toPlain, makeSnippet } from './plain.js';
 import { buildLookup, resolvePageLink, resolveFilePath } from './resolve.js';
 import { stripNoteExt, pageByStem } from './exts.js';
 import { expandSaved, normalizeQueries, normalizeRelations } from './saved.js';
-import { parseQuery, compileQuery, hiddenWhere, UNLISTED_IDS_SQL, HIGHLIGHT_START, HIGHLIGHT_END } from './query.js';
+import { parseQuery, compileQuery, hiddenWhere, hiddenIdsSql, HIGHLIGHT_START, HIGHLIGHT_END } from './query.js';
 import { ParsePool } from '#parse-pool';
 
 const posix = path.posix;
@@ -84,7 +84,7 @@ export async function openIndex(rootDir, options = {}) {
     insHeading: db.prepare('INSERT INTO headings (page_id, level, text, slug, line, ord) VALUES (?, ?, ?, ?, ?, ?)'),
     insLink: db.prepare(`INSERT INTO links (page_id, kind, syntax, via, embed, raw, target, target_name, fragment, url, text, line, status, target_path)
       VALUES (@page_id, @kind, @syntax, @via, @embed, @raw, @target, @target_name, @fragment, @url, @text, @line, @status, @target_path)`),
-    insAttr: db.prepare('INSERT INTO attrs (page_id, key, type, text_value, num_value, idx) VALUES (?, ?, ?, ?, ?, ?)'),
+    insAttr: db.prepare('INSERT INTO attrs (page_id, key, type, text_value, num_value, idx, formula) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     insAlias: db.prepare('INSERT INTO page_aliases (page_id, alias) VALUES (?, ?)'),
     insDiag: db.prepare('INSERT INTO diagnostics (page_id, kind, message) VALUES (?, ?, ?)'),
     delFts: db.prepare('DELETE FROM pages_fts WHERE rowid = ?'),
@@ -178,7 +178,7 @@ export async function openIndex(rootDir, options = {}) {
     q.delDiagKind.run(id, 'inheritance');
     q.delAttrLinks.run(id);
     for (const b of st.blocks) if (b.defaults === 'link') q.insAttrLink.run(id, b.link);
-    for (const r of a.rows) q.insAttr.run(id, r.key, r.type, r.text, r.num, r.idx);
+    for (const r of a.rows) q.insAttr.run(id, r.key, r.type, r.text, r.num, r.idx, r.formula ?? null);
     for (const msg of a.problems) q.insDiag.run(id, 'schema', msg);
     for (const msg of st.problems) q.insDiag.run(id, 'inheritance', msg);
     return a.order;
@@ -383,7 +383,7 @@ export async function openIndex(rootDir, options = {}) {
     if (parsed.error) q.insDiag.run(id, 'parse', parsed.error);
 
     q.delFts.run(id);
-    q.insFts.run(id, title, toPlain(item.text.slice(fm.endOffset)));
+    q.insFts.run(id, title, typeof parsed.plain === 'string' ? parsed.plain : toPlain(item.text.slice(fm.endOffset)));
 
     const newAliases = [...a.aliases].sort((x, y) => x.localeCompare(y)).join('\u0000');
     const namesChanged = !old || old.isVirtual || old.title !== title || oldAliases.toLowerCase() !== newAliases.toLowerCase();
@@ -439,12 +439,14 @@ export async function openIndex(rootDir, options = {}) {
   // ------------------------------------------------------------------ batch engine
   async function parseAll(items) {
     const out = new Array(items.length);
+    // a canvas is JSON: read here (it is quick), the Markdown parser is for the rest
+    const isCanvas = (it) => it.path.toLowerCase().endsWith('.canvas');
     if (pool) {
-      const res = await Promise.all(items.map((it) => pool.parse(it.text)));
+      const res = await Promise.all(items.map((it) => (isCanvas(it) ? parseCanvasFile(it.text) : pool.parse(it.text))));
       res.forEach((r, k) => (out[k] = r));
     } else {
       for (let i = 0; i < items.length; i++) {
-        out[i] = parser(items[i].text);
+        out[i] = isCanvas(items[i]) ? parseCanvasFile(items[i].text) : parser(items[i].text);
         if ((i & 15) === 15) await tick();
       }
     }
@@ -779,7 +781,7 @@ export async function openIndex(rootDir, options = {}) {
         });
         q.delAttrs.run(id);
         q.delDiagKind.run(id, 'schema');
-        for (const r of a.rows) q.insAttr.run(id, r.key, r.type, r.text, r.num, r.idx);
+        for (const r of a.rows) q.insAttr.run(id, r.key, r.type, r.text, r.num, r.idx, r.formula ?? null);
         for (const msg of a.problems) q.insDiag.run(id, 'schema', msg);
         q.delFts.run(id);
         q.insFts.run(id, name, '');
@@ -1252,18 +1254,15 @@ export async function openIndex(rootDir, options = {}) {
   const hiddenFor = (area) => {
     let st = hiddenStatements.get(area);
     if (!st) {
-      const where = hiddenWhere(area);
+      const ids = hiddenIdsSql(area);
       st = {
-        ofParent: db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${where}`),
-        all: db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${where} ORDER BY p.path`),
+        ofParent: db.prepare(`SELECT p.path FROM pages p WHERE p.parent_path IS ? AND p.id IN (${ids})`),
+        all: db.prepare(`SELECT p.path FROM pages p WHERE p.id IN (${ids}) ORDER BY p.path`),
       };
       hiddenStatements.set(area, st);
     }
     return st;
   };
-  const unlistedOfParent = db.prepare(`SELECT p.path FROM pages p WHERE p.parent_path IS ? AND p.id IN (${UNLISTED_IDS_SQL})`);
-  const unlistedAll = db.prepare(`SELECT p.path FROM pages p WHERE p.id IN (${UNLISTED_IDS_SQL}) ORDER BY p.path`);
-
   const TEMPLATE_WHERE = "lower(a.key) = 'template' AND ((a.type = 'bool' AND a.num_value = 1) OR lower(a.text_value) = 'true')";
   const templatesOfParent = db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${TEMPLATE_WHERE}`);
   const templatesAll = db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${TEMPLATE_WHERE} ORDER BY p.path`);
@@ -1271,12 +1270,6 @@ export async function openIndex(rootDir, options = {}) {
   /** The pages that are templates (`template: true`). Same shape as hiddenPaths. */
   function templatePaths(parent) {
     const rows = parent === undefined ? templatesAll.all() : templatesOfParent.all(parent);
-    return new Set(rows.map((r) => r.path));
-  }
-
-  /** Pages that are unlisted (`unlisted: true`, own or handed down, or a template without an `unlisted` of its own). */
-  function unlistedPaths(parent) {
-    const rows = parent === undefined ? unlistedAll.all() : unlistedOfParent.all(parent);
     return new Set(rows.map((r) => r.path));
   }
 
@@ -1301,11 +1294,11 @@ export async function openIndex(rootDir, options = {}) {
   }
 
   /**
-   * Pages that keep out of the page tree: `hidden: true` and every unlisted page (templates included).
+   * Pages that keep out of the page tree: `hidden: tree` (or `files`, `all`, `true`) and the templates that say nothing of their own.
    * With a parent (null = top level) only its direct children are listed.
    */
   function hiddenPaths(parent) {
-    return new Set([...hiddenOnlyPaths(parent), ...unlistedPaths(parent)]);
+    return hiddenOnlyPaths(parent);
   }
 
   async function close() {
@@ -1346,6 +1339,13 @@ export async function openIndex(rootDir, options = {}) {
     get schemaWarnings() {
       return schemaWarnings;
     },
+    /** What a page hands down and takes in, as stored: its attributes and its own `children:` blocks (null when there is no such page). */
+    stateOf(path) {
+      const stored = q.effByPath.get(path);
+      if (!stored) return null;
+      const st = parseState(stored.eff);
+      return { attributes: st.attributes, blocks: st.blocks };
+    },
     /** the workspace's global attributes, as in effect */
     get globals() {
       return globals;
@@ -1366,7 +1366,6 @@ export async function openIndex(rootDir, options = {}) {
     stats,
     hiddenPaths,
     hiddenOnlyPaths,
-    unlistedPaths,
     iconPaths,
     templatePaths,
     orderOf: (p) => q.orderOf.get(p)?.o ?? undefined,

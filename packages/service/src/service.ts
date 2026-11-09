@@ -5,9 +5,9 @@ import { buildLookup, openIndex, resolvePageLink, setWeekStart, type Index, type
 import { applyPlan, listJournal, planMove, undo } from '@cave-notes/core-links';
 import { conflictOriginal, HistoryStore, isConflictName, mergeDocuments, pickBase } from '@cave-notes/core-sync';
 import { namedStylesFromYaml, parseStyleSetsYaml } from '@cave-notes/core-export';
-import { configureNotes, defaultNoteExt, isNoteFile, noteExtOf, noteExtensions, normalizeName, normalizePagePath, pageFolder, pageName, parentPage, type Tree } from '@cave-notes/core-tree';
+import { configureNotes, defaultNoteExt, isNoteFile, noteExtOf, noteExtensions, normalizeName, fileStem, normalizePagePath, pageFolder, pageName, parentPage, type Tree } from '@cave-notes/core-tree';
 import type { PageSource,
-  FileItem, NoteTypes, ApplyResult, DeleteInfo, IndexStats, LinkInfo, LinkPlan, PageData, PageInfo, PageSuggestion, ResolvedLink,
+  FileItem, AttributeSource, NoteTypes, ApplyResult, DeleteInfo, IndexStats, LinkInfo, LinkPlan, PageData, PageInfo, PageSuggestion, ResolvedLink,
   SearchResponse, TreeItem, WireError, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, WorkspaceState, WriteResult, BacklinkInfo, AttributeKey, AttrValue, ViewData, SavedQueries,
   RelationEditRequest, RelationEditResult, RelationPage, ReplaceChoice, ReplaceDone, ReplaceFound, ReplacePage, ReplaceRequest,
   ConflictMerge, FontSizes, HistoryEntry, AutomationStatus, AutomationRuleHit, AutomationLogEntry, YamlSection, PluginInfo, PluginAsk, PluginResult, UninstallResult } from './api';
@@ -20,6 +20,7 @@ import { defaultTemplateName, findTemplate, instantiate, listTemplates, mergeWit
 import { embeddedText, replaceEmbedded } from '@cave-notes/core-md';
 import { parseAutomations } from '@cave-notes/core-automation';
 import { describe as describeOffer, inheritedFor, pendingFor, publishOffer, readConsent, readOffers, writeConsent } from './globals';
+import { FormulaRun, recomputeFormulas, valueText } from './formulas';
 import { AutomationRunner, defaultDeviceName, type AutomationDeps } from './automation';
 import { CONFIG_NOTES, configCreateExt, ensureConfigFolder, isConfigRoot } from './config-folder';
 import { INFO_DIR, STATE_FILE, editSection, editYaml, infoPath, readSections, readSettings, rulesText, setKey } from './workspace-file';
@@ -27,6 +28,18 @@ import { homeFor, readConfig } from '@cave-notes/core-index/config';
 import { loadDefaultPlugins, removeDefaultPlugin, removeRuleFromFile, removedDefaults, seedDefaults, type DefaultPlugins } from './app-config';
 
 const sha1 = (data: Uint8Array | string): string => sha1Of(data);
+
+/** What a new canvas file holds: no nodes and no edges, laid out as Obsidian writes it. */
+const EMPTY_CANVAS = '{\n\t"nodes":[],\n\t"edges":[]\n}';
+
+/** `.canvas` files (JSON Canvas, as Obsidian writes them) are pages in every workspace, whichever note types were chosen. */
+const withCanvas = (exts: readonly string[]): string[] => (exts.some((e) => e.toLowerCase() === '.canvas') ? [...exts] : [...exts, '.canvas']);
+
+/** The title of a page made from a typed name: the name as typed (a question mark or trailing dot stays), without a note extension. */
+function titleOfTyped(name: string, stem: string): string {
+  const typed = name.normalize('NFC').trim().replace(/\.(md|markdown|canvas)$/i, '').trim();
+  return typed === '' ? stem : typed;
+}
 const posix = path.posix;
 
 type Emit = <K extends keyof WorkerEvents>(event: K, payload: WorkerEvents[K]) => void;
@@ -171,7 +184,7 @@ export class WorkspaceService implements WorkerApi {
     const config = docs || opts.config === true || (!opts.file && isConfigRoot(root));
     const own = opts.file || config ? null : await this.readNoteTypes(root);
     const notes = docs ? { exts: ['.md'], create: '.md' } : config ? CONFIG_NOTES : (own ?? opts.notes ?? { exts: ['.md'], create: '.md' });
-    configureNotes({ exts: notes.exts, defaultExt: notes.create });
+    configureNotes({ exts: docs || config ? notes.exts : withCanvas(notes.exts), defaultExt: notes.create });
     setWeekStart(opts.firstDay ?? 0);
     // Everything that belongs to one computer (search index, view state, history, undo journals) lives in the app's own
     // data folder, never in the workspace, so no sync tool has to be told to leave it alone.
@@ -213,6 +226,7 @@ export class WorkspaceService implements WorkerApi {
     };
     progressSink = (p) => this.onIndexProgress(o, p);
     this.ws = o;
+    this.installFormulas(o);
     this.globalDir = lite ? null : (opts.globalDir ?? null);
     this.appConfigDir = lite || single || config ? null : (opts.appConfigDir ?? null);
     this.shippedDefaultsDir = opts.shippedDefaultsDir ?? null;
@@ -232,6 +246,74 @@ export class WorkspaceService implements WorkerApi {
     if (docs) return { root, name: 'Documentation', config: true, docs: true };
     if (config) return { root, name: `${path.basename(path.dirname(root))} (config)`, config: true };
     return single ? { root, name: pageName(single), single: true } : { root, name: path.basename(root) };
+  }
+
+
+  // ---------------------------------------------------------------- formulas (`${…}` values worked out from other pages)
+
+  private formulaHost(o: Open): import('./formulas').FormulaHost {
+    return {
+      index: o.index,
+      resolvePage: async (name, from) => {
+        const r = await this.resolveLink({ syntax: 'wiki', target: name }, from);
+        return r.kind === 'page' && r.status === 'ok' ? r.path : null;
+      },
+    };
+  }
+
+  /**
+   * An attribute written `${expression}` is worked out here and its result is what the index (and so every view, query and
+   * page) sees; the file keeps the formula. It is worked out again whenever the index changes, and now and then, since
+   * a formula may use today's date.
+   */
+  private installFormulas(o: Open): void {
+    if (o.single || o.config) return;
+    let running = false;
+    let again = false;
+    const run = async (): Promise<void> => {
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
+      try {
+        do {
+          again = false;
+          if (this.ws !== o) return;
+          if (await recomputeFormulas(this.formulaHost(o))) this.emit('index:updated', { path: null });
+        } while (again);
+      } catch (e) {
+        log.warn('formulas could not be worked out', e);
+      } finally {
+        running = false;
+      }
+    };
+    const idx = o.index as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>;
+    for (const name of ['refresh', 'reconcile', 'rebuild', 'reloadSchema', 'setInherited']) {
+      const orig = idx[name]!.bind(o.index);
+      idx[name] = async (...a: unknown[]) => {
+        const r = await orig(...a);
+        await run();
+        return r;
+      };
+    }
+    const timer = setInterval(() => {
+      if (this.ws !== o) clearInterval(timer);
+      else void run();
+    }, 30 * 60 * 1000);
+    (timer as { unref?: () => void }).unref?.();
+  }
+
+  /** The value of an expression written in the text of a page (or anywhere else a `${…}` is allowed), as text and as a list. */
+  async evaluateExpression(path: string | null, expr: string): Promise<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty' } | { ok: false; error: string }> {
+    const o = this.open;
+    const res = await new FormulaRun(this.formulaHost(o)).evaluate(path, expr);
+    if (!res.ok) return res;
+    const v = res.value;
+    const items = Array.isArray(v) ? v : [v];
+    const list = items.filter((x) => x !== null && x !== undefined && x !== '').map((x) => valueText(x));
+    const kind = list.length === 0 ? 'empty' : Array.isArray(v) ? 'list' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'bool' : typeof v === 'object' ? 'date' : 'text';
+    return { ok: true, text: valueText(v), list, kind };
   }
 
   private globalDir: string | null = null;
@@ -857,11 +939,10 @@ export class WorkspaceService implements WorkerApi {
   async listChildren(parent: string | null, opts: { includeHidden?: boolean; forChildren?: boolean; workspaces?: boolean; unlisted?: boolean; bareFolders?: boolean } = {}): Promise<TreeItem[]> {
     const o = this.open;
     const items = await o.tree.listChildren(parent, { workspaces: opts.workspaces === true, bareFolders: opts.bareFolders !== false });
-    const hiddenOnly = o.index.hiddenOnlyPaths(parent);
-    // the children pane lists hidden and unlisted pages too, except those whose `hidden` names it
+    // pages hidden from the tree (templates among them) keep out of it, unless they are being shown
+    const hiddenFromTree = o.index.hiddenOnlyPaths(parent);
+    // the children pane lists pages hidden from the tree too, except those whose `hidden` names it
     const hiddenFromChildren = opts.forChildren ? o.index.hiddenOnlyPaths(parent, 'children') : null;
-    // unlisted pages (templates among them) keep out of the tree like `hidden` ones, unless they are being shown
-    const unlisted = o.index.unlistedPaths(parent);
     const templates = o.index.templatePaths(parent);
     const icons = o.index.iconPaths(parent);
     const count = o.index.db.prepare('SELECT COUNT(*) AS n FROM pages WHERE parent_path = ?');
@@ -876,15 +957,15 @@ export class WorkspaceService implements WorkerApi {
           /* unreadable settings: the default icon */
         }
       }
-      const isUnlisted = unlisted.has(i.path);
+      const isUnlisted = hiddenFromTree.has(i.path);
       const shownUnlisted = isUnlisted && opts.unlisted === true;
-      const isHidden = (hiddenOnly.has(i.path) || isUnlisted) && !shownUnlisted;
+      const isHidden = isUnlisted && !shownUnlisted;
       if (hiddenFromChildren?.has(i.path)) continue;
       if (isHidden && !opts.includeHidden) continue;
       let hasChildren = i.hasChildren;
       if (hasChildren && !opts.includeHidden) {
         // a page whose sub-pages are all hidden has nothing to expand
-        const h = new Set([...o.index.hiddenOnlyPaths(i.path), ...(opts.unlisted ? [] : o.index.unlistedPaths(i.path))]);
+        const h = opts.unlisted ? new Set<string>() : o.index.hiddenOnlyPaths(i.path);
         if (h.size > 0 && (count.get(i.path) as { n: number }).n - h.size <= 0) hasChildren = false;
       }
       out.push({
@@ -1052,7 +1133,7 @@ export class WorkspaceService implements WorkerApi {
     if (o.single || o.config) return;
     await editSection(infoPath(o.root), 'notes', (doc) => setKey(doc, 'notes', types ? { extensions: types.exts, create: types.create } : null));
     const next = types ?? appDefault;
-    configureNotes({ exts: next.exts, defaultExt: next.create });
+    configureNotes({ exts: withCanvas(next.exts), defaultExt: next.create });
     await o.index.rebuild();
     o.lookup = null;
     this.emit('tree:changed', { parents: 'all' });
@@ -1063,9 +1144,9 @@ export class WorkspaceService implements WorkerApi {
   async applyAppNoteTypes(types: NoteTypes): Promise<void> {
     const o = this.open;
     if (o.single || o.config || (await this.readNoteTypes(o.root))) return;
-    const same = JSON.stringify(types.exts) === JSON.stringify(noteExtensions()) && types.create === defaultNoteExt();
+    const same = JSON.stringify(withCanvas(types.exts)) === JSON.stringify(noteExtensions()) && types.create === defaultNoteExt();
     if (same) return;
-    configureNotes({ exts: types.exts, defaultExt: types.create });
+    configureNotes({ exts: withCanvas(types.exts), defaultExt: types.create });
     await o.index.rebuild();
     o.lookup = null;
     this.emit('tree:changed', { parents: 'all' });
@@ -1299,20 +1380,24 @@ export class WorkspaceService implements WorkerApi {
 
   async createPage(parent: string | null, name: string, content?: string, template?: string | null, mergeDefault?: boolean): Promise<string> {
     const o = this.open;
-    const stem = normalizeName(name);
+    const stem = fileStem(name);
+    // what was typed is the title, with its question mark or trailing dot; the file name leaves those out
+    const title = titleOfTyped(name, stem);
     // no text given: start from the template asked for (null: none), else the one the parents name for their sub-pages.
     // Text given by a view (mergeDefault): its attributes are laid over the default template's page.
-    const ext = o.config && !o.docs ? configCreateExt(parent) : defaultNoteExt();
+    // a name typed with `.canvas` makes a canvas, whatever the workspace's usual note type is
+    const canvas = !o.config && noteExtOf(name.trim()) === '.canvas';
+    const ext = canvas ? '.canvas' : o.config && !o.docs ? configCreateExt(parent) : defaultNoteExt();
     let text = content;
-    if ((text === undefined || mergeDefault) && template !== null && ext === defaultNoteExt()) {
+    if ((text === undefined || mergeDefault) && template !== null && !canvas && ext === defaultNoteExt()) {
       const want = template ?? (await defaultTemplateName(o.root, parent));
       const t = want ? await findTemplate(o.root, parent, want, this.appTemplates) : null;
       if (t) {
-        const made = instantiate(t.text, name.trim() || stem);
+        const made = instantiate(t.text, title);
         text = content === undefined ? made : mergeWithTemplate(made, content);
       }
     }
-    const created = await o.tree.createPage(parent, stem, text ?? (ext === '.md' ? `# ${stem}\n\n` : ''), ext);
+    const created = await o.tree.createPage(parent, stem, text ?? (ext === '.md' ? `# ${title}\n\n` : ext === '.canvas' ? EMPTY_CANVAS : ''), ext);
     await o.index.refresh([created]);
     await this.stampTodayDefaults(o, created);
     o.lookup = null;
@@ -1398,7 +1483,7 @@ export class WorkspaceService implements WorkerApi {
   /** Is there a page or folder with this name where a page of that name would go? */
   async pageNameTaken(parent: string | null, name: string): Promise<boolean> {
     const o = this.open;
-    const stem = normalizeName(name);
+    const stem = fileStem(name);
     const dir = parent === null ? '' : pageFolder(parent);
     const rel = (n: string): string => (dir ? `${dir}/${n}` : n);
     const exists = (r: string): Promise<boolean> => fs.stat(this.absDir(r)).then(() => true, () => false);
@@ -1411,14 +1496,14 @@ export class WorkspaceService implements WorkerApi {
   /** A page that gets the first free `Name.1`, `Name.2` … as its file name while its own text keeps the plain title. */
   async createPageNumbered(parent: string | null, name: string, content: string, mergeDefault?: boolean): Promise<string> {
     const o = this.open;
-    const stem = normalizeName(name);
+    const stem = fileStem(name);
     let n = 1;
     while (await this.pageNameTaken(parent, `${stem}.${n}`)) n++;
     let text = content;
     if (mergeDefault) {
       const want = await defaultTemplateName(o.root, parent);
       const t = want ? await findTemplate(o.root, parent, want, this.appTemplates) : null;
-      if (t) text = mergeWithTemplate(instantiate(t.text, name.trim() || stem), content);
+      if (t) text = mergeWithTemplate(instantiate(t.text, titleOfTyped(name, stem)), content);
     }
     const created = await o.tree.createPage(parent, `${stem}.${n}`, text);
     await o.index.refresh([created]);
@@ -1668,6 +1753,43 @@ export class WorkspaceService implements WorkerApi {
     return { path: info.path, title: info.title, isVirtual: info.isVirtual, attributes: info.attributes, diagnostics: info.diagnostics };
   }
 
+  async attributeSources(p: string): Promise<AttributeSource[]> {
+    const o = this.open;
+    const path = normalizePagePath(p);
+    const info = o.index.getPage(path);
+    if (!info) return [];
+    // what the page's own frontmatter sets
+    const own = new Set<string>();
+    try {
+      const page = await this.readPage(path);
+      const data = (parseMarkdown(page.text) as { frontmatter?: { data?: Record<string, unknown> } }).frontmatter?.data;
+      if (data && typeof data === 'object') for (const k of Object.keys(data)) own.add(k.toLowerCase());
+    } catch {
+      /* the page cannot be read: everything is then taken as coming from elsewhere */
+    }
+    // the pages above, nearest first
+    const above: Array<{ path: string; st: NonNullable<ReturnType<typeof o.index.stateOf>> }> = [];
+    for (let a = parentPage(path); a; a = parentPage(a)) {
+      const st = o.index.stateOf(a);
+      if (st) above.push({ path: a, st });
+    }
+    const globalKeys = new Set(Object.keys((o.index.globals ?? {}) as Record<string, unknown>).map((k) => k.toLowerCase()));
+    const has = (obj: Record<string, unknown>, lk: string): boolean => Object.keys(obj).some((k) => k.toLowerCase() === lk);
+    const rank = { page: 0, children: 1, inherited: 2, workspace: 3, other: 4 } as const;
+    const out = Object.entries(info.attributes).map(([key, rows]): AttributeSource => {
+      const lk = key.toLowerCase();
+      const value = rows.map((r) => r.text).join(', ');
+      if (own.has(lk)) return { key, value, source: { kind: 'page' } };
+      const block = above.find((x) => x.st.blocks.some((b) => has(b.attrs, lk)));
+      if (block) return { key, value, source: { kind: 'children', page: block.path } };
+      if (globalKeys.has(lk)) return { key, value, source: { kind: 'workspace' } };
+      const passed = above.find((x) => has(x.st.attributes, lk));
+      if (passed) return { key, value, source: { kind: 'inherited', page: passed.path } };
+      return { key, value, source: { kind: 'other' } };
+    });
+    return out.sort((a, b) => rank[a.source.kind] - rank[b.source.kind] || a.key.localeCompare(b.key));
+  }
+
   async links(p: string): Promise<LinkInfo[]> {
     return this.open.index.links(normalizePagePath(p)) as LinkInfo[];
   }
@@ -1760,7 +1882,7 @@ export class WorkspaceService implements WorkerApi {
     const rows = db.prepare(`SELECT p.path FROM pages p WHERE p.is_virtual = 0 AND ${where} ORDER BY p.path LIMIT @limit`).all(args) as Array<{ path: string }>;
     const out: string[] = [];
     for (const r of rows) {
-      // only pages the tree shows (not hidden or unlisted ones)
+      // only pages the tree shows (not the ones hidden from the tree)
       if ((await this.treeAnchor(r.path)) === r.path) out.push(r.path);
       if (out.length >= limit) break;
     }

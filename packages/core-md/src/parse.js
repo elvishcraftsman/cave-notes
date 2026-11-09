@@ -195,6 +195,11 @@ function mdLink(text, node, { dest, via, embed, linkText, defNode }) {
   });
 }
 
+/** The wikilinks of a piece of text (no code or other syntax to skip), with places in that text. */
+export function wikiLinksOf(text) {
+  return wikiLinks(text, []);
+}
+
 function wikiLinks(text, skipRanges) {
   const out = [];
   if (!text.includes('[[')) return out;

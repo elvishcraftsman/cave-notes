@@ -453,12 +453,216 @@ def('round', 'round(n, digits)', 'Rounded; digits defaults to 0.', (a) => {
 });
 def('floor', 'floor(n)', 'Rounded down.', (a) => Math.floor(numArg('floor', a[0])));
 def('ceil', 'ceil(n)', 'Rounded up.', (a) => Math.ceil(numArg('ceil', a[0])));
-def('min', 'min(a, b, ...)', 'The smallest number.', (a) => Math.min(...a.map((x) => numArg('min', x))));
-def('max', 'max(a, b, ...)', 'The largest number.', (a) => Math.max(...a.map((x) => numArg('max', x))));
 def('abs', 'abs(n)', 'Without its sign.', (a) => Math.abs(numArg('abs', a[0])));
 def('clamp', 'clamp(n, low, high)', 'n kept between low and high.', (a) => {
   need('clamp', a, 3);
   return Math.min(Math.max(numArg('clamp', a[0]), numArg('clamp', a[1])), numArg('clamp', a[2]));
+});
+
+// ---------------------------------------------------------------- lists, numbers, and what a query finds
+
+/** The numbers in a list (or in several values): empty values and text that is no number are skipped, as a spreadsheet does. */
+const numbersIn = (args) =>
+  args
+    .flat(Infinity)
+    .map((x) => (typeof x === 'boolean' ? null : asNum(x)))
+    .filter((x) => x !== null);
+const isFilled = (x) => x !== null && x !== undefined && x !== '' && !(Array.isArray(x) && x.length === 0);
+const sumOf = (n) => n.reduce((t, x) => t + x, 0);
+const medianOf = (n) => {
+  if (n.length === 0) return null;
+  const s = [...n].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+
+/** Fold a list of numbers the way `name` says (sum, avg, min, max, median, product). */
+const FOLDS = {
+  sum: (n) => sumOf(n),
+  avg: (n) => (n.length === 0 ? null : sumOf(n) / n.length),
+  min: (n) => (n.length === 0 ? null : Math.min(...n)),
+  max: (n) => (n.length === 0 ? null : Math.max(...n)),
+  median: medianOf,
+  product: (n) => n.reduce((t, x) => t * x, 1),
+};
+const FOLD_ALIAS = { average: 'avg', mean: 'avg' };
+const foldName = (name) => FOLD_ALIAS[name] ?? name;
+
+/** Functions that can also read a query: `sum("status: done", "hours")`. Their result is worked out by the host before the expression runs. */
+export const QUERY_FUNCTIONS = new Set(['sum', 'avg', 'average', 'mean', 'min', 'max', 'median', 'product', 'count', 'values', 'titles']);
+
+/** The key the host stores a query call's result under. */
+export const callKey = (name, args) => `${name}\u0000${JSON.stringify(args)}`;
+
+/** Is this call `name(query, attribute)`: text first (that is no number), and for the folds one more text? */
+function isQueryCall(name, args) {
+  if (!QUERY_FUNCTIONS.has(name) || typeof args[0] !== 'string') return false;
+  if (name === 'count' || name === 'values' || name === 'titles') return args.length >= 1 && args.length <= 2 && args.every((a) => typeof a === 'string');
+  return args.length === 2 && typeof args[1] === 'string' && asNum(args[0]) === null;
+}
+
+/** The calls in a parsed expression that read a query or a page, with their text arguments: `{ kind: 'query' | 'page', name, args, key }`. */
+export function hostCalls(tree) {
+  const out = [];
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || typeof n !== 'object') return;
+    if (n.k === 'call') {
+      const lits = n.args.every((a) => a.k === 'lit');
+      const args = lits ? n.args.map((a) => a.v) : null;
+      if (args && n.name === 'page' && args.length === 1 && typeof args[0] === 'string') add({ kind: 'page', name: 'page', args, key: callKey('page', args) });
+      else if (args && isQueryCall(n.name, args)) add({ kind: 'query', name: n.name, args, key: callKey(n.name, args) });
+    }
+    for (const v of Object.values(n)) {
+      if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === 'object') walk(v);
+    }
+  };
+  const add = (c) => {
+    if (!seen.has(c.key)) {
+      seen.add(c.key);
+      out.push(c);
+    }
+  };
+  walk(tree);
+  return out;
+}
+
+/**
+ * The value of `name(query, attribute)` from what the host found: `data` is `{ count, titles, values }` where values are the
+ * attribute's values on the pages the query found, as `{ type, text, num }`.
+ */
+export function queryValue(name, args, data) {
+  const typed = (e) => (e.type === 'number' ? e.num : e.type === 'bool' ? e.num === 1 : e.type === 'date' ? (parseDateValue(e.text) ?? e.text) : e.text);
+  if (name === 'titles') return data.titles;
+  if (name === 'count') return args.length === 1 ? data.count : data.values.filter((e) => e.text !== '').length;
+  const list = data.values.map(typed);
+  if (name === 'values') return list;
+  return FOLDS[foldName(name)](numbersIn([list]));
+}
+
+/** `[[Page]]` outside quotes becomes `page("Page")`, so that `[[Budget]].total` reads an attribute of another page. */
+export function rewritePageRefs(src) {
+  let out = '';
+  let quote = null;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      out += c;
+      if (c === '\\' && i + 1 < src.length) out += src[++i];
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      out += c;
+    } else if (c === '[' && src[i + 1] === '[') {
+      const end = src.indexOf(']]', i + 2);
+      if (end < 0) {
+        out += c;
+        continue;
+      }
+      const name = src.slice(i + 2, end).split('|')[0].trim();
+      out += `page(${JSON.stringify(name)})`;
+      i = end + 1;
+    } else out += c;
+  }
+  return out;
+}
+
+const hostValue = (name, args, ctx) => {
+  const store = ctx.__host;
+  const key = callKey(name, args);
+  if (!store) throw new Error(`${name}() with a query or a page works in the text of a page and in attribute formulas, not in an automation rule`);
+  if (!store.has(key)) {
+    throw new Error(`${name}(): write the query and the attribute as text in quotes, like ${name}("status: done", "hours")`);
+  }
+  const v = store.get(key);
+  if (v && typeof v === 'object' && v.__error) throw new Error(`${name}(): ${v.__error}`);
+  return v;
+};
+
+const listFn = (name, fold) => (a, ctx) => (isQueryCall(name, a) ? hostValue(name, a, ctx) : fold(numbersIn(a)));
+def('sum', 'sum(list)', 'The total of the numbers in a list (or in several values); empty values and text are skipped. `sum("query", "attribute")` adds up the attribute over the pages a query finds.', listFn('sum', FOLDS.sum));
+def('avg', 'avg(list)', 'The average of the numbers (null when there are none). Also `average` and `mean`. `avg("query", "attribute")` averages over the pages a query finds.', listFn('avg', FOLDS.avg));
+FUNCTIONS.average = FUNCTIONS.mean = (a, ctx) => (isQueryCall('avg', a) ? hostValue('avg', a, ctx) : FOLDS.avg(numbersIn(a)));
+def('min', 'min(a, b, ...)', 'The smallest number: of several values or of a list. `min("query", "attribute")` is the smallest over the pages a query finds.', (a, ctx) => (isQueryCall('min', a) ? hostValue('min', a, ctx) : FOLDS.min(numbersIn(a))));
+def('max', 'max(a, b, ...)', 'The largest number: of several values or of a list. `max("query", "attribute")` is the largest over the pages a query finds.', (a, ctx) => (isQueryCall('max', a) ? hostValue('max', a, ctx) : FOLDS.max(numbersIn(a))));
+def('median', 'median(list)', 'The middle number of a list. `median("query", "attribute")` works over the pages a query finds.', listFn('median', FOLDS.median));
+def('product', 'product(list)', 'The numbers of a list multiplied.', listFn('product', FOLDS.product));
+def('count', 'count(list)', 'How many items a list has that are not empty. `count("query")` is how many pages a query finds; `count("query", "attribute")` how many of them have a value for the attribute.', (a, ctx) => {
+  if (isQueryCall('count', a)) return hostValue('count', a, ctx);
+  return a.flat(Infinity).filter(isFilled).length;
+});
+def('values', 'values("query", "attribute")', 'The list of an attribute\'s values on the pages a query finds (numbers stay numbers). Use it where a list is wanted: `sum(values("under:[[Budget]]", "cost"))`.', (a, ctx) => {
+  need('values', a, 2);
+  return hostValue('values', a, ctx);
+});
+def('titles', 'titles("query")', 'The titles of the pages a query finds, as a list: `join(titles("status: active"), ", ")`.', (a, ctx) => {
+  need('titles', a, 1);
+  return hostValue('titles', a, ctx);
+});
+def('page', 'page("Name")', 'The page with that name, to read its attributes: `page("Budget").total`. Write `[[Budget]].total` for the same.', (a, ctx) => {
+  need('page', a, 1);
+  return hostValue('page', a, ctx);
+});
+def('unique', 'unique(list)', 'The list without repeated items.', (a) => {
+  const out = [];
+  for (const x of Array.isArray(a[0]) ? a[0] : [a[0]]) if (!out.some((y) => equals(x, y))) out.push(x);
+  return out;
+});
+def('sort', 'sort(list)', 'The list in order, smallest first (numbers and dates by value, text without regard to capitals).', (a) => [...(Array.isArray(a[0]) ? a[0] : [a[0]])].sort(compare));
+def('reverse', 'reverse(list)', 'The list the other way round.', (a) => [...(Array.isArray(a[0]) ? a[0] : [a[0]])].reverse());
+def('last', 'last(list)', 'The last item.', (a) => (Array.isArray(a[0]) ? (a[0][a[0].length - 1] ?? null) : a[0]));
+def('range', 'range(from, to)', 'The whole numbers from one to the other, as a list (at most 1000).', (a) => {
+  need('range', a, 2);
+  const from = Math.floor(numArg('range', a[0]));
+  const to = Math.floor(numArg('range', a[1]));
+  const out = [];
+  for (let i = from; i <= to && out.length < 1000; i++) out.push(i);
+  return out;
+});
+def('split', 'split(text, ",")', 'Text cut into a list at every separator; the pieces lose their surrounding spaces.', (a) => {
+  need('split', a, 2);
+  return stringify(a[0]).split(stringify(a[1])).map((x) => x.trim());
+});
+def('substr', 'substr(text, start, length)', 'Part of a text: from character `start` (the first is 1), `length` characters (to the end when left out).', (a) => {
+  need('substr', a, 2, 3);
+  const from = Math.max(1, Math.floor(numArg('substr', a[1]))) - 1;
+  const t = stringify(a[0]);
+  return a[2] === undefined ? t.slice(from) : t.slice(from, from + Math.max(0, Math.floor(numArg('substr', a[2]))));
+});
+def('sqrt', 'sqrt(n)', 'The square root.', (a) => {
+  const n = numArg('sqrt', a[0]);
+  if (n < 0) throw new Error('sqrt(): no square root of a negative number');
+  return Math.sqrt(n);
+});
+def('pow', 'pow(n, power)', 'n to the power: `pow(2, 10)` is 1024.', (a) => {
+  need('pow', a, 2);
+  return numArg('pow', a[0]) ** numArg('pow', a[1]);
+});
+def('percent', 'percent(part, whole, digits)', 'What percentage part is of whole, rounded to `digits` (default 1): `percent(3, 8)` is 37.5. Null when whole is 0.', (a) => {
+  need('percent', a, 2, 3);
+  const whole = numArg('percent', a[1]);
+  if (whole === 0) return null;
+  const f = 10 ** (a[2] === undefined ? 1 : numArg('percent', a[2]));
+  return Math.round((numArg('percent', a[0]) / whole) * 100 * f) / f;
+});
+def('fixed', 'fixed(n, digits)', 'A number as text with exactly this many decimals: `fixed(2.5, 2)` is `2.50`.', (a) => {
+  need('fixed', a, 1, 2);
+  return numArg('fixed', a[0]).toFixed(Math.max(0, Math.min(20, a[1] === undefined ? 0 : numArg('fixed', a[1]))));
+});
+def('commas', 'commas(n, digits)', 'A number as text with thousands separators: `commas(1234567.5, 1)` is `1,234,567.5`. Digits defaults to what the number has (at most 3).', (a) => {
+  need('commas', a, 1, 2);
+  const n = numArg('commas', a[0]);
+  const d = a[1] === undefined ? undefined : Math.max(0, Math.min(20, numArg('commas', a[1])));
+  return n.toLocaleString('en-US', d === undefined ? { maximumFractionDigits: 3 } : { minimumFractionDigits: d, maximumFractionDigits: d });
+});
+def('years_between', 'years_between(a, b)', 'Whole years from a to b (negative if b is earlier): `years_between(this.born, today)` is an age.', (a) => {
+  need('years_between', a, 2);
+  const x = dateArg('years_between', a[0]).date;
+  const y = dateArg('years_between', a[1]).date;
+  let n = y.getFullYear() - x.getFullYear();
+  if (y.getMonth() < x.getMonth() || (y.getMonth() === x.getMonth() && y.getDate() < x.getDate())) n--;
+  return n;
 });
 
 // ---------------------------------------------------------------- templates

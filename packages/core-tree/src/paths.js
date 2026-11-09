@@ -89,6 +89,16 @@ export function normalizeName(name) {
   return n;
 }
 
+/**
+ * A file name made from a name a person typed (or a title): question marks are left out, and so is a trailing dot (the title
+ * keeps both). Then the usual checks. What cannot become a name at all still throws.
+ */
+export function fileStem(name) {
+  if (typeof name !== 'string') return normalizeName(name);
+  const n = name.replace(/\?/g, '').trim().replace(/\.+$/, '').trim();
+  return normalizeName(n);
+}
+
 /** Validate a page path. Returns it unchanged. Does not touch the filesystem. */
 export function normalizePagePath(p) {
   if (typeof p !== 'string' || p === '') {

@@ -33,7 +33,7 @@ Words and terms are separated by spaces. A page must match all of them.
 | `path:soter`, `heading:imputation` | Part of the path, or a heading. |
 | `sort:due`, `sort:-title`, `sort:rank,title` | The order. `-` reverses it. You can sort by `rank` (best text match), `title`, `name`, `path`, `mtime` (last change), `order`, or any attribute. Pages without the attribute go last. |
 
-Pages with `unlisted: true` are left out of every result unless the query mentions `unlisted` (see [attributes.md](attributes.md)). Templates (`template: true`) count as unlisted too unless they have an `unlisted` attribute of their own, so a query that names `template` (`template:true`, `has:template`) is the way to list them.
+Pages hidden from queries (`hidden: queries`, `all` or `true`; see [attributes.md](attributes.md)) are left out of every result, views and automation rules included, unless the query mentions `hidden`: `hidden:queries` finds every page hidden from queries (the `all` and `true` ones too), `hidden:all` only the ones that say `all`. Pages that are only hidden from the search pane, the page tree or the sub-page bar still show in views and rules. Templates (`template: true`) count as `hidden: all` unless they have a `hidden` attribute of their own, so a query that names `template` (`template:true`, `has:template`) is the way to list them.
 
 **Pages as attribute values.** `doctrine: [[Scripture]]` in a page's frontmatter is a link to the page Scripture, not the word "Scripture" (you do not need quotes around it). To find the pages that link to a page in an attribute, put the page in `[[ ]]`: `doctrine:[[Scripture]]`, or `doctrine:$this` in a view on the Scripture page. `doctrine:Scripture` without brackets finds pages where the attribute is the plain word. Inside a query that has spaces, quote it: `project:\"[[River Bible]]\"`.
 
@@ -93,6 +93,7 @@ views:
 ````
 
 - `!Name` at the start of a query takes the query of the view with that name; more filters can follow. Use `!"Two words"` for a name with spaces.
+- The tab that is open is remembered in the block: choosing another tab puts `open: true` on that view and takes it off the others, and the block opens on the view that has it (the first view when none does; the first view never needs the mark). You can set it by hand too. It is not written in a page that cannot be edited.
 - A block with no `views:` list is a single view whose settings stand at the top. (The older way of repeating `view:` lines is not valid YAML and is no longer read; the editor says so if it finds it.)
 - At the right of the toolbar are the CSV export, the code button (edit the block as text) and an expander that shows every other control: type (a dropdown), name, grouping, Filter, Properties, Sort, Colors, and **+ View** / **Remove view**. An open pane's button is highlighted and the pane has a close button in its corner.
 

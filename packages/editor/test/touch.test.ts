@@ -64,7 +64,8 @@ suite('touch selection menu', () => {
     expect(e.defaultPrevented).toBe(true);
     expect(menu()).not.toBeNull();
     expect(menu()!.classList.contains('cm-format-dock')).toBe(false);
-    expect(button('Indent list item')).toBeNull(); // desktop menu is unchanged
+    expect(button('Indent list item')).not.toBeNull(); // the right-click menu has Indent and Outdent too
+    expect(button('Select all text')).not.toBeNull();
   });
 
   it('after a touch selection settles, the menu docks along the bottom with Indent and Outdent', () => {
@@ -210,14 +211,14 @@ suite('touch: a selected word brings its synonyms', () => {
 });
 
 suite('touch: select all', () => {
-  it('the docked menu has a Select all that selects the whole page', () => {
+  it('the docked menu has a Select all text that selects the whole page', () => {
     vi.useFakeTimers();
     const ed = make('first line\nsecond line\nthird line');
     ed.view.focus();
     pointer(ed, 'touch');
     ed.view.dispatch({ selection: { anchor: 0, head: 5 } });
     vi.advanceTimersByTime(400);
-    const btn = [...document.querySelectorAll('.cm-format-dock .cm-format-btn')].find((b) => (b as HTMLElement).title === 'Select all') as HTMLElement;
+    const btn = [...document.querySelectorAll('.cm-format-dock .cm-format-btn')].find((b) => (b as HTMLElement).title === 'Select all text') as HTMLElement;
     expect(btn).toBeTruthy();
     btn.click();
     expect(ed.view.state.selection.main).toMatchObject({ from: 0, to: ed.text().length });

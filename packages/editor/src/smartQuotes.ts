@@ -154,6 +154,35 @@ function composedApostrophes(): Extension {
   ];
 }
 
+/** The marks that go around things: quotes of every kind, brackets, and the backtick. */
+const WRAPPING_MARKS = new Set([...'"\'`()[]{}\u00AB\u00BB\u2039\u203A\u201E\u201A', LEFT_DOUBLE, RIGHT_DOUBLE, LEFT_SINGLE, RIGHT_SINGLE]);
+const WRAPPING_KEYS = /^["'`()[\]{}]$/;
+
+/**
+ * When a quote, bracket or other wrapping mark is the only thing selected and a quote or bracket key is pressed, the mark
+ * is replaced by the typed one, instead of the usual "put the typed pair around the selection": selecting a " and typing
+ * ' gives '. Typed quotes still come out curly (opening or closing as the text around them asks) unless `curly` is false.
+ */
+export function replaceWrappingMark(curly = true): Extension {
+  return Prec.highest(
+    EditorView.inputHandler.of((view, from, to, text) => {
+      if (!WRAPPING_KEYS.test(text) || view.composing) return false;
+      const { state } = view;
+      const main = state.selection.main;
+      if (state.selection.ranges.length !== 1 || main.to - main.from !== 1 || from !== main.from || to !== main.to) return false;
+      if (!WRAPPING_MARKS.has(state.doc.sliceString(from, to))) return false;
+      let insert = text;
+      if (curly && (text === '"' || text === "'")) {
+        const line = state.doc.lineAt(from);
+        const before = state.doc.sliceString(line.from, from);
+        if (!plainContext(state, from, before)) insert = opens(before) ? (text === '"' ? LEFT_DOUBLE : LEFT_SINGLE) : text === '"' ? RIGHT_DOUBLE : RIGHT_SINGLE;
+      }
+      view.dispatch({ changes: { from, to, insert }, selection: EditorSelection.single(from + insert.length), scrollIntoView: true, userEvent: 'input.type' });
+      return true;
+    }),
+  );
+}
+
 /** The extension: handles " and ' as they are typed, ahead of the bracket auto-closer. */
 export function smartQuotes(): Extension {
   return [

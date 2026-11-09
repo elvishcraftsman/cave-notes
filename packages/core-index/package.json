@@ -10,13 +10,22 @@
     "./config": "./src/config.js",
     "./driver-better-sqlite3": "./src/driver-better-sqlite3.js",
     "./driver-sqlite-wasm": "./src/driver-sqlite-wasm.js",
-    "./db-conformance": "./src/db-conformance.js"
+    "./db-conformance": "./src/db-conformance.js",
+    "./saved": "./src/saved.js"
   },
   "imports": {
-    "#default-driver": { "browser": "./src/driver-none.js", "default": "./src/driver-better-sqlite3.js" },
-    "#parse-pool": { "browser": "./src/pool-none.js", "default": "./src/pool.js" }
+    "#default-driver": {
+      "browser": "./src/driver-none.js",
+      "default": "./src/driver-better-sqlite3.js"
+    },
+    "#parse-pool": {
+      "browser": "./src/pool-none.js",
+      "default": "./src/pool.js"
+    }
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "node --test \"test/*.test.js\"",
     "test:wasm": "node --import ./test/wasm-driver.js --test \"test/*.test.js\"",

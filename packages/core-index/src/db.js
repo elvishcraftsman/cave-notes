@@ -7,7 +7,7 @@ export function setDefaultDriver(driver) {
 }
 
 /** Bump when the schema changes. A mismatch drops the index and rebuilds it (it is only a cache). */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const DDL = `
 CREATE TABLE pages (
@@ -67,7 +67,8 @@ CREATE TABLE attrs (
   type TEXT NOT NULL,                 -- string | number | date | bool
   text_value TEXT NOT NULL,
   num_value REAL,                     -- numbers, dates (epoch ms), bools (0/1)
-  idx INTEGER NOT NULL DEFAULT 0      -- list items are one row each
+  idx INTEGER NOT NULL DEFAULT 0,     -- list items are one row each
+  formula TEXT                        -- the expression of a value written as a dollar-brace formula; text_value / num_value hold what it came to
 );
 CREATE INDEX idx_attrs_page ON attrs(page_id, key);
 CREATE INDEX idx_attrs_key_text ON attrs(key, text_value COLLATE NOCASE);

@@ -35,7 +35,8 @@ test('hidden: each place has its own list of pages', async (t) => {
 test('hidden: search keeps pages out of the search pane unless the query names hidden', async (t) => {
   const idx = await open(t);
   const found = (q, o) => idx.search(q, o).results.map((r) => r.path).sort();
-  assert.equal(found('words').length, 10); // views and queries are not touched
+  // views and rules still see what is only hidden from the search pane, tree or children bar; `all` and `true` hide from queries too
+  assert.deepEqual(found('words'), ['Find.md', 'Kids.md', 'List.md', 'No.md', 'Odd.md', 'Plain.md', 'Tree.md', 'Two.md']);
   assert.deepEqual(found('words', { hideFrom: 'search' }), ['Kids.md', 'No.md', 'Odd.md', 'Plain.md', 'Tree.md', 'Two.md']);
   assert.ok(found('words hidden:all', { hideFrom: 'search' }).includes('All.md'));
   assert.ok(found('has:hidden words', { hideFrom: 'search' }).includes('Find.md'));

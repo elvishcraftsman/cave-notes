@@ -5,6 +5,7 @@ import {
   noteExtOf,
   defaultNoteExt,
   normalizeName,
+  fileStem,
   normalizePagePath,
   pageFolder,
   pageName,
@@ -267,7 +268,7 @@ export function openTree(rootDir, options = {}) {
    */
   const createPage = (parent, name, content = '', ext = defaultNoteExt()) =>
     serialize(async () => {
-      const stem = normalizeName(name);
+      const stem = fileStem(name);
       assertNotIgnored(stem);
       const parentPath = parent === null ? null : validPage(parent);
       if (parentPath !== null && (await status(parentPath)) === null) {
@@ -311,7 +312,7 @@ export function openTree(rootDir, options = {}) {
     const srcStatus = await status(src);
     if (srcStatus === null) throw new TreeError('NOT_FOUND', `Page not found: ${src}`, { path: src });
 
-    const stem = newName === undefined ? pageName(src) : normalizeName(newName);
+    const stem = newName === undefined ? pageName(src) : fileStem(newName);
     assertNotIgnored(stem);
 
     const dstParent = newParent === null ? null : validPage(newParent);

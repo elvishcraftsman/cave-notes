@@ -2,7 +2,7 @@ import type { ComponentChildren, JSX } from 'preact';
 import { render } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Controller } from '../controller';
-import { Icon } from './icons';
+import { Icon, WorkspaceIcon, isIconName } from './icons';
 
 /**
  * Draws its children directly under <body>, outside whatever contains the component. (preact/compat's createPortal
@@ -103,10 +103,10 @@ export function Popover({ open, onClose, children, align = 'right' }: { open: bo
   );
 }
 
-export function MenuItem({ icon, label, shortcut, onClick, disabled, destructive }: { icon?: Parameters<typeof Icon>[0]['name']; label: string; shortcut?: string; onClick: () => void; disabled?: boolean; destructive?: boolean }): JSX.Element {
+export function MenuItem({ icon, workspaceIcon, label, shortcut, onClick, disabled, destructive }: { icon?: Parameters<typeof Icon>[0]['name']; /** the icon a workspace chose: shown instead of `icon` when it is a known one */ workspaceIcon?: string | null; label: string; shortcut?: string; onClick: () => void; disabled?: boolean; destructive?: boolean }): JSX.Element {
   return (
     <button class={`menu-item ${destructive ? 'destructive' : ''}`} role="menuitem" disabled={disabled} onClick={onClick}>
-      <span class="menu-icon">{icon && <Icon name={icon} />}</span>
+      <span class="menu-icon">{workspaceIcon && isIconName(workspaceIcon) ? <WorkspaceIcon name={workspaceIcon} /> : icon && <Icon name={icon} />}</span>
       <span class="menu-label">{label}</span>
       {shortcut && <span class="menu-shortcut">{shortcut}</span>}
     </button>
