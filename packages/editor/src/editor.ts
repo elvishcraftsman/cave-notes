@@ -1,4 +1,4 @@
-import { autocompletion, type CompletionContext, type CompletionResult, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
+import { autocompletion, type Completion, type CompletionContext, type CompletionResult, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo, redoDepth, undo, undoDepth } from '@codemirror/commands';
 import { Compartment, type Extension, EditorState, Facet, Prec, type StateEffect, Transaction } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
@@ -18,13 +18,14 @@ import { expressions } from './expressions';
 import { dashes } from './dashes';
 import { footnotes, openingFixes } from './footnotes';
 import { formatMenu, type SpellHost, type ThesaurusHost } from './formatMenu';
-import { fenceAutoClose, insertLink, insertViewBlock, listEnterKeepsSpace, pairOnlyBesideSpace, toggleWrap } from './commands';
+import { commentAutoClose, fenceAutoClose, insertLink, insertViewBlock, listEnterKeepsSpace, pairOnlyBesideSpace, toggleWrap } from './commands';
 import { type ListConfig, listConfig, listSupport } from './lists';
 import { listPaste } from './listPaste';
 import { type FollowableLink, linkAt } from './links';
 import { type LinkStatus, fullRender, livePreview, refreshPreview } from './livePreview';
 import { markdownSupport } from './markdown';
 import { extractOutline, findHeading, isHeading, type OutlineItem } from './outline';
+import { fixDoubleCapitals } from './capitals';
 import { LEFT_DOUBLE, LEFT_SINGLE, replaceWrappingMark, smartQuotes } from './smartQuotes';
 import { noteTheme } from './theme';
 import { codeScroll } from './codeScroll';
@@ -99,6 +100,8 @@ export interface EditorOptions {
   onBlur?: () => void;
   /** Suggestions for text typed after "[[". */
   wikilinkCompletions?: (query: string) => Promise<WikilinkSuggestion[]>;
+  /** The last choice of the `[[` list, for a name that no page has: the link is written as typed, and this makes the page and goes to it. */
+  createLinkedPage?: (name: string) => void;
   /** Status of a wikilink by its written target, to colour broken links. */
   linkStatus?: (raw: string) => LinkStatus;
   /** Map an image path from the note to a loadable URL (or null to show alt text). */
@@ -111,6 +114,8 @@ export interface EditorOptions {
   embed?: EmbedHost;
   /** Typing " or ' writes curly quotes (undo turns one back into the straight character). Default true. */
   smartQuotes?: boolean;
+  /** a word typed as THis becomes This when it ends (not HIs: a plural abbreviation); default on */
+  fixCapitals?: boolean;
   /** Typing -- writes an en dash and --- an em dash (undo gives the hyphens back). Default true. */
   dashes?: boolean;
   /** Draws a `.canvas` file as a canvas (see `load`'s `canvas` option). Without it such a file is shown as plain text. */
@@ -138,28 +143,45 @@ const plainTheme = EditorView.theme({
   '.cm-content': { fontFamily: 'var(--mono-font, monospace)', fontSize: 'var(--mono-font-size, 0.9em)' },
 });
 
-function wikilinkSource(fetch: NonNullable<EditorOptions['wikilinkCompletions']>) {
+function wikilinkSource(fetch: NonNullable<EditorOptions['wikilinkCompletions']>, create?: EditorOptions['createLinkedPage']) {
   return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
     const m = ctx.matchBefore(/!?\[\[[^\]\n|#]*/);
     if (!m) return null;
     const query = m.text.replace(/^!?\[\[/, '');
     const items = await fetch(query);
-    if (!items.length) return null;
+    const typed = query.trim();
+    // "Create page": for a name that is no page's name (and is no path, which a page's name cannot be)
+    const canCreate = !!create && typed !== '' && !/[\\/]/.test(typed) && !items.some((it) => it.label.toLowerCase() === typed.toLowerCase());
+    if (!items.length && !canCreate) return null;
     const start = m.from + m.text.indexOf('[[') + 2;
+    const write = (view: EditorView, from: number, to: number, label: string): void => {
+      const hasClose = view.state.doc.sliceString(to, to + 2) === ']]';
+      const insert = hasClose ? label : `${label}]]`;
+      view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + label.length + 2 } });
+    };
     return {
       from: start,
       // The pages are matched by the query itself; no validFor, so every keystroke asks again and the list narrows as you type.
       filter: false,
-      options: items.map((it) => ({
+      options: items.map((it): Completion => ({
         label: it.label,
         ...(it.detail ? { detail: it.detail } : {}),
         type: 'text',
-        apply: (view: EditorView, _c: unknown, from: number, to: number) => {
-          const hasClose = view.state.doc.sliceString(to, to + 2) === ']]';
-          const insert = hasClose ? it.label : `${it.label}]]`;
-          view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + it.label.length + 2 } });
-        },
-      })),
+        apply: (view: EditorView, _c: unknown, from: number, to: number) => write(view, from, to, it.label),
+      })).concat(
+        canCreate
+          ? [{
+              label: `Create page “${typed}”`,
+              detail: 'and open it',
+              type: 'create',
+              boost: -99,
+              apply: (view: EditorView, _c: unknown, from: number, to: number) => {
+                write(view, from, to, typed);
+                create!(typed);
+              },
+            }]
+          : [],
+      ),
     };
   };
 }
@@ -194,6 +216,8 @@ export class NoteEditor {
   private readonly listCompartment = new Compartment();
   /** `cm-wrapcode` on the editor's element. Set through CodeMirror (not with classList): it rewrites that element's class on every focus change, which used to switch wrapping off again. */
   private readonly wrapCompartment = new Compartment();
+  private readonly capsCompartment = new Compartment();
+  private fixCaps = true;
   private wrapCode = false;
   private listOptions: Partial<ListConfig>;
   /** Space at the bottom of the editor that something lies over (the children bar): typing near it scrolls the text above it. */
@@ -203,6 +227,7 @@ export class NoteEditor {
   constructor(opts: EditorOptions) {
     this.opts = opts;
     this.listOptions = opts.lists ?? {};
+    this.fixCaps = opts.fixCapitals !== false;
     this.extensions = this.buildExtensions();
     this.plainExtensions = this.buildPlainExtensions();
     this.view = new EditorView({ state: this.createState(''), parent: opts.parent });
@@ -297,7 +322,9 @@ export class NoteEditor {
       Prec.high(EditorState.languageData.of(() => [{ closeBrackets: { brackets: ['(', '[', '{', "'", '"', '`', LEFT_DOUBLE, LEFT_SINGLE] } }])),
       o.smartQuotes === false ? [] : smartQuotes(),
       pairOnlyBesideSpace(), // after the smart quotes, which write their own pairs
+      commentAutoClose(), // `<!--` closes with ` -->`
       o.dashes === false ? [] : dashes(),
+      this.capsCompartment.of(this.fixCaps ? fixDoubleCapitals() : []),
       listPaste(),
       // right-click on a link: the host's own menu first; a drag of files over the text is a drop target
       Prec.highest(
@@ -344,7 +371,7 @@ export class NoteEditor {
       o.codeRun ? codeRunHost.of(o.codeRun) : [],
       o.viewBlock ? viewBlockHost.of(o.viewBlock) : [],
       o.embed ? [embedHost.of(o.embed), embeds(), queryLinks(), expressions()] : [],
-      o.wikilinkCompletions ? autocompletion({ override: [wikilinkSource(o.wikilinkCompletions)], icons: false, defaultKeymap: false }) : [],
+      o.wikilinkCompletions ? autocompletion({ override: [wikilinkSource(o.wikilinkCompletions, o.createLinkedPage)], icons: false, defaultKeymap: false }) : [],
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: () => (o.onSave?.(), true) },
         { key: 'Mod-b', run: toggleWrap('**') },
@@ -528,6 +555,12 @@ export class NoteEditor {
 
   /** Change the hierarchical list styles; takes effect at once in the page on screen. */
   /** Wrap long lines in code blocks and plain-text documents (off: they scroll sideways). */
+  /** Turn the correction of accidental double capitals on or off. */
+  setFixCapitals(on: boolean): void {
+    this.fixCaps = on;
+    this.view.dispatch({ effects: this.capsCompartment.reconfigure(on ? fixDoubleCapitals() : []), annotations: Transaction.addToHistory.of(false) });
+  }
+
   setWrapCode(on: boolean): void {
     this.wrapCode = on;
     this.view.dispatch({ effects: this.wrapCompartment.reconfigure(wrapAttributes(on)), annotations: Transaction.addToHistory.of(false) }); // and the code blocks measure again
@@ -554,7 +587,7 @@ export class NoteEditor {
   /** Swap in a previously saved state (keeps its undo history and cursor). */
   setState(state: EditorState): void {
     this.view.setState(state);
-    this.view.dispatch({ effects: [this.listCompartment.reconfigure(listConfig.of(this.listOptions)), this.wrapCompartment.reconfigure(wrapAttributes(this.wrapCode))], annotations: Transaction.addToHistory.of(false) });
+    this.view.dispatch({ effects: [this.listCompartment.reconfigure(listConfig.of(this.listOptions)), this.wrapCompartment.reconfigure(wrapAttributes(this.wrapCode)), this.capsCompartment.reconfigure(this.fixCaps ? fixDoubleCapitals() : [])], annotations: Transaction.addToHistory.of(false) });
     this.opts.onOutline?.(state.facet(plainMode) ? [] : extractOutline(state, { orderedLists: this.outlineLists }));
   }
 

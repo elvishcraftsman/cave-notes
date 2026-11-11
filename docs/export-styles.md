@@ -194,7 +194,7 @@ The export window's preview shows each page's header and footer. They work in Wo
 
 ## Page and slide counts
 
-Give a page the attribute `exportStyle: My Report` and the sidebar under the outline counts its **pages** (laid out as an export in that style would, with the engine that prints PDFs) as well as its words. The export window then starts with that style. The attribute can be handed down by `children:` to a whole folder (see [attributes.md](attributes.md)). A page without it shows only words; a presentation (a page with `presentationTheme:`) shows **slides** instead. Word and LibreOffice may break a page or two differently from the PDF, so the count is exact for PDF and close for the others.
+Give a page the attribute `exportStyle: My Report` and the sidebar under the outline counts its **pages** (laid out as an export in that style would, with the engine that prints PDFs) as well as its words. The export window then starts with that style. Choosing another style there and exporting writes it into the page's `exportStyle` attribute, so the page remembers it; **Cancel, but save theme** (beside Cancel) saves the choice without exporting. The attribute can be handed down by `children:` to a whole folder (see [attributes.md](attributes.md)). A page without it shows only words; a presentation (a page with `presentationTheme:`) shows **slides** instead. Word and LibreOffice may break a page or two differently from the PDF, so the count is exact for PDF and close for the others.
 
 ## Fonts
 

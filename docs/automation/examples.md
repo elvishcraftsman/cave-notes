@@ -32,6 +32,7 @@ rules:
   - id: recur
     where: kind:task recurs:weekly,monthly
     on: { change: status, to: done }
+    if: is_empty(this.recurred_to)
     let:
       next: "${add(this.due, if(this.recurs == 'monthly', '1mo', '7d'))}"
     do:
@@ -39,11 +40,13 @@ rules:
       - create_page:
           name: "${this.title} ${let.next}"
           in: Tasks
-          properties: { kind: task, status: todo, recurs: "${this.recurs}", due: "${let.next}" }
+          properties: { kind: task, status: todo, recurs: "${this.recurs}", due: "${let.next}", previous_task: "[[${this.title}]]" }
       - set_property: { recurred_to: "${created.path}" }
 ```
 
 How it reads: `recurs:weekly,monthly` is "the property `recurs` is `weekly` or `monthly`" (a comma means *or*). `let: next` works the date out once: a week after `due`, or a month after if `recurs` is `monthly`. A task `Water plants` with `due: 2026-10-26` and `recurs: weekly` is finished; the rule stamps it, makes **Water plants 2026-11-02** under `Tasks` with `due: 2026-11-02`, and writes the new page's path in the old one's `recurred_to`.
+
+**The guard.** `if: is_empty(this.recurred_to)` makes the rule do nothing for a task that already made its next one. `create_page` only skips a page that exists at exactly the path it would write to, so a task that is renamed or moved after it was finished (an archive rule, say, moving finished tasks to another folder) could otherwise make its next task a second time. The old task's `recurred_to` is what the guard reads, whatever the page is called or wherever it is. `previous_task` links the new task back to the old.
 
 One thing to watch: the new title is the old title plus a date, so the next time round it would be `Water plants 2026-11-02 2026-11-09`. If your titles end in their date, take the old date off first: `name: "${trimword(this.title, 1)} ${let.next}"` gives `Water plants 2026-11-09`.
 

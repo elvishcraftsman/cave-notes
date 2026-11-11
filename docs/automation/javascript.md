@@ -14,7 +14,7 @@ The script works on one page and nothing else. It cannot open files, use the net
 JavaScript in rules is **off** until you turn it on, on each computer:
 
 1. **Preferences → Automations → Let automations run JavaScript.** The app asks you to confirm.
-2. The first time a rule's script runs in a workspace, the app shows you the script and asks: *Deny*, *Allow once* or *Always allow this script*. Change one character of the script and it asks again. Approvals are kept on this computer only, never in the workspace, and *Forget approved commands and scripts* in Preferences clears them.
+2. The first time a rule's script runs in a workspace, the app shows you the script and asks: *Deny*, *Allow once* or *Always allow this script*. Change one character of the script and it asks again. Approvals are kept on this computer only, never in the workspace, and *Forget all approvals and refusals* in Preferences clears them (the scripts you refused too). A long script is shown only in part, so that the question fits on the screen; **Open the full text** opens a copy of all of it in your text editor, and the question stays open until you answer.
 3. If you trust every workspace you open, switch off **Ask before running a rule's JavaScript** in the same place. The app asks you to confirm that too. Scripts then run without the question, but only while the first switch is on.
 
 ## A first script

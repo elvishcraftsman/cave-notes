@@ -281,4 +281,110 @@ rules:
     expect(r2.detail).toMatch(/switched off in Preferences/);
     expect(r2.text).toBe('x');
   });
+
+  describe('a rule that installs rules', () => {
+    const INSTALL = `
+rules:
+  - id: setup
+    on: { plugin: "Set up" }
+    do:
+      - install_automations:
+          file: extra.yaml
+          owner: demo
+          content: |
+            rules:
+              - id: from-extra
+                on: button
+                do:
+                  - run_js: { code: "return { props: { a: 1 } };" }
+      - create_page: { name: Made, in: N }
+  - id: undo
+    on: { plugin: "Undo setup" }
+    do:
+      - install_automations: { file: extra.yaml, owner: demo, remove: true }
+`;
+
+    it('asks the person, shows what the rules can do, and writes the file only when allowed', async () => {
+      await open({ 'N.md': '# N\n' }, INSTALL);
+      const run = svc.automationPlugin('setup', 'N.md', '', false, {});
+      const ev = await waitFor(() => eventsOf('automation:rules')[0], 'the question about changing automations');
+      const req = ev.payload as WorkerEvents['automation:rules'];
+      expect(req).toMatchObject({ ruleId: 'setup', file: 'extra.yaml', remove: false, created: true });
+      expect(req.summary).toMatchObject({ js: true, shell: false, installs: false });
+      expect(req.summary.rules.map((r) => r.id)).toEqual(['from-extra']);
+      expect(req.content).toContain('# installed by "demo"');
+      expect(await exists('.cave-notes/extra.yaml')).toBe(false); // nothing is written before the answer
+      await svc.automationRulesResult(req.id, { allowed: true });
+      const res = await run;
+      expect(res.status).toBe('done');
+      const file = await read('.cave-notes/extra.yaml');
+      expect(file.split('\n')[0]).toBe('# installed by "demo"');
+      expect(file).toContain('- id: from-extra');
+      expect(await exists('N/Made.md')).toBe(true);
+
+      // already installed exactly like that: nothing is asked
+      events = [];
+      const again = await svc.automationPlugin('setup', 'N.md', '', false, {});
+      expect(again.status).not.toBe('failed');
+      expect(eventsOf('automation:rules')).toHaveLength(0);
+    });
+
+    it('a refusal writes nothing, and the rest of the rule does not happen', async () => {
+      await open({ 'N.md': '# N\n' }, INSTALL);
+      const run = svc.automationPlugin('setup', 'N.md', '', false, {});
+      const ev = await waitFor(() => eventsOf('automation:rules')[0], 'the question');
+      await svc.automationRulesResult((ev.payload as WorkerEvents['automation:rules']).id, { allowed: false, reason: 'you did not allow it' });
+      const res = await run;
+      expect(res.status).toBe('failed');
+      expect(res.detail).toMatch(/you did not allow it/);
+      expect(await exists('.cave-notes/extra.yaml')).toBe(false);
+      expect(await exists('N/Made.md')).toBe(false);
+    });
+
+    it('never touches a file that is not its own', async () => {
+      await write('.cave-notes/extra.yaml', 'rules: []\n');
+      await open({ 'N.md': '# N\n' }, INSTALL);
+      const res = await svc.automationPlugin('setup', 'N.md', '', false, {});
+      expect(res.status).toBe('failed');
+      expect(res.detail).toMatch(/a file of yours/);
+      expect(eventsOf('automation:rules')).toHaveLength(0);
+      expect(await read('.cave-notes/extra.yaml')).toBe('rules: []\n');
+    });
+
+    it('another rule with the same owner can remove it, after asking', async () => {
+      await open({ 'N.md': '# N\n' }, INSTALL);
+      const first = svc.automationPlugin('setup', 'N.md', '', false, {});
+      const a = await waitFor(() => eventsOf('automation:rules')[0], 'the first question');
+      await svc.automationRulesResult((a.payload as WorkerEvents['automation:rules']).id, { allowed: true });
+      await first;
+      events = [];
+      const gone = svc.automationPlugin('undo', 'N.md', '', false, {});
+      const b = await waitFor(() => eventsOf('automation:rules')[0], 'the second question');
+      expect((b.payload as WorkerEvents['automation:rules']).remove).toBe(true);
+      await svc.automationRulesResult((b.payload as WorkerEvents['automation:rules']).id, { allowed: true });
+      expect((await gone).status).toBe('done');
+      expect(await exists('.cave-notes/extra.yaml')).toBe(false);
+    });
+
+    it('a button asks its questions first, and the answers reach the rule', async () => {
+      await open({ 'N.md': '---\nkind: thing\n---\n# N\n' }, `
+rules:
+  - id: ask-me
+    name: Ask me
+    where: kind:thing
+    on: button
+    ask:
+      hello: { type: info, label: "Page \${this.title}" }
+      n: { type: number, label: How many, default: 3 }
+    do:
+      - set_property: { field: got, value: "\${ask.n * 2}" }
+`);
+      const q = await svc.automationButtonAsk('ask-me', 'N.md');
+      expect(q.title).toBe('Ask me');
+      expect(q.ask.map((x) => [x.name, x.label])).toEqual([['hello', 'Page N'], ['n', 'How many']]);
+      const res = await svc.automationButton('ask-me', 'N.md', { n: 21 });
+      expect(res.status).toBe('done');
+      expect((await front('N.md')).got).toBe(42);
+    });
+  });
 });

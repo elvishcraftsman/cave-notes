@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS: Settings = {
   nestedInNewTab: true,
   childrenFilter: 'all',
   spellcheck: true,
+  fixCapitals: true,
   synonyms: true,
   indexAllWorkspaces: true,
   dictionary: [],
@@ -192,6 +193,7 @@ export function portableSettings(raw: unknown): Partial<Settings> {
   if (typeof r.firstDayOfWeek === 'number' && Number.isInteger(r.firstDayOfWeek) && r.firstDayOfWeek >= 0 && r.firstDayOfWeek <= 6) out.firstDayOfWeek = r.firstDayOfWeek;
   if (typeof r.globalsEnabled === 'boolean') out.globalsEnabled = r.globalsEnabled;
   if (typeof r.spellcheck === 'boolean') out.spellcheck = r.spellcheck;
+  if (typeof r.fixCapitals === 'boolean') out.fixCapitals = r.fixCapitals;
   if (typeof r.synonyms === 'boolean') out.synonyms = r.synonyms;
   if (typeof r.indexAllWorkspaces === 'boolean') out.indexAllWorkspaces = r.indexAllWorkspaces;
   if (Array.isArray(r.dictionary)) out.dictionary = cleanDictionary(r.dictionary);
@@ -236,6 +238,7 @@ export function normalizeSettings(raw: Partial<Settings>): Settings {
   v.automationJsAsk = raw.automationJsAsk !== false;
   v.automationBackground = raw.automationBackground === true;
   v.spellcheck = raw.spellcheck !== false;
+  v.fixCapitals = raw.fixCapitals !== false;
   v.synonyms = raw.synonyms !== false;
   v.indexAllWorkspaces = raw.indexAllWorkspaces !== false;
   v.dictionary = cleanDictionary(raw.dictionary);

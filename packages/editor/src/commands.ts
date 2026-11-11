@@ -2,6 +2,7 @@ import { syntaxTree } from '@codemirror/language';
 import { insertNewlineContinueMarkup } from '@codemirror/lang-markdown';
 import { EditorSelection, type Extension, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
+import { continueLetteredItem } from './lists';
 
 /**
  * The cursor sits just inside the end of a span written with `marker` (`*italic|*`): the position after the closing marker, or null.
@@ -135,6 +136,25 @@ export function fenceAutoClose(): Extension {
 }
 
 /**
+ * Typing the second hyphen of `<!--` writes ` -->` after the cursor, so a comment is closed the way a bracket is. The cursor stays
+ * after `<!--`: type the space and the comment, and the closing is already there.
+ */
+export function commentAutoClose(): Extension {
+  return Prec.highest(
+    EditorView.inputHandler.of((view, from, to, text) => {
+      if (text !== '-' || from !== to || view.composing) return false;
+      const { state } = view;
+      if (state.selection.ranges.length !== 1 || !state.selection.main.empty || state.selection.main.from !== from) return false;
+      if (state.doc.sliceString(Math.max(0, from - 3), from) !== '<!-') return false;
+      // a comment that is already closed after the cursor is left as it is
+      if (/^\s*-->/.test(state.doc.lineAt(from).text.slice(from - state.doc.lineAt(from).from))) return false;
+      view.dispatch({ changes: { from, insert: '- -->' }, selection: { anchor: from + 1 }, userEvent: 'input.type', scrollIntoView: true });
+      return true;
+    }),
+  );
+}
+
+/**
  * Typing an opening character ( [ { ` ' " writes its closing partner only where the text around the cursor is white space (or
  * the start or end of the text). Next to other text just the typed character is written: `(` typed before a word is a lone `(`.
  */
@@ -176,6 +196,9 @@ export function listEnterKeepsSpace(): Extension {
           const line = state.doc.lineAt(sel.head);
           const atItemStart = sel.empty && BARE_MARKER.test(line.text.slice(0, sel.head - line.from)) && sel.head < line.to && line.text.slice(sel.head - line.from).trim() !== '';
           if (!atItemStart || line.text.slice(0, sel.head - line.from).trim() === '') return false;
+          // under a lettered or Roman item the stock command counts the wrong level (a split item went on as "II." at the left edge):
+          // the lettered-list command knows the levels, and keeps the marker and its space on the line that is left behind
+          if (continueLetteredItem(view)) return true;
           if (!insertNewlineContinueMarkup(view)) return false;
           // the line that was just left behind: put back the space after its marker
           const now = view.state;

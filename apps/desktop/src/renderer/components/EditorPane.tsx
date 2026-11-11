@@ -172,6 +172,8 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       spell: ctl.spellHost,
       thesaurus: ctl.thesaurusHost,
       wikilinkCompletions: async (q) => (await ctl.suggest(q)).map((s) => ({ label: s.label, detail: stripExt(s.path) })),
+      fixCapitals: ctl.settings.value.fixCapitals,
+      createLinkedPage: (name) => void ctl.createLinkedPage(name),
       linkStatus: ctl.wikiStatus,
       resolveAsset: ctl.assetUrl,
       viewBlock: createViewHost(ctl),

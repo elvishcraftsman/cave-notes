@@ -37,7 +37,7 @@ into
 1. x
 ```
 
-Questions (`ask:`) have a `label`, a `type` (`text`, `number`, `select`, `boolean` or `info`), a `default`, and `min` and `max` for numbers or `options` for a select. The changed text is put into the editor as one step that Undo takes back. A plugin may also use other actions (`notify`, `set_property` on the current page); `transform_text` (see [Actions](../actions.md)) and [`run_js`](../javascript.md) are the ones that change the text. A plugin runs on this computer, right away, and does not wait for other computers.
+Questions (`ask:`) work the same in a [button](buttons.md#buttons-that-ask-first). They have a `label`, a `type` (`text`, `number`, `select`, `boolean` or `info`), a `default`, and `min` and `max` for numbers or `options` for a select. The changed text is put into the editor as one step that Undo takes back. A plugin may also use other actions (`notify`, `set_property` on the current page); `transform_text` (see [Actions](../actions.md)) and [`run_js`](../javascript.md) are the ones that change the text. A plugin runs on this computer, right away, and does not wait for other computers.
 
 ## Showing a message
 

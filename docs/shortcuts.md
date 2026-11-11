@@ -56,7 +56,11 @@ In the app: the main menu's **Help** (or `Ctrl+/`, or `F1`) → **Keyboard short
 | `Ctrl+Shift+X` | Strike-through |
 | `Ctrl+K` | Insert a link |
 | `Ctrl+Alt+V` | Insert a database view |
+| `Ctrl+Alt+F` | Insert a footnote: a reference after the cursor or selection and the note itself at the end of the page, with the cursor in it. The selection toolbar has the same button (**Insert footnote**) |
 | `Tab / Shift+Tab` | Indent / outdent a list item |
+| `Enter` at the start of a list item's text | Leaves an empty item and moves the text down to the next one, at the same level (also in `I.` / `A.` / `1.` lists) |
+| `[[` and a name | Suggests pages. When no page has that name, the last choice is **Create page “name”**: the link stays as typed, the page is made under this page and opened |
+| `<!--` | Closes itself with ` -->` |
 | `Alt+Up / Alt+Down` | Move a list item up / down |
 | `Ctrl+Click` | Open the link under the pointer |
 

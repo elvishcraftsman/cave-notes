@@ -319,3 +319,62 @@ suite('YAML settings files', () => {
     expect(el.querySelector('.cm-yaml-bad')).not.toBeNull();
   });
 });
+
+suite('accidental double capitals', () => {
+  const typeWord = (ed: NoteEditor, text: string): string => {
+    ed.load('');
+    ed.view.focus();
+    for (const ch of text) {
+      const p = ed.view.state.selection.main.head;
+      // run the editor's input handlers the way the browser's typing does
+      const handled = ed.view.state.facet(EditorView.inputHandler).some((h) => h(ed.view, p, p, ch, () => ed.view.state.update({ changes: { from: p, insert: ch } })));
+      if (!handled) ed.view.dispatch({ changes: { from: p, insert: ch }, selection: { anchor: p + ch.length } });
+    }
+    return ed.text();
+  };
+  const make2 = (opts: Partial<ConstructorParameters<typeof NoteEditor>[0]> = {}): NoteEditor => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    return new NoteEditor({ parent: el, ...opts });
+  };
+  it('THis becomes This when the word ends, but HIs, PCs and MHz stay', () => {
+    const ed = make2();
+    expect(typeWord(ed, 'THis is fine ')).toBe('This is fine ');
+    expect(typeWord(ed, 'HIs PCs MHz OK ')).toBe('HIs PCs MHz OK ');
+    expect(typeWord(ed, 'THe end.')).toBe('The end.');
+    expect(typeWord(ed, 'the iPhone McDonald NASA ')).toBe('the iPhone McDonald NASA ');
+  });
+  it('is left alone in code, in addresses and when switched off', () => {
+    const ed = make2();
+    expect(typeWord(ed, '`THis ')).not.toContain('This');
+    expect(typeWord(ed, 'file.THis ')).toBe('file.THis ');
+    const off = make2({ fixCapitals: false });
+    expect(typeWord(off, 'THis ')).toBe('THis ');
+    ed.setFixCapitals(false);
+    expect(typeWord(ed, 'THis ')).toBe('THis ');
+  });
+});
+
+suite('<!-- closes itself', () => {
+  const typeKeys = (text: string, start = ''): { text: string; head: number } => {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const ed = new NoteEditor({ parent: el });
+    ed.load(start);
+    ed.view.dispatch({ selection: { anchor: start.length } });
+    for (const ch of text) {
+      const p = ed.view.state.selection.main.head;
+      const handled = ed.view.state.facet(EditorView.inputHandler).some((h) => h(ed.view, p, p, ch, () => ed.view.state.update({ changes: { from: p, insert: ch } })));
+      if (!handled) ed.view.dispatch({ changes: { from: p, insert: ch }, selection: { anchor: p + ch.length } });
+    }
+    return { text: ed.text(), head: ed.view.state.selection.main.head };
+  };
+  it('writes " -->" after the cursor when the comment is opened', () => {
+    expect(typeKeys('<!--')).toEqual({ text: '<!-- -->', head: 4 });
+    expect(typeKeys('<!-- note')).toEqual({ text: '<!-- note -->', head: 9 });
+  });
+  it('does not do it twice, or for other dashes', () => {
+    expect(typeKeys('a --').text).not.toContain('-->');
+    expect(typeKeys('-', '<!-- x\n<!')).toEqual(expect.objectContaining({ text: '<!-- x\n<!-' }));
+  });
+});

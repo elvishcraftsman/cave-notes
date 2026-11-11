@@ -10,7 +10,7 @@ Rules can run programs. Because that is powerful, it is guarded.
 Rules can run programs: deploy a site, create a calendar entry, call a script. Because that is powerful, it is guarded:
 
 1. **Off until you turn it on.** Preferences → Sync and automation → Automations, "Let automations run shell commands". The app asks you to confirm.
-2. **You approve each command.** The first time a rule wants to run a command, a dialog shows the command exactly as the rules file says it. Choose Deny, Allow once, or Always allow. The approval belongs to that workspace, rule and command text; edit the command and you are asked again. A refusal is remembered too.
+2. **You approve each command.** The first time a rule wants to run a command, a dialog shows the command exactly as the rules file says it. Choose Deny, Allow once, or Always allow. The approval belongs to that workspace, rule and command text; edit the command and you are asked again. A refusal is remembered too (*Forget all approvals and refusals* in Preferences clears both). A long command is shown only in part; **Open the full text** opens a copy of all of it.
 3. **Rules cannot put values into a command line.** A page's title could contain anything, including characters a shell treats as commands, so a value is never pasted into command text. There are two safe ways to get a value to a program. With `command`, the value arrives as an environment variable that you read in the command (`"$CAVE_TITLE"`). With `argv`, you list the program and its arguments one by one, and each argument may use `${...}`; no shell is involved, so nothing in the value can be taken as a command.
 
    | | `command` | `argv` |

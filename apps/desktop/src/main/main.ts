@@ -454,6 +454,7 @@ function workerFor(rootArg: string): WorkerClient {
       if (event === 'automation:notify') return showAutomationNotification(payload as WorkerEvents['automation:notify']);
       if (event === 'automation:shell') return void answerAutomationShell(root, w!, payload as WorkerEvents['automation:shell']);
       if (event === 'automation:js') return void answerAutomationJs(w!, payload as WorkerEvents['automation:js']);
+      if (event === 'automation:rules') return void answerAutomationRules(w!, payload as WorkerEvents['automation:rules']);
       if (event === 'automation:active') return onAutomationActive(a, payload as WorkerEvents['automation:active']);
       if (!(EVENT_NAMES as readonly string[]).includes(event)) return;
       if (event === 'index:status') a.lastStatus = payload as Attached['lastStatus'];
@@ -510,39 +511,101 @@ function showAutomationNotification(n: WorkerEvents['automation:notify']): void 
   }
 }
 
+/**
+ * A question about something long (a command, a script, a file of rules) must not grow taller than the screen: a few lines of it
+ * are shown, and when there is more a button opens the whole text, as a copy to read, in the person's own text editor. The question
+ * is asked again afterwards. Returns the index of the button pressed (of `buttons`).
+ */
+const REVIEW_LINES = 10;
+const REVIEW_CHARS = 900;
+async function askWithText(o: { title: string; message: string; before?: string; text: string; after?: string; buttons: string[]; ext: string; name: string }): Promise<number> {
+  const parent = focusedInfo()?.win;
+  const lines = o.text.split('\n');
+  const long = lines.length > REVIEW_LINES || o.text.length > REVIEW_CHARS;
+  let shown = lines.slice(0, REVIEW_LINES).join('\n');
+  if (shown.length > REVIEW_CHARS) shown = shown.slice(0, REVIEW_CHARS);
+  const more = long ? `\n… (${Math.max(1, lines.length - shown.split('\n').length)} more lines, ${o.text.length} characters in all. Press “Open the full text” to read all of it.)` : '';
+  const viewIndex = o.buttons.length;
+  for (;;) {
+    const opts = {
+      type: 'warning' as const,
+      title: o.title,
+      message: o.message,
+      detail: `${o.before ? `${o.before}\n\n` : ''}${shown}${more}${o.after ? `\n\n${o.after}` : ''}`,
+      buttons: long ? [...o.buttons, 'Open the full text'] : o.buttons,
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    };
+    const r = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts);
+    if (!(long && r.response === viewIndex)) return r.response;
+    try {
+      const dir = path.join(app.getPath('temp'), 'cave-notes-review');
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${o.name.replace(/[^A-Za-z0-9._-]+/g, '-')}.${o.ext}`);
+      const mark = o.ext === 'js' ? '// A copy to read. Changing it changes nothing.\n' : '# A copy to read. Changing it changes nothing.\n';
+      fs.writeFileSync(file, mark + o.text, { mode: 0o600 });
+      await shell.openPath(file);
+    } catch (e) {
+      log.warn(`could not open the text to review: ${(e as Error).message}`);
+    }
+  }
+}
+
 /** The person's answer to "may this rule run this command?". The command is shown exactly as the rules file says it. */
 async function askShell(what: { root: string; ruleId: string; command: string; cwd: string }): Promise<'always' | 'once' | 'deny'> {
-  const parent = focusedInfo()?.win;
-  const opts = {
-    type: 'warning' as const,
+  const r = await askWithText({
     title: 'Allow an automation to run a command?',
     message: `The rule "${what.ruleId}" in ${path.basename(what.root)} wants to run a command on this computer.`,
-    detail: `${what.command}\n\nWorking folder: ${what.cwd}\n\nOnly allow commands you recognize. The command can do anything you can do. Rules come from the settings files in .cave-notes, which other people or computers may have changed.`,
+    text: what.command,
+    after: `Working folder: ${what.cwd}\n\nOnly allow commands you recognize. The command can do anything you can do. Rules come from the settings files in .cave-notes, which other people or computers may have changed.`,
     buttons: ['Deny', 'Allow once', 'Always allow this command'],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  };
-  const r = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts);
-  return r.response === 2 ? 'always' : r.response === 1 ? 'once' : 'deny';
+    ext: 'sh',
+    name: `command-${what.ruleId}`,
+  });
+  return r === 2 ? 'always' : r === 1 ? 'once' : 'deny';
 }
 
 /** The person's answer to "may this rule run this script?". The script is shown exactly as the rules file says it. */
 async function askJs(what: { root: string; ruleId: string; code: string }): Promise<'always' | 'once' | 'deny'> {
-  const parent = focusedInfo()?.win;
-  const shown = what.code.length > 3000 ? `${what.code.slice(0, 3000)}\n... (${what.code.length - 3000} more characters)` : what.code;
-  const opts = {
-    type: 'warning' as const,
+  const r = await askWithText({
     title: 'Allow an automation to run a script?',
-    message: `The rule \"${what.ruleId}\" in ${path.basename(what.root)} wants to run a JavaScript script.`,
-    detail: `${shown}\n\nThe script can read and change the page it works on, and nothing else: it cannot open files, use the network or start programs. Rules come from the settings files in .cave-notes, which other people and computers that share this workspace can change, so only allow scripts you recognize.`,
+    message: `The rule "${what.ruleId}" in ${path.basename(what.root)} wants to run a JavaScript script.`,
+    text: what.code,
+    after: 'The script can read and change the page it works on, and nothing else: it cannot open files, use the network or start programs. Rules come from the settings files in .cave-notes, which other people and computers that share this workspace can change, so only allow scripts you recognize.',
     buttons: ['Deny', 'Allow once', 'Always allow this script'],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  };
-  const r = parent && !parent.isDestroyed() ? await dialog.showMessageBox(parent, opts) : await dialog.showMessageBox(opts);
-  return r.response === 2 ? 'always' : r.response === 1 ? 'once' : 'deny';
+    ext: 'js',
+    name: `script-${what.ruleId}`,
+  });
+  return r === 2 ? 'always' : r === 1 ? 'once' : 'deny';
+}
+
+/**
+ * A rule wants to put a file of automations into the workspace, or take one away. This is asked every time it would change
+ * anything, with no "always": what a workspace does from then on is decided here, by the person. The file is shown as it will be written.
+ */
+async function answerAutomationRules(worker: WorkerClient, ev: WorkerEvents['automation:rules']): Promise<void> {
+  const names = ev.summary.rules.map((r) => r.name || r.id);
+  const can = [ev.summary.js ? 'run JavaScript' : null, ev.summary.shell ? 'run programs' : null, ev.summary.installs ? 'change automations itself' : null].filter(Boolean);
+  const what = ev.remove ? `take away the automations in .cave-notes/${ev.file}` : ev.created ? `add the automations in .cave-notes/${ev.file}` : `replace the automations in .cave-notes/${ev.file}`;
+  let answer: { allowed: boolean; reason?: string };
+  try {
+    const r = await askWithText({
+      title: 'Allow an automation to change automations?',
+      message: `The rule "${ev.ruleId}" in ${path.basename(ev.root)} wants to ${what}.`,
+      before: `${ev.remove ? 'Rules that go away' : 'Rules'}: ${names.join(', ') || 'none'}.\n${can.length > 0 ? `They can ${can.join(' and ')} (each of those also has its own permission in Preferences).` : 'They only change pages and settings of the workspace.'}`,
+      text: ev.content,
+      after: `Automations decide what this workspace does by itself from now on, and other people and computers that share it receive them. Only allow this if you know what it is for. To undo it, delete .cave-notes/${ev.file}.`,
+      buttons: ['Deny', ev.remove ? 'Remove them' : 'Allow'],
+      ext: 'yaml',
+      name: ev.file.replace(/\.ya?ml$/, ''),
+    });
+    answer = r === 1 ? { allowed: true } : { allowed: false, reason: 'you did not allow it' };
+  } catch (e) {
+    answer = { allowed: false, reason: (e as Error).message };
+  }
+  log.info(`automation rules change (rule ${ev.ruleId}, ${ev.file}): ${answer.allowed ? 'allowed' : 'denied'}`);
+  await worker.call('automationRulesResult', [ev.id, answer]).catch(() => undefined);
 }
 
 async function answerAutomationJs(worker: WorkerClient, ev: WorkerEvents['automation:js']): Promise<void> {

@@ -350,6 +350,29 @@ function toOffset(pos, text, what) {
   return bad(`the script returned a ${what} that is not a position: use a number (an offset) or { line, column }`);
 }
 
+const RULES_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}\.ya?ml$/;
+
+defAction('install_automations', {
+  summary: 'Put a file of automations into the workspace\'s .cave-notes folder, or take it away again (`remove: true`). A rule changing automations is a serious thing: the app shows the person what is about to be written and asks, each time anything would change. Only a file that a rule installed earlier is ever replaced or removed; the person\'s own files are never touched.',
+  raw: ['content'],
+  normalize(a) {
+    if (!isMap(a)) bad('install_automations needs a mapping with a file name and its content (or remove: true)');
+    if (typeof a.file !== 'string' || !RULES_FILE.test(a.file)) bad('file must be the name of a YAML file, like chess-game.yaml (letters, digits, . _ -)');
+    const remove = a.remove === true;
+    if (!remove && (typeof a.content !== 'string' || a.content.trim() === '')) bad('install_automations needs the content of the file (a rules: list), or remove: true');
+    if (a.owner !== undefined && (typeof a.owner !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,40}$/.test(a.owner))) bad('owner is a short name (letters, digits, . _ -) shared by the rules that install and remove the same file');
+    return { file: a.file, content: remove ? null : a.content, remove, owner: a.owner ?? null };
+  },
+  async run(ctx, a) {
+    const r = await ctx.api.installAutomations({ file: a.file, content: a.content, remove: a.remove, owner: a.owner });
+    if (r.dry) return { status: 'done', detail: `would ${a.remove ? 'remove' : 'install'} ${a.file} (dry run)` };
+    if (r.denied) return { status: 'failed', detail: `not done: ${r.reason}` };
+    if (r.error) return { status: 'failed', detail: r.error };
+    if (!r.changed) return { status: 'skipped', detail: r.detail ?? (a.remove ? `${a.file} is not installed` : `${a.file} is already installed`) };
+    return a.remove ? `removed ${a.file}` : `${r.created ? 'installed' : 'updated'} ${a.file}`;
+  },
+});
+
 defAction('run_js', {
   summary: 'Run JavaScript on the page: it reads the text, the cursor and the properties, and returns the changes. Off unless JavaScript is turned on in the app; each new script needs your approval.',
   raw: ['code'],

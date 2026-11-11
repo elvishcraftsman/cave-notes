@@ -456,7 +456,7 @@ export interface WorkerApi {
    * can be started this way. `refused` = the rule was not started (no such rule, no `button` trigger, another computer's rule); `skipped` = it
    * ran but the page did not meet its conditions; `done` / `failed` as for any run.
    */
-  automationButton(ruleId: string, path: string): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }>;
+  automationButton(ruleId: string, path: string, answers?: Record<string, unknown>): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }>;
   /** The rules that show in the Plugins menu (`on: { plugin: "Name" }`), with the questions each asks first. */
   automationPlugins(): Promise<PluginInfo[]>;
   /** Take a plugin out: a workspace plugin is removed from its settings file, a default one from the app config folder. */
@@ -469,9 +469,13 @@ export interface WorkerApi {
    */
   /** The questions of a plugin with their `${ }` filled in for the text it is about to work on. */
   automationPluginAsk(ruleId: string, path: string, text: string, selection: boolean): Promise<PluginAsk[]>;
+  /** The questions a button's rule asks before it runs (an empty list: it runs at once). */
+  automationButtonAsk(ruleId: string, path: string): Promise<{ title: string; ask: PluginAsk[] }>;
   /** `cursor` is the cursor's offset in `text` (null if there is none). */
   automationPlugin(ruleId: string, path: string, text: string, selection: boolean, answers: Record<string, unknown>, cursor: number | null): Promise<PluginResult>;
   /** (main process only) the answer to an 'automation:shell' request. */
+  /** (main process only) the answer to an 'automation:rules' request: may the rule change the automations? */
+  automationRulesResult(id: string, answer: { allowed: boolean; reason?: string }): Promise<void>;
   /** (main process only) the answer to an 'automation:js' request: may the script run? */
   automationJsResult(id: string, answer: { allowed: boolean; reason?: string }): Promise<void>;
   automationShellResult(id: string, result: { code: number; stdout?: string; stderr?: string; timedOut?: boolean; denied?: boolean; reason?: string }): Promise<void>;
@@ -690,6 +694,8 @@ export interface Settings {
   childrenFilter: 'notes' | 'all';
   /** underline misspelt words in the editor and offer corrections in its right-click menu */
   spellcheck: boolean;
+  /** a word typed as THis becomes This (not HIs, which may be a plural abbreviation) */
+  fixCapitals: boolean;
   /** right-clicking a single word offers synonyms to replace it with */
   synonyms: boolean;
   /** every workspace on this computer is opened in the background and kept indexed, so that what one asks of another is current */
@@ -849,6 +855,8 @@ export interface WorkerEvents {
   'automation:notify': { title: string; body: string; path: string | null };
   /** (main process only) an automation wants to run a shell command. The answer comes back through `automationShellResult`. */
   'automation:shell': { id: string; root: string; spec: { ruleId: string; command: string | null; argv: string[] | null; cwd: string | null; timeoutMs: number; env: Record<string, string>; page: string; template: { command: string | null; argv: string[] | null; cwd: string | null; env: Record<string, unknown> } } };
+  /** (main process only) a rule wants to put a file of automations into the workspace (or take it away). The answer comes back through `automationRulesResult`. */
+  'automation:rules': { id: string; root: string; ruleId: string; file: string; remove: boolean; created: boolean; summary: { rules: Array<{ id: string; name: string }>; js: boolean; shell: boolean; installs: boolean }; content: string };
   /** (main process only) an automation wants to run a script. The answer comes back through `automationJsResult`. */
   'automation:js': { id: string; root: string; ruleId: string; code: string; page: string };
   /** An automation rule ran (not a dry run) and did something, or failed. Shown as a message. */
@@ -960,7 +968,7 @@ export const WORKER_METHODS = [
   'planMove', 'applyPlan', 'undoLast', 'lastMove', 'deleteInfo', 'afterDelete', 'pageInfo', 'links', 'backlinks',
   'resolveLink', 'suggestPages', 'findPagePaths', 'getInheritedExportStyles', 'search', 'replaceFind', 'replaceApply', 'attributeKeys', 'attributeValues', 'queryView', 'savedQueries', 'saveQuery', 'setAttribute', 'setFileAttributes', 'moveFile', 'mergeTemplateInto', 'templateAttributes', 'editRelation', 'relationCandidates', 'setPageTitle', 'stats', 'getState', 'setState',
   'absolutePath', 'importFile', 'fileInPage', 'importExternal', 'setSyncOptions', 'mergeConflictCopies', 'historyList', 'historyRead', 'snapshot', 'historyTexts',
-  'automationStatus', 'automationRulesFor', 'automationLog', 'automationRun', 'automationButton', 'automationPlugins', 'uninstallPlugin', 'restoreDefaultPlugins', 'automationPluginAsk', 'automationPlugin', 'automationReload',
+  'automationStatus', 'automationRulesFor', 'automationLog', 'automationRun', 'automationButton', 'automationButtonAsk', 'automationRulesResult', 'automationPlugins', 'uninstallPlugin', 'restoreDefaultPlugins', 'automationPluginAsk', 'automationPlugin', 'automationReload',
 ] as const satisfies ReadonlyArray<keyof WorkerApi>;
 
 /** One question of a plugin (`ask:` of a rule). */

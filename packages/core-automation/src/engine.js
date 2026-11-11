@@ -88,6 +88,9 @@ export function substituteThis(query, path) {
   return query.replace(/\$parent\b/g, JSON.stringify(parent ? `${parent}.md` : '')).replace(/\$this\b/g, JSON.stringify(path));
 }
 
+/** how long the last values of a deleted page are kept, in case it was moved */
+const GRAVE_MS = 60_000;
+
 export class AutomationEngine {
   /** @param {{ host: object, deviceId: string, deviceName?: string, log?: (level:string, msg:string) => void }} o */
   constructor({ host, deviceId, deviceName, log }) {
@@ -104,6 +107,7 @@ export class AutomationEngine {
     this.perPage = new Map(); // rule|path -> { wrote: timestamps, failed: timestamps } (circuit breaker)
     this.history = []; // the last entries of the log
     this.running = new Set();
+    this.grave = new Map(); // path -> { at, snap: { prop: value } }: pages deleted a moment ago, in case they were moved
     this.lastBeat = 0;
     this.lastAt = 0;
     this.lastMatch = 0;
@@ -269,10 +273,14 @@ export class AutomationEngine {
    * `external` = it was changed by something else (sync, another program); left out when that is not known.
    * Each rule whose trigger fits is queued; this returns when they have been queued (and, for rules that go first, run).
    */
-  async onChanges(changes) {
+  async onChanges(changes, moves = []) {
     if (!this.started || changes.length === 0) return;
     const t = this.now().getTime();
     for (const [p, o] of this.ownWrites) if (o.until < t) this.ownWrites.delete(p);
+    for (const [p, g] of this.grave) if (t - g.at > GRAVE_MS) this.grave.delete(p);
+    // A page that was moved or renamed is the same page: what is known about it (the last value of each property a rule watches,
+    // whether it matched) goes with it, so that a rule does not take it for a page that has just arrived.
+    for (const m of moves) this.carry(m.from, m.to);
     const cache = new Map();
     const whereSet = async (rule) => {
       if (!cache.has(rule.id)) cache.set(rule.id, new Set(rule.where ? (await this.query(rule, rule.where)).paths : []));
@@ -293,6 +301,9 @@ export class AutomationEngine {
         } else if (trig.kind === 'change') {
           for (const c of changes) {
             if (c.kind === 'deleted') {
+              // kept for a while: the page may turn out to have been moved (the move is told after the deletion, when the batches are split)
+              const was = this.state.snapshot[trig.prop]?.[c.path];
+              if (was !== undefined) (this.grave.get(c.path) ?? this.grave.set(c.path, { at: t, snap: {} }).get(c.path)).snap[trig.prop] = was;
               this.snap(trig.prop, c.path, undefined);
               continue;
             }
@@ -330,6 +341,23 @@ export class AutomationEngine {
   attrCI(info, prop) {
     for (const [k, v] of Object.entries(info.attrs ?? {})) if (k.toLowerCase() === prop) return v;
     return undefined;
+  }
+
+  /** A page now at `to` was at `from`: its known values and its membership of the matches move with it. */
+  carry(from, to) {
+    if (from === to) return;
+    const grave = this.grave.get(from);
+    for (const prop of new Set([...Object.keys(this.state.snapshot), ...Object.keys(grave?.snap ?? {})])) {
+      const s = (this.state.snapshot[prop] ??= {});
+      const val = s[from] ?? grave?.snap[prop];
+      delete s[from];
+      if (val !== undefined) s[to] = val;
+    }
+    this.grave.delete(from);
+    for (const [id, list] of Object.entries(this.state.members)) {
+      if (list.includes(from)) this.state.members[id] = [...new Set(list.map((p) => (p === from ? to : p)))];
+    }
+    this.dirty = true;
   }
 
   snap(prop, path, text) {
@@ -613,7 +641,7 @@ export class AutomationEngine {
   }
 
   /** Look again that the reason to act still holds, then run the actions. Returns { status, detail, steps }. */
-  async runOne(rule, path, trig, { depth = 0, check = false, dry = false } = {}) {
+  async runOne(rule, path, trig, { depth = 0, check = false, dry = false, ask = null } = {}) {
     let info = null;
     if (path !== null && trig.kind !== 'deleted') {
       info = await this.host.pageInfo(path);
@@ -638,6 +666,7 @@ export class AutomationEngine {
       if (rule.unless && (await this.query(rule, rule.unless, path)).paths.length > 0) return { status: 'skipped', detail: 'meets "unless"' };
     }
     const vars = this.varsFor(rule, info, path, trig);
+    if (ask) vars.ask = ask; // a button that asked questions first
     if (rule.guard !== null && !truthy(evaluate(rule.guard, vars))) return { status: 'skipped', detail: 'the "if" condition is not met' };
     vars.let = {};
     for (const [k, v] of Object.entries(rule.let ?? {})) vars.let[k.toLowerCase()] = render(v, vars); // in order: a later one may use an earlier one
@@ -686,6 +715,12 @@ export class AutomationEngine {
       },
       async notify(n) {
         if (!dry) await h.notify(n);
+      },
+      /** Put a file of rules into the workspace, or take one away. The host asks the person first; without a host that does, nothing happens. */
+      installAutomations: async (spec) => {
+        if (dry) return { dry: true };
+        if (!h.installAutomations) return { denied: true, reason: 'this app does not let a rule change automations' };
+        return h.installAutomations({ ruleId: rule.id, owner: spec.owner || rule.id, file: spec.file, content: spec.content, remove: spec.remove, page: page.path });
       },
       /** Run a rule's JavaScript. A host that has its own door (the app asks the person first) supplies `js`; without one it runs in the sandbox directly. */
       js: async (spec) => {
@@ -755,7 +790,7 @@ export class AutomationEngine {
    * so it does not wait for its turn among several computers. The page must still meet `where`, `require`, `unless` and `if`.
    * Returns { status: 'done' | 'failed' | 'skipped' | 'refused', detail, steps }. `refused` means the rule was not started at all.
    */
-  async runButton(ruleId, path) {
+  async runButton(ruleId, path, answers = {}) {
     const rule = this.rules.find((r) => r.id === ruleId);
     const refuse = (detail) => ({ status: 'refused', detail, steps: [] });
     if (!rule) return refuse(`There is no rule “${ruleId}” in this workspace's automations.`);
@@ -766,7 +801,7 @@ export class AutomationEngine {
     const trig = { kind: 'button' };
     let res;
     try {
-      res = await this.runOne(rule, path, trig, { check: true });
+      res = await this.runOne(rule, path, trig, { check: true, ask: rule.ask.length > 0 ? coerceAnswers(rule.ask, answers) : null });
     } catch (e) {
       res = { status: 'failed', detail: e.message, steps: [] };
     }
@@ -792,13 +827,20 @@ export class AutomationEngine {
    * The questions of a plugin as the window shows them: the `label` and `default` of each may use `${ }` with the text the plugin
    * is about to work on (`words`, `characters`, `selection`), which is how a plugin shows a result in a dialog (`type: info`).
    */
-  async pluginQuestions(ruleId, { path = null, text = '', selection = false } = {}) {
+  /** The questions a button's rule puts to the person before it runs: the `ask:` of the rule, with labels worked out for the page. */
+  async buttonQuestions(ruleId, { path = null } = {}) {
+    const rule = this.rules.find((r) => r.id === ruleId);
+    if (!rule) return { title: ruleId, ask: [] };
+    return { title: rule.name || rule.id, ask: await this.pluginQuestions(ruleId, { path, kind: 'button' }) };
+  }
+
+  async pluginQuestions(ruleId, { path = null, text = '', selection = false, kind = 'plugin' } = {}) {
     const rule = this.rules.find((r) => r.id === ruleId);
     if (!rule) return [];
     let vars = null;
     try {
       const info = path ? await this.host.pageInfo(path) : null;
-      vars = this.varsFor(rule, info, path, { kind: 'plugin' });
+      vars = this.varsFor(rule, info, path, { kind });
       vars.ask = {};
       vars.selection = selection;
       Object.assign(vars, textStats(text));

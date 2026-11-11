@@ -33,6 +33,9 @@ For `on: { change: status, to: done }`:
 | The page already had `status: done` when you wrote the rule | No |
 | `status` goes from `done` to `doing` | No: the new value is not `done` |
 | `status` is removed from the page | No (a `change` without `to` does fire, and `new.status` is then empty) |
+| The page is moved or renamed while it already has `status: done` | **No, when the app sees it happen**: it recognizes the page (same text, new place) and its last known values go with it. **Yes when it cannot tell**: the page was moved while the app was closed, moved on another computer and arrived by sync, or its text changed in the same moment. It then counts as a new page with that value, like the *new page* row above |
+
+A rule that makes something when a page is finished (the next task, an archive copy) should not rely on this alone: see the guard in the [recurring task example](examples.md#recurring-task-creation), which also holds when a page is moved or renamed after it is done.
 
 ## Writing a schedule
 

@@ -146,14 +146,20 @@ function MultiSelect({ label, values, chosen, onChange }: { label: string; value
     const away = (e: MouseEvent): void => {
       if (!pop.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) setOpen(false);
     };
+    // Escape closes the list and nothing else: what was ticked stays (it was saved with each tick), and the key does not go on
+    // to cancel whatever the list is part of
     const esc = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      btn.current?.focus();
     };
     window.addEventListener('mousedown', away);
-    window.addEventListener('keydown', esc);
+    window.addEventListener('keydown', esc, true);
     return () => {
       window.removeEventListener('mousedown', away);
-      window.removeEventListener('keydown', esc);
+      window.removeEventListener('keydown', esc, true);
     };
   }, [open]);
   const options = [...values, ...chosen.filter((c) => !values.includes(c))];
@@ -191,7 +197,7 @@ function MultiSelect({ label, values, chosen, onChange }: { label: string; value
 /**
  * A relation in a view: the pages it names, each a link. Click the cell (or press Enter on it) to edit: a field opens
  * with the pages as chips and a list of the pages the relation can name, narrowing as you type. Nothing is saved while
- * you are choosing; leaving the field (Enter on an empty field, Tab, a click elsewhere) saves, Escape throws the change away.
+ * you are choosing; leaving the field (Enter on an empty field, Escape, Tab, a click elsewhere) saves what you chose.
  * Questions about conflicts are asked only then, never in the middle of typing.
  */
 /** What tells pages apart: the same path can be a page of this workspace and of another. */
@@ -279,6 +285,20 @@ export function RelationCell({ ctl, row, k, rel, side, memory }: { ctl: Controll
     setText('');
     input.current?.focus();
   };
+  // a page for the text typed: made, linked here, and opened
+  const createAndLink = async (name: string): Promise<void> => {
+    const made = await ctl.createNamedPage(name, { name: rel.name, side });
+    if (!made) return;
+    const next = multiple ? [...draftNow.current, made] : [made];
+    open.current = false;
+    setEditing(false);
+    setText('');
+    setPending(next);
+    // the link is written before the page is left
+    const ok = await ctl.editRelation(row.path, row.title, rel.name, side, next, memory);
+    if (!ok) setPending(null);
+    await ctl.openPage(made.path, { reveal: true, cursor: 'end' });
+  };
   const onKey = (e: KeyboardEvent): void => {
     e.stopPropagation();
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -290,8 +310,9 @@ export function RelationCell({ ctl, row, k, rel, side, memory }: { ctl: Controll
       if (text.trim() && o) pick(o);
       else if (!text.trim()) finish(true);
     } else if (e.key === 'Escape') {
+      // closes the list and keeps what was chosen while it was open (it is saved, like leaving the field)
       e.preventDefault();
-      finish(false);
+      finish(true);
     } else if (e.key === 'Backspace' && text === '' && draftNow.current.length > 0) {
       setDraft(draftNow.current.slice(0, -1));
     }
@@ -387,6 +408,20 @@ export function RelationCell({ ctl, row, k, rel, side, memory }: { ctl: Controll
                   {o.workspace && <span class="vb-suggest-ws"> · {o.workspace}</span>}
                 </div>
               ))}
+              {text.trim() !== '' && !options.some((o) => o.title.toLowerCase() === text.trim().toLowerCase()) && (
+                <div
+                  role="option"
+                  aria-selected={false}
+                  class="vb-suggest-item vb-suggest-create"
+                  title="Make this page, link it here and open it"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    void createAndLink(text.trim());
+                  }}
+                >
+                  Create page “{text.trim()}”
+                </div>
+              )}
             </div>
           )}
         </span>

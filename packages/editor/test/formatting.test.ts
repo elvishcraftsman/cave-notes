@@ -142,6 +142,17 @@ suite('hierarchical lists', () => {
 });
 
 suite('the menu', () => {
+  it('has a footnote button: a reference after the selection, the note at the end of the page, the cursor in it', async () => {
+    const { showFormatMenu } = await import('../src/index');
+    const ed = make('A claim here.\n\nMore text.');
+    ed.view.dispatch({ selection: { anchor: 2, head: 7 } });
+    showFormatMenu(ed.view, 10, 10);
+    const btn = document.querySelector<HTMLElement>('.cm-format-menu [data-format="footnote"]')!;
+    expect(btn.title).toContain('footnote');
+    btn.click();
+    expect(ed.text()).toBe('A claim[^1] here.\n\nMore text.\n\n[^1]: ');
+    expect(ed.state.selection.main.head).toBe(ed.text().length);
+  });
   it('opens on right-click with the applied formats pressed, and a click toggles', async () => {
     const { showFormatMenu } = await import('../src/index');
     const ed = make('say ‸**hi**‸ there');

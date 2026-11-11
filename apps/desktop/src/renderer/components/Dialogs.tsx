@@ -42,6 +42,8 @@ function PluginAskDialog({ ctl, d }: { ctl: Controller; d: Extract<DialogSpec, {
   const [busy, setBusy] = useState(false);
   const onlyInfo = d.fields.every((f) => f.type === 'info'); // a message with an OK button
   const first = useRef<HTMLInputElement & HTMLSelectElement>(null);
+  // the first thing that can be filled in (a message above it does not count)
+  const firstField = d.fields.findIndex((f) => f.type !== 'info');
   useEffect(() => {
     first.current?.focus();
     first.current?.select?.();
@@ -66,14 +68,14 @@ function PluginAskDialog({ ctl, d }: { ctl: Controller; d: Extract<DialogSpec, {
         <label key={f.name} class={f.type === 'boolean' ? 'field check' : 'field'}>
           <span>{f.label}</span>
           {f.type === 'select' ? (
-            <select ref={i === 0 ? first : undefined} value={String(values[f.name] ?? '')} onChange={(e) => set(f.name, (e.currentTarget as HTMLSelectElement).value)}>
+            <select ref={i === firstField ? first : undefined} value={String(values[f.name] ?? '')} onChange={(e) => set(f.name, (e.currentTarget as HTMLSelectElement).value)}>
               {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : f.type === 'boolean' ? (
-            <input type="checkbox" checked={values[f.name] === true} onChange={(e) => set(f.name, (e.currentTarget as HTMLInputElement).checked)} />
+            <input ref={i === firstField ? first : undefined} type="checkbox" checked={values[f.name] === true} onChange={(e) => set(f.name, (e.currentTarget as HTMLInputElement).checked)} />
           ) : (
             <input
-              ref={i === 0 ? first : undefined}
+              ref={i === firstField ? first : undefined}
               type={f.type === 'number' ? 'number' : 'text'}
               step={f.type === 'number' ? 'any' : undefined}
               min={f.min ?? undefined}
@@ -93,7 +95,7 @@ function PluginAskDialog({ ctl, d }: { ctl: Controller; d: Extract<DialogSpec, {
       ))}
       {error && <p class="field-error" role="alert">{error}</p>}
       <div class="dialog-actions">
-        <button class="pill-button" title="Stops this plugin from showing dialogs. It stays in the Plugins menu, dimmed, until you turn it on again." onClick={() => { ctl.setPluginOff(d.plugin, true); ctl.closeDialog(); }}>Turn off this plugin</button>
+        {d.plugin && <button class="pill-button" title="Stops this plugin from showing dialogs. It stays in the Plugins menu, dimmed, until you turn it on again." onClick={() => { ctl.setPluginOff(d.plugin!, true); ctl.closeDialog(); }}>Turn off this plugin</button>}
         {!onlyInfo && <button class="pill-button" onClick={() => ctl.closeDialog()}>Cancel</button>}
         <button class="pill-button suggested" disabled={busy} autoFocus={onlyInfo} onClick={() => void submit()}>{d.confirm}</button>
       </div>
@@ -498,7 +500,7 @@ function DictionaryEditor({ ctl }: { ctl: Controller }): JSX.Element {
   );
 }
 
-function PreferencesDialog({ ctl, first }: { ctl: Controller; first: 'app' | 'workspace' }): JSX.Element {
+function PreferencesDialog({ ctl, first, page }: { ctl: Controller; first: 'app' | 'workspace'; page?: string }): JSX.Element {
   const s = ctl.settings.value;
   const ws = ctl.workspace.value;
   const [tab, setTab] = useState<'app' | 'workspace'>(first === 'workspace' && ws ? 'workspace' : 'app');
@@ -568,6 +570,7 @@ function PreferencesDialog({ ctl, first }: { ctl: Controller; first: 'app' | 'wo
         <>
         <section>
           <h3>Spelling</h3>
+          <Switch label="Fix accidental double capitals" hint="A word typed as THis becomes This when you end it. A word like HIs is left alone, because it may be an abbreviation with an s (PCs, IDs). Undo straight afterwards brings back what you typed." checked={s.fixCapitals} onChange={(v) => ctl.setPreferences({ fixCapitals: v })} />
           <Switch label="Check spelling" hint="Misspelt words are underlined in the editor. Right-click one for corrections, or to add it to your dictionary." checked={s.spellcheck} onChange={(v) => ctl.setPreferences({ spellcheck: v })} />
           <Switch label="Suggest synonyms" hint="Right-click a single word for other words to put in its place. Articles, prepositions and the like are skipped, and so are words in code and links." checked={s.synonyms} onChange={(v) => ctl.setPreferences({ synonyms: v })} />
           <DictionaryEditor ctl={ctl} />
@@ -787,8 +790,8 @@ function PreferencesDialog({ ctl, first }: { ctl: Controller; first: 'app' | 'wo
           {ctl.caps.scriptRules && <Switch label="Ask before running a rule's JavaScript" hint="On by default. Each new script is shown to you first, and a script that is edited asks again. Turning this off (this computer only) asks for confirmation; scripts still need the switch above." checked={s.automationJsAsk} onChange={(v) => ctl.setPreferences({ automationJsAsk: v })} />}
           {ctl.caps.windows && <Switch label="Keep running in the background" hint="When the last window is closed, workspaces whose automations depend on dates or times stay active. Start Cave Notes again to show a window; quit from the tray icon (some desktops need an extension to show it) or after opening a window." checked={s.automationBackground} onChange={(v) => ctl.setPreferences({ automationBackground: v })} />}
           <div class="pref-row">
-            <span class="pref-label">Approved commands and scripts</span>
-            <button type="button" class="pill-button" onClick={() => void ctl.forgetScriptApprovals()} title="Automations ask again before running a shell command or a script, and the Run button of a code block asks again in each workspace.">Forget all approvals</button>
+            <span class="pref-label">Approved and refused commands and scripts</span>
+            <button type="button" class="pill-button" onClick={() => void ctl.forgetScriptApprovals()} title="Forgets every command and script you allowed and every one you refused. Automations ask again before running a shell command or a script, and the Run button of a code block asks again in each workspace.">Forget all approvals and refusals</button>
           </div>
           <label class="pref-row">
             <span class="pref-label">Name of this computer in rules</span>
@@ -861,7 +864,7 @@ function PreferencesDialog({ ctl, first }: { ctl: Controller; first: 'app' | 'wo
         <button role="tab" class={tab === 'app' ? 'on' : ''} aria-selected={tab === 'app'} onClick={() => setTab('app')}>App Preferences</button>
         <button role="tab" class={tab === 'workspace' ? 'on' : ''} aria-selected={tab === 'workspace'} disabled={!ws} title={ws ? `Preferences of “${ws.name}”` : 'Open a workspace first'} onClick={() => setTab('workspace')}>Workspace Preferences</button>
       </div>
-      {tab === 'workspace' && ws ? <WorkspacePrefs ctl={ctl} root={ws.root} appTypes={{ types, create }} /> : <PrefsLayout key="app" pages={appPages.filter((p) => p.id !== 'presentations' || ctl.caps.windows)} />}
+      {tab === 'workspace' && ws ? <WorkspacePrefs ctl={ctl} root={ws.root} appTypes={{ types, create }} /> : <PrefsLayout key="app" initial={page} pages={appPages.filter((p) => p.id !== 'presentations' || ctl.caps.windows)} />}
       <div class="dialog-actions">
         <button class="pill-button suggested" onClick={() => ctl.closeDialog()}>Done</button>
       </div>
@@ -1671,7 +1674,7 @@ function PresentationDialog({ ctl }: { ctl: Controller; present?: boolean }): JS
   );
 }
 
-function ExportDialog({ ctl, markdown, title }: { ctl: Controller; markdown: string; title: string }): JSX.Element {
+function ExportDialog({ ctl, markdown, title, path }: { ctl: Controller; markdown: string; title: string; path: string }): JSX.Element {
   const s = ctl.settings.value;
   useEffect(() => void ctl.loadExportStyles(), []);
   ctl.exportYaml.value; // re-draw when the style files change
@@ -1688,8 +1691,15 @@ function ExportDialog({ ctl, markdown, title }: { ctl: Controller; markdown: str
     setBusy(true);
     ctl.setPreferences({ exportStyle: chosen.name, exportFormat: format });
     const ok = await ctl.exportPage({ format, markdown, title, style: chosen as unknown as Record<string, unknown> });
+    // the page remembers the style it was exported in: the next export, and the page count, start with it
+    if (ok) await saveTheme();
     setBusy(false);
     if (ok) ctl.closeDialog();
+  };
+  const pageStyle = ctl.docStats.value.style;
+  const themeChanged = chosen.name !== pageStyle;
+  const saveTheme = async (): Promise<void> => {
+    if (themeChanged) await ctl.setPageAttribute(path, 'exportStyle', chosen.name);
   };
   return (
     <Modal title="Export Page" onClose={() => ctl.closeDialog()} full>
@@ -1719,6 +1729,7 @@ function ExportDialog({ ctl, markdown, title }: { ctl: Controller; markdown: str
       </div>
       <div class="dialog-actions">
         <button class="pill-button" onClick={() => ctl.closeDialog()}>Cancel</button>
+        <button class="pill-button" disabled={busy || !themeChanged} title={themeChanged ? `Does not export, but writes exportStyle: ${chosen.name} in the attributes of this page` : 'The page already has this style'} onClick={() => void saveTheme().then(() => ctl.closeDialog())}>Cancel, but save theme</button>
         <button class="pill-button suggested" disabled={busy} onClick={() => void go()}>{busy ? 'Exporting…' : 'Export…'}</button>
       </div>
     </Modal>
@@ -1925,13 +1936,13 @@ export function DialogHost({ ctl }: { ctl: Controller }): JSX.Element | null {
     case 'globals':
       return <GlobalsDialog ctl={ctl} d={d} />;
     case 'preferences':
-      return <PreferencesDialog ctl={ctl} first={d.tab ?? 'app'} />;
+      return <PreferencesDialog ctl={ctl} first={d.tab ?? 'app'} page={d.page} />;
     case 'history':
       return <HistoryDialog ctl={ctl} path={d.path} />;
     case 'presentation':
       return <PresentationDialog ctl={ctl} />;
     case 'export':
-      return <ExportDialog ctl={ctl} markdown={d.markdown} title={d.title} />;
+      return <ExportDialog ctl={ctl} markdown={d.markdown} title={d.title} path={d.path} />;
     case 'transfer':
       return <TransferDialog ctl={ctl} d={d} />;
     case 'export-styles':

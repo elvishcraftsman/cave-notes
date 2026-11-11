@@ -72,6 +72,15 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
   const [adding, setAdding] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const newButton = useRef<HTMLButtonElement>(null);
+  // after a page was made with the New button the text this view is in may be drawn again, which makes a new view with a new
+  // button: the new one gives it the focus back (the old one would be gone). Whoever was asked is told by ctl.newFocus.
+  useEffect(() => {
+    const want = ctl.newFocus;
+    if (want && want.query === query && Date.now() - want.at < 8000) {
+      ctl.newFocus = null;
+      setTimeout(() => newButton.current?.focus(), 0);
+    }
+  }, []);
   const saved = ctl.saved.value;
   const savedMap = useMemo(() => new Map(saved.queries.map((x) => [x.name.toLowerCase(), x.query])), [saved]);
   // tables, lists and galleries come in pages; boards and calendars need everything at once
@@ -344,15 +353,21 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
           ctl={ctl}
           query={query}
           columns={config.newFields && config.newFields.length ? config.newFields : cols}
+          onlyListed={!!(config.newFields && config.newFields.length)}
           keys={keys}
-          onCreate={(title, content, under) => ctl.createViewPage(title, content, under, { quiet: config.noDuplicateWarning === true, rememberQuiet: () => update({ noDuplicateWarning: true }) })}
+          onCreate={(title, content, under) => (ctl.newFocus = { query, at: Date.now() }, ctl.createViewPage(title, content, under, { quiet: config.noDuplicateWarning === true, rememberQuiet: () => update({ noDuplicateWarning: true }) }))}
           onClose={() => {
             setAdding(false);
             // inside dynamic content the whole text is drawn again after a save, which replaces this button:
             // say which button should take focus once it is drawn
             ctl.newFocus = { query, at: Date.now() };
-            // the New button takes focus, so Enter starts the next page
-            setTimeout(() => newButton.current?.focus(), 0);
+            // the New button takes focus, so Enter starts the next page (when this one is gone, the one drawn in its place does)
+            setTimeout(() => {
+              if (newButton.current?.isConnected) {
+                newButton.current.focus();
+                ctl.newFocus = null;
+              }
+            }, 0);
           }}
         />
       )}

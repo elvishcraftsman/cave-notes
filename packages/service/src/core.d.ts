@@ -257,6 +257,7 @@ declare module '@cave-notes/core-automation' {
     onRun?(entry: LogEntry): void;
     shell(spec: ShellSpec): Promise<ShellResult>;
     js?(spec: JsSpec): Promise<JsResult>;
+    installAutomations?(spec: { ruleId: string; owner: string; file: string; content: string | null; remove: boolean; page: string }): Promise<{ changed?: boolean; created?: boolean; detail?: string; error?: string; denied?: boolean; reason?: string }>;
     loadState(): Promise<unknown>;
     saveState(state: unknown): Promise<void>;
     readDevices(): Promise<DeviceFile[]>;
@@ -292,12 +293,13 @@ declare module '@cave-notes/core-automation' {
     start(): Promise<void>;
     tick(): Promise<void>;
     catchUp(): Promise<void>;
-    onChanges(changes: Array<{ path: string; kind: 'created' | 'modified' | 'deleted'; origin?: 'local' | 'external' }>): Promise<void>;
+    onChanges(changes: Array<{ path: string; kind: 'created' | 'modified' | 'deleted'; origin?: 'local' | 'external' }>, moves?: Array<{ from: string; to: string }>): Promise<void>;
     runNow(ruleId: string, o?: { dry?: boolean; path?: string | null; limit?: number }): Promise<Array<{ path: string | null; status: string; detail: string; steps?: unknown[] }>>;
     plugins(): Array<{ id: string; label: string; ask: unknown[] }>;
     pluginQuestions(ruleId: string, opts: { path: string | null; text: string; selection: boolean }): Promise<unknown[]>;
     runPlugin(ruleId: string, opts: { path: string | null; text: string; selection: boolean; answers: Record<string, unknown> }): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; text: string; changed: boolean }>;
-    runButton(ruleId: string, path: string | null): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }>;
+    buttonQuestions(ruleId: string, opts: { path: string | null }): Promise<{ title: string; ask: unknown[] }>;
+    runButton(ruleId: string, path: string | null, answers?: Record<string, unknown>): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }>;
     log(limit?: number): LogEntry[];
     rulesFor(path: string): Promise<Array<{ id: string; name: string; triggers: string[]; definition: string }>>;
     status(): { rules: RuleSummary[]; problems: Array<{ level: string; message: string }>; pending: number; device: { id: string; name: string } };

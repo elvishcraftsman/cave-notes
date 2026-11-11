@@ -10,7 +10,7 @@
  *  - this computer's state and log: <app data>/workspaces/<id>/automation-*    (never synced)
  */
 import { fs, host, path, randomHex } from '@cave-notes/platform';
-import { AutomationEngine, runSandbox, type AutomationHost, type AutomationPageInfo, type DeviceFile, type JsResult, type JsSpec, type LogEntry, type ShellResult, type ShellSpec } from '@cave-notes/core-automation';
+import { AutomationEngine, parseAutomations, runSandbox, type AutomationHost, type AutomationPageInfo, type DeviceFile, type JsResult, type JsSpec, type LogEntry, type ShellResult, type ShellSpec } from '@cave-notes/core-automation';
 import { defaultNoteExt, isNoteFile, normalizeName, normalizePagePath, pageFolder, pageName, parentPage } from '@cave-notes/core-tree';
 import YAML from 'yaml';
 import { log } from './log';
@@ -45,6 +45,17 @@ export interface AutomationOptions {
   emit: <K extends keyof WorkerEvents>(event: K, payload: WorkerEvents[K]) => void;
 }
 
+/** What a file of rules would be able to do, in a few words, for the question shown to the person. */
+function summarize(rules: Array<Record<string, unknown>>): { rules: Array<{ id: string; name: string }>; js: boolean; shell: boolean; installs: boolean } {
+  const acts = (r: Record<string, unknown>): string[] => ((r.actions as Array<{ name: string }> | undefined) ?? []).map((a) => a.name);
+  return {
+    rules: rules.map((r) => ({ id: String(r.id), name: String(r.name ?? r.id) })),
+    js: rules.some((r) => acts(r).includes('run_js')),
+    shell: rules.some((r) => acts(r).includes('run_shell')),
+    installs: rules.some((r) => acts(r).includes('install_automations')),
+  };
+}
+
 const readText = (file: string): Promise<string | null> => fs.readFile(file, 'utf8').then((t) => t, () => null);
 
 async function writeAtomic(file: string, text: string): Promise<void> {
@@ -66,6 +77,7 @@ export class AutomationRunner {
   private queue: Promise<unknown> = Promise.resolve();
   private shellWaiting = new Map<string, (r: ShellResult) => void>();
   private jsWaiting = new Map<string, (r: { allowed: boolean; reason?: string }) => void>();
+  private rulesWaiting = new Map<string, (r: { allowed: boolean; reason?: string }) => void>();
   private nextShell = 1;
   private closed = false;
   readonly deviceId: string;
@@ -126,6 +138,8 @@ export class AutomationRunner {
     this.shellWaiting.clear();
     for (const [, done] of this.jsWaiting) done({ allowed: false, reason: 'the workspace was closed' });
     this.jsWaiting.clear();
+    for (const [, done] of this.rulesWaiting) done({ allowed: false, reason: 'the workspace was closed' });
+    this.rulesWaiting.clear();
   }
 
   /** The settings files of `.cave-notes` changed. */
@@ -138,9 +152,9 @@ export class AutomationRunner {
   }
 
   /** The files named here were added, changed or removed (after the index looked at them). */
-  changes(list: Array<{ path: string; kind: 'created' | 'modified' | 'deleted'; origin?: 'local' | 'external' }>): void {
+  changes(list: Array<{ path: string; kind: 'created' | 'modified' | 'deleted'; origin?: 'local' | 'external' }>, moves: Array<{ from: string; to: string }> = []): void {
     if (this.closed || list.length === 0) return;
-    void this.run(() => this.engine.onChanges(list)).catch((e) => log.warn(`automation change handling failed: ${(e as Error).message}`));
+    void this.run(() => this.engine.onChanges(list, moves)).catch((e) => log.warn(`automation change handling failed: ${(e as Error).message}`));
   }
 
   /** Tell the main process whether anything here needs the app to keep running in the background. */
@@ -168,8 +182,13 @@ export class AutomationRunner {
   }
 
   /** A button in a page was clicked: run the rule named by its `automation:` link for that page (see the engine's runButton). */
-  runButton(ruleId: string, page: string): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }> {
-    return this.run(() => this.engine.runButton(ruleId, page));
+  runButton(ruleId: string, page: string, answers: Record<string, unknown> = {}): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }> {
+    return this.run(() => this.engine.runButton(ruleId, page, answers));
+  }
+
+  /** The questions a button's rule asks before it runs (none: it runs at once), with labels worked out for the page. */
+  buttonQuestions(ruleId: string, page: string): Promise<{ title: string; ask: unknown[] }> {
+    return this.engine.buttonQuestions(ruleId, { path: page });
   }
 
   /** The rules of the Plugins menu. */
@@ -191,6 +210,13 @@ export class AutomationRunner {
   jsResult(id: string, answer: { allowed: boolean; reason?: string }): void {
     const done = this.jsWaiting.get(id);
     this.jsWaiting.delete(id);
+    done?.(answer);
+  }
+
+  /** The main process answers "may this rule change the automations?". */
+  rulesResult(id: string, answer: { allowed: boolean; reason?: string }): void {
+    const done = this.rulesWaiting.get(id);
+    this.rulesWaiting.delete(id);
     done?.(answer);
   }
 
@@ -356,6 +382,53 @@ export class AutomationRunner {
         });
         if (!answer.allowed) return { denied: true, reason: answer.reason ?? 'not allowed' };
         return runSandbox(spec.code, spec.input, { timeoutMs: spec.timeoutMs });
+      },
+
+      /**
+       * A rule puts a file of rules into .cave-notes, or takes it away. The first line says which rule installed it; only
+       * such a file, from the same rule, is ever replaced or removed. The person is asked each time anything would change.
+       */
+      async installAutomations(spec: { ruleId: string; owner: string; file: string; content: string | null; remove: boolean; page: string }) {
+        const target = path.join(o.root, '.cave-notes', spec.file);
+        const mark = `# installed by "${spec.owner}"`;
+        const existing = await readText(target);
+        if (existing !== null && !existing.startsWith('# installed by "')) return { error: `.cave-notes/${spec.file} is a file of yours (it was not installed by a rule), so it is left alone` };
+        if (existing !== null && !existing.startsWith(`${mark}\n`)) return { error: `.cave-notes/${spec.file} was installed by something else (not "${spec.owner}"), so it is left alone` };
+        let text: string | null = null;
+        let summary = { rules: [] as Array<{ id: string; name: string }>, js: false, shell: false, installs: false };
+        if (spec.remove) {
+          if (existing === null) return { changed: false, detail: `${spec.file} is not installed` };
+          const old = parseAutomations(existing);
+          summary = summarize(old.rules);
+        } else {
+          const body = String(spec.content).replace(/\s+$/, '');
+          text = `${mark}\n# Delete this file to take these automations away.\n${body}\n`;
+          if (existing === text) return { changed: false, detail: `${spec.file} is already installed` };
+          const parsed = parseAutomations(text);
+          if (parsed.errors.length > 0) return { error: `the rules to install have a mistake: ${parsed.errors[0]}` };
+          summary = summarize(parsed.rules);
+        }
+        const id = `r${self.nextShell++}`;
+        const answer = await new Promise<{ allowed: boolean; reason?: string }>((resolve) => {
+          const timer = setTimeout(() => {
+            self.rulesWaiting.delete(id);
+            resolve({ allowed: false, reason: 'the main process did not answer' });
+          }, SHELL_WAIT_MS);
+          timer.unref?.();
+          self.rulesWaiting.set(id, (r) => {
+            clearTimeout(timer);
+            resolve(r);
+          });
+          o.emit('automation:rules', { id, root: o.root, ruleId: spec.ruleId, file: spec.file, remove: spec.remove, created: existing === null, summary, content: text ?? existing ?? '' });
+        });
+        if (!answer.allowed) return { denied: true, reason: answer.reason ?? 'you did not allow it' };
+        if (spec.remove) await fs.rm(target, { force: true });
+        else {
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          await writeAtomic(target, text as string);
+        }
+        // the new rules are picked up when the file watcher sees the file
+        return { changed: true, created: existing === null };
       },
 
       // ---- this computer's own bookkeeping

@@ -6,7 +6,7 @@ import { BackgroundIndexer } from './background';
 import { type FollowableLink, NoteEditor, type OutlineItem, type SpellHost, type ThesaurusHost, findFirstH1 } from '@cave-notes/editor';
 import { SearchSession, setSort, toggleToken, type SessionState } from '@cave-notes/ui-search';
 import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-notes/ui-tree';
-import { expandSaved, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
+import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
 import YAML from 'yaml';
 import { BUILTIN_STYLES, countWords, imagesInLines, paginate, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
 import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus } from '../shared/api';
@@ -29,10 +29,10 @@ export type DialogSpec =
   | { kind: 'plugins' }
   | { kind: 'prompt'; title: string; body?: string; label: string; value: string; confirm: string; /** an extra drop-down under the text box; its choice is the second argument of `submit` */ select?: { label: string; options: Array<{ label: string; value: string }>; value: string }; submit: (value: string, choice?: string) => Promise<string | null> }
   | { kind: 'confirm'; title: string; body: string; details?: string[]; confirm: string; destructive?: boolean; /** a tick box; `apply` runs when the dialog is confirmed with it ticked */ check?: { label: string; apply: () => void }; resolve: (ok: boolean) => void }
-  | { kind: 'plugin-ask'; plugin: PluginInfo; title: string; fields: PluginAsk[]; confirm: string; submit: (answers: Record<string, unknown>) => Promise<string | null> }
+  | { kind: 'plugin-ask'; plugin: PluginInfo | null; title: string; fields: PluginAsk[]; confirm: string; submit: (answers: Record<string, unknown>) => Promise<string | null> }
   | { kind: 'plan'; title: string; plan: LinkPlan; confirm: string; resolve: (ok: boolean) => void }
   | { kind: 'choose'; title: string; body: string; options: Array<{ label: string; detail?: string; value: string }>; /** a tick box; `apply` gets the option picked when it was ticked (not for Cancel) */ remember?: { label: string; values: string[]; apply: (value: string) => void }; resolve: (value: string | null) => void }
-  | { kind: 'preferences'; tab?: 'app' | 'workspace' }
+  | { kind: 'preferences'; tab?: 'app' | 'workspace'; page?: string }
   | { kind: 'export'; markdown: string; title: string; path: string }
   | { kind: 'presentation'; present: boolean }
   | { kind: 'history'; path: string }
@@ -126,7 +126,7 @@ export interface RelationMemory {
 export class Controller {
   // ---- UI state
   readonly settings = signal<Settings>({
-    theme: 'dark', recent: [], found: [], scanFolders: [], scanIgnore: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
+    theme: 'dark', recent: [], found: [], scanFolders: [], scanIgnore: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
     lastWorkspace: null, showLeft: true, showRight: true, leftWidth: 280, rightWidth: 300, rightTab: 'outline', childrenDocked: false, bounds: null, maximized: false,
     autoCollapse: true, autoCollapseSeconds: 10, newPageDefault: 'nested', fontStyle: 'sans', fontSizes: { sans: null, serif: null, mono: null }, outlineOrderedLists: true, orderedListStyles: ['I.', 'A.', '1.', 'a.', 'i.', '1)', 'a)', 'i)'], bulletGlyphs: ['\u2022', '\u25E6', '\u25AA'], hierarchicalLists: true, wrapCode: false, dropAction: 'move', dropActionOtherDrive: 'same', exportStyles: [], exportStyle: 'Clean', exportFormat: 'docx', defaultAccent: null, conflictMerge: 'ask', automationShell: false, automationJs: false, automationJsAsk: true, automationBackground: false, deviceName: '', openExternal: 'tab', tabs: [], activeTab: 0, windows: [],
   });
@@ -975,8 +975,8 @@ export class Controller {
     if (err) this.toast(err);
   }
 
-  openPreferences(): void {
-    this.dialog.value = { kind: 'preferences' };
+  openPreferences(page?: string): void {
+    this.dialog.value = page ? { kind: 'preferences', page } : { kind: 'preferences' };
   }
 
   /** The list of keyboard shortcuts (Help > Keyboard Shortcuts). */
@@ -1017,7 +1017,7 @@ export class Controller {
   }
 
   /** Change one or more preferences (from the preferences dialog). */
-  setPreferences(patch: Partial<Pick<Settings, 'autoCollapse' | 'autoCollapseSeconds' | 'newPageDefault' | 'fontStyle' | 'fontSizes' | 'outlineOrderedLists' | 'exportStyles' | 'exportStyle' | 'exportFormat' | 'orderedListStyles' | 'bulletGlyphs' | 'hierarchicalLists' | 'wrapCode' | 'dropAction' | 'dropActionOtherDrive' | 'defaultAccent' | 'openExternal' | 'showNestedWorkspaces' | 'hideBareFolders' | 'nestedInNewTab' | 'scanAuto' | 'scanFolders' | 'scanIgnore' | 'automationShell' | 'automationJs' | 'automationJsAsk' | 'automationBackground' | 'deviceName' | 'firstDayOfWeek' | 'tableWordLimit' | 'globalsEnabled' | 'spellcheck' | 'synonyms' | 'indexAllWorkspaces' | 'dictionary' | 'disabledPlugins' | 'updateMode' | 'updateUrl' | 'presentScreen' | 'presenterWindow' | 'presenterScreen'>>): void {
+  setPreferences(patch: Partial<Pick<Settings, 'autoCollapse' | 'autoCollapseSeconds' | 'newPageDefault' | 'fontStyle' | 'fontSizes' | 'outlineOrderedLists' | 'exportStyles' | 'exportStyle' | 'exportFormat' | 'orderedListStyles' | 'bulletGlyphs' | 'hierarchicalLists' | 'wrapCode' | 'dropAction' | 'dropActionOtherDrive' | 'defaultAccent' | 'openExternal' | 'showNestedWorkspaces' | 'hideBareFolders' | 'nestedInNewTab' | 'scanAuto' | 'scanFolders' | 'scanIgnore' | 'automationShell' | 'automationJs' | 'automationJsAsk' | 'automationBackground' | 'deviceName' | 'firstDayOfWeek' | 'tableWordLimit' | 'globalsEnabled' | 'spellcheck' | 'synonyms' | 'indexAllWorkspaces' | 'fixCapitals' | 'dictionary' | 'disabledPlugins' | 'updateMode' | 'updateUrl' | 'presentScreen' | 'presenterWindow' | 'presenterScreen'>>): void {
     const next = { ...patch };
     if (next.autoCollapseSeconds !== undefined) next.autoCollapseSeconds = Math.max(1, Math.min(3600, Math.round(Number(next.autoCollapseSeconds)) || 10));
     if (next.globalsEnabled !== undefined && next.globalsEnabled !== this.settings.value.globalsEnabled) {
@@ -1031,6 +1031,7 @@ export class Controller {
     this.patchSettings(next);
     if (next.indexAllWorkspaces !== undefined) this.applyBackgroundSetting();
     if (next.wrapCode !== undefined) this.editorRef?.setWrapCode(next.wrapCode);
+    if (next.fixCapitals !== undefined) this.editorRef?.setFixCapitals(next.fixCapitals);
     if (next.orderedListStyles || next.bulletGlyphs || next.hierarchicalLists !== undefined) this.applyListOptions();
     if (next.showNestedWorkspaces !== undefined || next.hideBareFolders !== undefined) for (const sess of new Set(this.sessions.values())) void this.onTreeChanged('all', sess.root);
   }
@@ -1977,7 +1978,9 @@ export class Controller {
     const page = e.path ? stripExt(e.path).split('/').pop() : null;
     const where = page ? ` on “${page}”` : '';
     if (e.status === 'failed') {
-      this.toast(`Automation “${e.rule}” failed${where}: ${e.detail || 'see the automation log'}`, e.path ? { label: 'Show', run: () => void this.openPage(e.path!) } : undefined);
+      // a script or command that was not allowed: the link goes to where the permission is, not to the page
+      const blocked = /switched off in Preferences|you refused this|Preferences can forget/.test(e.detail);
+      this.toast(`Automation “${e.rule}” failed${where}: ${e.detail || 'see the automation log'}`, blocked ? { label: 'Permissions', run: () => this.openPreferences('sync') } : e.path ? { label: 'Show', run: () => void this.openPage(e.path!) } : undefined);
       return;
     }
     const did = e.steps.filter((s) => s.status === 'done').map((s) => (s.detail && s.detail !== 'ran' ? s.detail : s.action.replace(/_/g, ' ')));
@@ -2704,7 +2707,7 @@ export class Controller {
             return null;
           }
           if (plugin.ask.length > 0 && plugin.ask.every((q) => q.type === 'info')) return null; // it only showed a message
-          this.toast(res.status === 'skipped' && res.detail ? `${plugin.label}: ${res.detail}` : `${plugin.label}: nothing to change.`);
+          this.toast(res.detail ? `${plugin.label}: ${res.detail}` : `${plugin.label}: nothing to change.`);
           return null;
         }
         // the text may have been typed into while the plugin ran: only apply when the range is still what it was given
@@ -2745,10 +2748,35 @@ export class Controller {
     this.runningButtons.add(key);
     try {
       await this.flush();
+      // a rule with questions (`ask:`) shows them first and runs when they are answered
+      const q = await this.ws.automationButtonAsk(ruleId, cur.path).catch(() => ({ title: ruleId, ask: [] as PluginAsk[] }));
+      const finish = (res: { status: string; detail: string }): string | null => {
+        if (res.status === 'refused') return res.detail;
+        if (res.status === 'skipped') this.toast(`“${ruleId}” did not run here: ${res.detail}`);
+        return null; // a run that happened (done or failed) is announced by the automation toast
+      };
+      if (q.ask.length > 0) {
+        const path = cur.path;
+        this.dialog.value = {
+          kind: 'plugin-ask',
+          plugin: null,
+          title: q.title,
+          fields: q.ask,
+          confirm: q.ask.every((f) => f.type === 'info') ? 'OK' : 'Run',
+          submit: async (answers) => {
+            await this.flush();
+            try {
+              return finish(await this.ws.automationButton(ruleId, path, answers));
+            } catch (e) {
+              return explain(e);
+            }
+          },
+        };
+        return;
+      }
       const res = await this.ws.automationButton(ruleId, cur.path);
-      if (res.status === 'refused') this.toast(res.detail);
-      else if (res.status === 'skipped') this.toast(`“${ruleId}” did not run here: ${res.detail}`);
-      // a run that happened (done or failed) is announced by the automation toast
+      const err = finish(res);
+      if (err) this.toast(err);
     } catch (e) {
       this.toast(explain(e));
     } finally {
@@ -2766,10 +2794,10 @@ export class Controller {
     return this.main.runScript(sess.root, cur.path, req.code, req.lang, req.terminal);
   }
 
-  /** Preferences: forget the shell commands automations may run and the workspaces that may run scripts. */
+  /** Preferences: forget what was allowed and what was refused: shell commands, scripts, and the workspaces that may run scripts. */
   async forgetScriptApprovals(): Promise<void> {
     await this.main.forgetScriptApprovals();
-    this.toast('Forgotten. Commands and scripts will ask again.');
+    this.toast('Forgotten, the approvals and the refusals. Commands and scripts will ask again.');
   }
 
   stopCodeBlock(): void {
@@ -2920,6 +2948,48 @@ export class Controller {
       default:
         this.toast('That kind of link is not opened for safety.');
     }
+  }
+
+  /**
+   * A page for a name typed into a list of pages to choose from, made on the spot: under the open page (or under the page that
+   * the pages of a relation are `under:`), with what the query of those pages implies (a relation to `kind:project` makes a
+   * page with `kind: project`, so that it is one of the pages the relation can name). Returns the page, or null when it was not made.
+   */
+  async createNamedPage(title: string, relation?: { name: string; side: 'forward' | 'back' }): Promise<RelationPage | null> {
+    const t = title.trim();
+    if (!t) return null;
+    try {
+      const cur = this.current.value?.path ?? null;
+      let defaults: { attrs: Record<string, string>; under: string | null } = { attrs: {}, under: null };
+      const rel = relation ? this.saved.value.relations.find((r) => r.name === relation.name) : undefined;
+      const q = rel ? this.saved.value.queries.find((x) => x.name === (relation!.side === 'forward' ? rel.to : rel.from)) : undefined;
+      if (q) defaults = newPageDefaults(q.query);
+      let parent: string | null = cur;
+      if (defaults.under) {
+        if (cur && stripExt(cur) === defaults.under) parent = cur;
+        else {
+          const r = await this.ws.resolveLink({ syntax: 'wiki', target: defaults.under }, cur ?? '');
+          if (r.kind === 'page' && r.status === 'ok') parent = r.path;
+        }
+      }
+      const name = nameFromTitle(t);
+      const content = Object.keys(defaults.attrs).length > 0 ? newPageContent(t, defaults.attrs) : undefined;
+      const taken = name !== '' && (await this.ws.pageNameTaken(parent, name));
+      const path = taken ? await this.ws.createPageNumbered(parent, name, content ?? `# ${t}\n`, true) : await this.ws.createPage(parent, t, content, undefined, true);
+      await this.tree.refresh([parent]);
+      this.viewTick.value++;
+      return { path, title: t };
+    } catch (e) {
+      this.toast(explain(e));
+      return null;
+    }
+  }
+
+  /** The `[[` list's "Create page": the text typed is already a link in the page; make the page and go to it. */
+  async createLinkedPage(name: string): Promise<void> {
+    await this.flush(); // the link just written is saved before the page is left
+    const made = await this.createNamedPage(name);
+    if (made) await this.openPage(made.path, { reveal: true, cursor: 'end' });
   }
 
   private async offerCreate(name: string, editLink?: () => void): Promise<void> {

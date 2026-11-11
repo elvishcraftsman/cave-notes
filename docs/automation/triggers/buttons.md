@@ -31,6 +31,23 @@ How it works, step by step:
 5. `where`, `require`, `unless` and `if` still apply. If the page does not meet them, nothing changes and a message says why: in the example above, clicking in a page that already has `status: done` says the page does not match `where`.
 6. The click happens on this computer, so the rule runs here and now. It does not wait for another computer's turn.
 
+## Buttons that ask first
+
+A button's rule can have an `ask:` list, just like a [plugin](plugins.md): the click opens a small dialog with the questions, and the rule runs when the person presses **Run**. The answers are `${ask.name}` in the actions (and `ask.name` in a [script](../javascript.md)). **Cancel** runs nothing.
+
+```yaml
+  - id: pay-rent
+    where: kind:account
+    on: button
+    ask:
+      note:   { type: info, label: "Balance: ${this.balance}" }
+      amount: { type: number, label: "How much?", default: 1000 }
+    do:
+      - set_property: { field: balance, value: "${this.balance - ask.amount}" }
+```
+
+Questions of type `info` only show a message (its label can use `${this.…}` for the page the button is in), so a rule with nothing but an `info` question is a confirmation: *Are you sure?* and **OK** or **Cancel**. Labels and defaults are worked out for the page just before the dialog opens.
+
 A rule can only be started by a button if it lists `button` in its `on:`. This is deliberate: a note can come from another person, and without this rule a note could contain a button for any rule in your workspace. A rule can have a button and other triggers together: `on: [button, { schedule: "@daily" }]` means "every day, and also whenever I click". A button run has no `old` or `new` (they only exist for `change`).
 
 ---

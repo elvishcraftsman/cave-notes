@@ -637,3 +637,74 @@ test('the host hears of each rule that ran, not of skipped or dry runs', async (
   await engine.runNow('recur', { dry: true, path: 'Tasks/Water.md' });
   assert.equal(ran.length, 1);
 });
+
+// ------------------------------------------------------------------ a page that moves is the same page
+
+const WATCH = `
+rules:
+  - id: watch
+    where: kind:task
+    on: { change: status, to: done }
+    do: [ { notify: hit } ]
+`;
+const relocate = (ws, from, to) => {
+  const text = ws.text(from);
+  ws.pages.delete(from);
+  ws.set(to, text);
+};
+
+test('a page that is moved is not taken for a new page: its change rule does not fire again', async () => {
+  const { world, ws } = setup({ 'Tasks/Water.md': task('todo') });
+  const { engine, host } = await makeEngine(world, ws, WATCH);
+  world.advance(5000);
+  ws.set('Tasks/Water.md', task('done'));
+  await changed(engine, 'Tasks/Water.md');
+  assert.equal(host.notifications.length, 1);
+
+  // moved to an archive folder: the deletion and the creation come together, with what the app knows of the move
+  relocate(ws, 'Tasks/Water.md', 'Archive/Water.md');
+  await engine.onChanges([{ path: 'Tasks/Water.md', kind: 'deleted' }, { path: 'Archive/Water.md', kind: 'created' }], [{ from: 'Tasks/Water.md', to: 'Archive/Water.md' }]);
+  assert.equal(host.notifications.length, 1);
+
+  // renamed, with the two halves told in separate batches (the move is told with the second)
+  world.advance(1000);
+  relocate(ws, 'Archive/Water.md', 'Archive/Watering.md');
+  await engine.onChanges([{ path: 'Archive/Water.md', kind: 'deleted' }]);
+  await engine.onChanges([{ path: 'Archive/Watering.md', kind: 'created' }], [{ from: 'Archive/Water.md', to: 'Archive/Watering.md' }]);
+  assert.equal(host.notifications.length, 1);
+
+  // and it still notices a real change afterwards
+  world.advance(1000);
+  ws.set('Archive/Watering.md', task('todo'));
+  await changed(engine, 'Archive/Watering.md');
+  world.advance(1000);
+  ws.set('Archive/Watering.md', task('done'));
+  await changed(engine, 'Archive/Watering.md');
+  assert.equal(host.notifications.length, 2);
+});
+
+test('without word of a move, a page that appears is new (as before)', async () => {
+  const { world, ws } = setup({ 'Tasks/Water.md': task('todo') });
+  const { engine, host } = await makeEngine(world, ws, WATCH);
+  world.advance(5000);
+  ws.set('Tasks/Water.md', task('done'));
+  await changed(engine, 'Tasks/Water.md');
+  relocate(ws, 'Tasks/Water.md', 'Archive/Water.md');
+  await engine.onChanges([{ path: 'Tasks/Water.md', kind: 'deleted' }, { path: 'Archive/Water.md', kind: 'created' }]);
+  assert.equal(host.notifications.length, 2);
+});
+
+test('a moved page keeps its place among the pages a match rule has seen', async () => {
+  const { world, ws } = setup({ 'Tasks/A.md': '---\nkind: task\nstatus: open\n---\n# A\n' });
+  const { engine, host } = await makeEngine(world, ws, `
+rules:
+  - id: m
+    where: "kind:task status:open"
+    on: match
+    do: [ { notify: matched } ]
+`);
+  const before = host.notifications.length;
+  relocate(ws, 'Tasks/A.md', 'Elsewhere/A.md');
+  await engine.onChanges([{ path: 'Tasks/A.md', kind: 'deleted' }, { path: 'Elsewhere/A.md', kind: 'created' }], [{ from: 'Tasks/A.md', to: 'Elsewhere/A.md' }]);
+  assert.equal(host.notifications.length, before);
+});

@@ -1237,3 +1237,4 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 .cv-embed-bar { position: absolute; top: 6px; right: 6px; z-index: 7; display: flex; gap: 6px; align-items: center; }
 .cv-embed-bar .pill-button { box-shadow: 0 1px 6px rgba(0,0,0,.2); }
 .cv-embed-title { padding: 2px 8px; border-radius: 999px; background: var(--card-bg); font-size: 12px; opacity: .85; }
+.vb-suggest-create { border-top: 1px solid var(--border); margin-top: 3px; padding-top: 6px; font-style: italic; }

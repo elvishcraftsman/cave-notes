@@ -7,12 +7,12 @@ Open **Preferences** from the main menu (the button at the right of the title ba
 | Category | What is in it |
 |---|---|
 | Appearance | dark or light theme, the accent colour for workspaces without their own, the typeface and size of page text |
-| Editing | spell checking and your dictionary, synonyms, list styles, wrapping of code and plain text |
+| Editing | spell checking and your dictionary, fixing accidental double capitals, synonyms, list styles, wrapping of code and plain text |
 | Pages and files | which files are notes, where new pages go, collapsing of idle branches in the page tree, numbered lists in the outline, what happens to files dragged in |
 | Views | the first day of the week, and how wide table columns may grow |
 | Workspaces | nested workspaces, searching for workspaces, how folders opened from outside appear, settings shared between workspaces |
 | Presentations | which screen the slides are shown on, and whether a presenter window opens (and on which screen); see [Presentations](presentations.md) |
-| Sync and automation | what to do with Syncthing conflict copies, shell commands, JavaScript (**Let automations run JavaScript**, and **Ask before running a rule's JavaScript**, which is on until you turn it off) and background running of automations, and **Forget all approvals** (commands and scripts automations may run, and workspaces whose scripts the Run button of a [code block](code-blocks.md) may run) |
+| Sync and automation | what to do with Syncthing conflict copies, shell commands, JavaScript (**Let automations run JavaScript**, and **Ask before running a rule's JavaScript**, which is on until you turn it off) and background running of automations, and **Forget all approvals and refusals** (the commands and scripts automations may run, and the ones you refused, and the workspaces whose scripts the Run button of a [code block](code-blocks.md) may run) |
 | Updates | how often and whether the AppImage looks for a newer version and replaces itself, and the address it looks at; see [Updating the app](updates.md) |
 | Import and export | export styles, and saving your preferences to a file or loading them from one |
 
@@ -27,6 +27,10 @@ The main menu's **Help** (also `F1`) opens a window laid out like Preferences, w
 | Appearance | the workspace's accent colour, page text and icon |
 | File types | note types for this workspace only |
 | YAML | the workspace's attributes, schema, queries and other settings as text |
+
+## Accidental double capitals
+
+A word typed as **THis** (the shift key held a moment too long) becomes **This** when you end the word with a space or punctuation. Undo straight afterwards brings back what you typed. Only a word of two capitals followed by small letters is changed, and **not when the small letters are just an s**: HIs, PCs and IDs may be plurals of abbreviations. Units such as MHz and MPa, words in code, addresses, `[[page links]]` and front matter are left alone. *Preferences → Editing → Fix accidental double capitals* switches it off.
 
 ## Spelling and your dictionary
 

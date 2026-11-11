@@ -41,7 +41,7 @@ Dates and durations, with `today` = 2026-10-26 and `this.due` = 2026-10-29:
 | `rule` | `rule.id`, `rule.name`. |
 | `device` | `device.id`, `device.name` of this computer. |
 | `let` | The names defined in the rule's `let:`. |
-| `ask` | In a plugin: the answers to its `ask:` questions, `${ask.level}`. |
+| `ask` | In a plugin or a button: the answers to its `ask:` questions, `${ask.level}`. |
 | `selection` | In a plugin: `true` if the plugin works on selected text, `false` if on the whole page. |
 | `words`, `characters` | In a plugin: how many words and characters the text it works on has (see *Showing a message* under [Plugins](triggers/plugins.md)). |
 | `created` | After `create_page`: `created.path`, `created.title`, `created.existed`. |

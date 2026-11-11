@@ -77,6 +77,22 @@ suite('Enter in a deep list', () => {
   });
 });
 
+suite('Enter at the start of an item in a deep list', () => {
+  it('leaves an empty item and moves the text down one, at the same level', () => {
+    const ed = make('I. Heading\n   A. Subject\n      1. ‸Item that really should be #2');
+    press(ed, 'Enter');
+    expect(show(ed)).toBe('I. Heading\n   A. Subject\n      1. \n      2. ‸Item that really should be #2');
+  });
+  it('does the same at the second level and in a plain numbered list', () => {
+    const ed = make('I. Heading\n   A. ‸Subject');
+    press(ed, 'Enter');
+    expect(show(ed)).toBe('I. Heading\n   A. \n   B. ‸Subject');
+    const plain = make('1. one\n2. ‸two');
+    press(plain, 'Enter');
+    expect(show(plain)).toBe('1. one\n2. \n3. ‸two');
+  });
+});
+
 suite('Tab on several items', () => {
   it('moves the selected items and everything under them one level, and keeps the hierarchy', () => {
     const start = OUTLINE.indexOf('   A. Statement');

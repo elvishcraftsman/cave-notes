@@ -8,6 +8,7 @@ import { canIndentListItems, canOutdentListItems, indentListItems, outdentListIt
 import { insertViewBlock } from './commands';
 import { insertTable } from './tables';
 import { activeFormats, type BlockFormat, type InlineFormat, toggleBlock, toggleInline } from './formatting';
+import { insertFootnote } from './footnotes';
 
 /**
  * The formatting menu: right-click in the text, or release the mouse with text selected. It is a short, wide bar of
@@ -16,7 +17,7 @@ import { activeFormats, type BlockFormat, type InlineFormat, toggleBlock, toggle
  * Plain DOM so it works anywhere; it is styled with the host's CSS variables (see .cm-format-menu in theme.ts).
  */
 
-type IconKey = 'table' | 'grid' | 'code' | 'link' | 'quote' | 'codeblock' | 'bullets' | 'numbers' | 'tasks' | 'chevron' | 'check' | 'indent' | 'outdent' | 'selectall' | 'selecthtml' | 'copy';
+type IconKey = 'table' | 'grid' | 'code' | 'link' | 'quote' | 'codeblock' | 'bullets' | 'numbers' | 'tasks' | 'chevron' | 'check' | 'indent' | 'outdent' | 'selectall' | 'selecthtml' | 'copy' | 'footnote';
 
 /** 16px grid, 1.5px strokes, currentColor: the same style as the app's own symbolic icons. */
 const ICON_PATHS: Record<IconKey, string> = {
@@ -35,6 +36,7 @@ const ICON_PATHS: Record<IconKey, string> = {
   selectall: 'M2.5 2.5h11v11h-11z M5.5 6h5 M5.5 8h5 M5.5 10h3',
   selecthtml: 'M2.5 2.5h11v11h-11z M6 5.5L4.5 8 6 10.5 M10 5.5L11.5 8 10 10.5',
   copy: 'M5.5 5.5h8v8h-8z M2.5 10.5v-8h8',
+  footnote: 'M2.5 13L6 4.5 9.5 13 M3.7 10h4.6 M11.2 4.3l1.3-.8v4',
   outdent: 'M2.5 3.5h11 M8 7.5h5.5 M8 11.5h5.5 M5.3 6.2L2.5 8.5 5.3 10.8',
 };
 
@@ -65,6 +67,8 @@ interface Tool {
   icon?: IconKey;
   inline?: InlineFormat;
   block?: BlockFormat;
+  /** a button that does something to the text instead of switching a format on or off */
+  action?: (view: EditorView) => void;
 }
 
 interface Variant {
@@ -80,6 +84,8 @@ const INLINE: Tool[] = [
   { label: 'Strikethrough', hint: 'Ctrl+Shift+X', glyph: { text: 'S', cls: 'cm-glyph-strike' }, inline: 'strike' },
   { label: 'Code', hint: 'Ctrl+E', icon: 'code', inline: 'code' },
   { label: 'Link', hint: 'Ctrl+K', icon: 'link', inline: 'link' },
+  // a reference at the end of the selection and the note itself at the end of the page, with the cursor in it
+  { label: 'Insert footnote', hint: 'Ctrl+Alt+F', icon: 'footnote', action: (view) => void insertFootnote(view) },
 ];
 
 const HEADINGS: Variant[] = [
@@ -256,7 +262,7 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
     b.title = tip(t);
     b.setAttribute('aria-label', t.label);
     b.setAttribute('aria-pressed', String(on));
-    b.dataset.format = t.inline ?? t.block!;
+    b.dataset.format = t.inline ?? t.block ?? 'footnote';
     if (t.glyph) {
       const g = document.createElement('span');
       g.className = `cm-glyph ${t.glyph.cls}`;
@@ -264,7 +270,7 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
       b.appendChild(g);
     } else b.appendChild(svg(t.icon!));
     keepFocus(b);
-    b.addEventListener('click', () => run(() => (t.inline ? toggleInline(view, t.inline) : toggleBlock(view, t.block!))));
+    b.addEventListener('click', () => run(() => (t.action ? t.action(view) : t.inline ? toggleInline(view, t.inline) : toggleBlock(view, t.block!))));
     return b;
   };
 

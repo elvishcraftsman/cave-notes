@@ -213,7 +213,7 @@ Each task shows its project as a link. A view of the projects can use `columns: 
 
 ### Editing a relation
 
-Click a relation cell in a view (or Tab to it and press Enter) to change it. A field opens with the pages already named as chips and a list of the pages the relation can name; type to narrow it to titles that start with what you typed, use the arrow keys and Enter (or click) to choose. In a `multiple` cell you can add several and remove one with its **×** or Backspace; in a single cell choosing a page closes the field. Enter on an empty field, Tab or a click elsewhere saves; **Esc** throws the change away. Nothing is written, and nothing is asked, while you are still choosing.
+Click a relation cell in a view (or Tab to it and press Enter) to change it. A field opens with the pages already named as chips and a list of the pages the relation can name; type to narrow it to titles that start with what you typed, use the arrow keys and Enter (or click) to choose. In a `multiple` cell you can add several and remove one with its **×** or Backspace; in a single cell choosing a page closes the field. Enter on an empty field, **Esc**, Tab or a click elsewhere closes the list and saves what you chose. Nothing is written, and nothing is asked, while you are still choosing.
 
 Changes to a relation are made one at a time, each starting from what the one before wrote, so adding several pages quickly keeps every one of them.
 

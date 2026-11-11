@@ -130,6 +130,8 @@ export interface NewRowProps {
   ctl: Controller;
   query: string;
   columns: string[];
+  /** the view says which fields to ask for (newFields): no others are shown, though what its filters imply is still written */
+  onlyListed?: boolean;
   keys: AttributeKey[];
   /** create the page; resolves true when it was made */
   onCreate: (title: string, content: string, under: string | null) => Promise<boolean>;
@@ -141,7 +143,7 @@ export interface NewRowProps {
  * One row of fields for a new page. Nothing is made until Enter or Save; Escape or Cancel drops the row. Fields start
  * with the values the view's own filters imply (status:todo gives status = todo), so the page shows up in the view.
  */
-export function NewRow({ ctl, query, columns, keys, onCreate, onClose }: NewRowProps): JSX.Element {
+export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClose }: NewRowProps): JSX.Element {
   const defaults = newPageDefaults(query);
   // the fields come in the order of the view's columns; the title sits where the title column is; whatever the filters imply
   // but the view does not show follows at the end
@@ -155,7 +157,7 @@ export function NewRow({ ctl, query, columns, keys, onCreate, onClose }: NewRowP
     }
     return null;
   };
-  const names = [...new Set([...order, ...Object.keys(defaults.attrs)])].filter((n) => !relOf(n)?.back);
+  const names = [...new Set(onlyListed ? order : [...order, ...Object.keys(defaults.attrs)])].filter((n) => !relOf(n)?.back);
   const [linked, setLinked] = useState<Record<string, RelationPage[]>>({});
   const [title, setTitle] = useState('');
   // a date field starts on today (unless the view's own filters say otherwise); clear it to leave it empty
@@ -268,6 +270,14 @@ function NewRelationField({ ctl, k, multiple, value, onChange }: { ctl: Controll
     const w = Math.max(r.width, 220);
     setPos({ x: Math.max(8, Math.min(r.left, window.innerWidth - w - 8)), y: Math.min(r.bottom + 2, window.innerHeight - 250), w });
   }, [open, value.length, text]);
+  // a page for the text typed, made now and linked; the row it is for is not saved yet, so this does not leave it to open the page
+  const createHere = async (name: string): Promise<void> => {
+    const made = await ctl.createNamedPage(name, { name: k, side: 'forward' });
+    if (!made) return;
+    onChange(multiple ? [...value, made] : [made]);
+    setText('');
+    if (!multiple) setOpen(false);
+  };
   const pick = (p: RelationPage): void => {
     onChange(multiple ? [...value.filter((d) => pageKey(d) !== pageKey(p)), p] : [p]);
     setText('');
@@ -317,6 +327,9 @@ function NewRelationField({ ctl, k, multiple, value, onChange }: { ctl: Controll
           {options.map((o, i) => (
             <div key={o.path} role="option" aria-selected={i === active} class={`vb-suggest-item ${i === active ? 'on' : ''}`} title={o.title} onMouseDown={(e) => { e.preventDefault(); pick(o); }} onMouseEnter={() => setActive(i)}>{o.title}</div>
           ))}
+          {text.trim() !== '' && !options.some((o) => o.title.toLowerCase() === text.trim().toLowerCase()) && (
+            <div role="option" aria-selected={false} class="vb-suggest-item vb-suggest-create" title="Make this page and link it (it is not opened: this new page is not saved yet)" onMouseDown={(e) => { e.preventDefault(); void createHere(text.trim()); }}>Create page “{text.trim()}”</div>
+          )}
         </div>
       )}
     </span>

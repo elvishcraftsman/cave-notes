@@ -534,13 +534,19 @@ export class WorkspaceService implements WorkerApi {
    * A button (`[=Label](automation:rule-id)`) in the page `p` was clicked. The page is looked at again first, so the rule sees what
    * the person just typed (the window saves the page before it asks). Answers with what happened; it never throws for a rule that did not run.
    */
-  async automationButton(ruleId: string, p: string): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }> {
+  async automationButtonAsk(ruleId: string, p: string): Promise<{ title: string; ask: PluginAsk[] }> {
+    const a = this.open.automation;
+    if (!a) return { title: ruleId, ask: [] };
+    return (await a.buttonQuestions(ruleId, normalizePagePath(p))) as { title: string; ask: PluginAsk[] };
+  }
+
+  async automationButton(ruleId: string, p: string, answers: Record<string, unknown> = {}): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }> {
     const a = this.open.automation;
     if (!a) return { status: 'refused', detail: 'This workspace has no automation rules (a “rules:” list in a settings file of .cave-notes), so the button has nothing to run.', steps: [] };
     const page = normalizePagePath(p);
     await this.refreshQueue.catch(() => undefined);
     await this.open.index.refresh([page]).catch(() => undefined);
-    return a.runButton(ruleId, page);
+    return a.runButton(ruleId, page, answers);
   }
 
   /**
@@ -645,6 +651,10 @@ export class WorkspaceService implements WorkerApi {
 
   async automationShellResult(id: string, result: { code: number; stdout?: string; stderr?: string; timedOut?: boolean; denied?: boolean; reason?: string }): Promise<void> {
     this.ws?.automation?.shellResult(id, result);
+  }
+
+  async automationRulesResult(id: string, answer: { allowed: boolean; reason?: string }): Promise<void> {
+    this.ws?.automation?.rulesResult(id, answer);
   }
 
   async automationJsResult(id: string, answer: { allowed: boolean; reason?: string }): Promise<void> {
@@ -756,6 +766,7 @@ export class WorkspaceService implements WorkerApi {
       } else if (known.get(f)) o.pending.set(f, { hash: known.get(f) as string, timer: null });
     }
     const moved = new Set<string>();
+    const movedFrom: Array<{ from: string; to: string }> = [];
     for (const to of added) {
       const hash = (disk.get(to) as { hash: string }).hash;
       const same = [...o.pending].filter(([, v]) => v.hash === hash);
@@ -765,6 +776,7 @@ export class WorkspaceService implements WorkerApi {
       if (entry?.timer) clearTimeout(entry.timer);
       o.pending.delete(from);
       moved.add(to);
+      movedFrom.push({ from, to });
       o.tracked.delete(from);
       o.tracked.add(to);
       void o.history.rename(from, to).catch(() => {});
@@ -803,6 +815,7 @@ export class WorkspaceService implements WorkerApi {
         kind: !disk.get(f) ? ('deleted' as const) : !known.get(f) ? ('created' as const) : ('modified' as const),
         ...(disk.get(f) ? { origin: ours.has(f) ? ('local' as const) : ('external' as const) } : {}),
       })),
+      movedFrom, // pages that were moved or renamed: the rules that watch a property do not take them for new pages
     );
     if (copies.length > 0) await this.handleCopies(o, copies);
   }
@@ -2521,8 +2534,9 @@ export class WorkspaceService implements WorkerApi {
     const q = `saved:${JSON.stringify(side === 'forward' ? rel.to : rel.from)} ${words.map((w) => `title:${w}`).join(' ')} sort:title`;
     const skip = new Set(exclude);
     return this.open.index
-      .search(q, { limit: 40, count: false })
-      .results.filter((r: { path: string }) => !skip.has(r.path))
+      .search(q, { limit: 60, count: false })
+      // a folder that has no page of its own cannot be linked, so it is not offered
+      .results.filter((r: { path: string; isVirtual?: boolean | number }) => !skip.has(r.path) && !r.isVirtual)
       .slice(0, 12)
       .map((r: { path: string; title: string }) => ({ path: r.path, title: r.title }));
   }
