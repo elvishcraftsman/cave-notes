@@ -37,7 +37,8 @@ suite('can indent / can outdent', () => {
   const state = (doc: string, at: number): EditorState => EditorState.create({ doc, selection: { anchor: at }, extensions: [markdownSupport(), listSupport()] });
   it('indent needs an item above to nest under; outdent needs a nested item', () => {
     const doc = '- a\n- b\n  - c\n';
-    expect(canIndentListItems(state(doc, 1))).toBe(false); // first item
+    expect(canIndentListItems(state(doc, 1))).toBe(true); // first item of the list moves in by itself
+    expect(canOutdentListItems(state(doc, 1))).toBe(false); // but is not indented yet
     expect(canIndentListItems(state(doc, 6))).toBe(true); // b can go under a
     expect(canOutdentListItems(state(doc, 6))).toBe(false); // b is top level
     expect(canOutdentListItems(state(doc, 13))).toBe(true); // c is nested
@@ -97,18 +98,18 @@ suite('touch selection menu', () => {
     expect(ed.text()).toBe('- a\n- b\n');
   });
 
-  it('a disabled Indent button does nothing', () => {
+    it('a disabled Indent button does nothing', () => {
     vi.useFakeTimers();
-    const ed = make('- a\n- b\n');
+    const ed = make('   - a\n   - b\n'); // already as far in as a top-level list goes
     ed.view.focus();
     pointer(ed, 'touch');
-    ed.view.dispatch({ selection: { anchor: 2, head: 3 } }); // first item
+    ed.view.dispatch({ selection: { anchor: 5, head: 6 } }); // first item
     vi.advanceTimersByTime(400);
     button('Indent list item')!.click();
-    expect(ed.text()).toBe('- a\n- b\n');
+    expect(ed.text()).toBe('   - a\n   - b\n');
   });
 
-  it('the docked menu goes away when the selection is dropped', () => {
+  it('the docked menu stays while the editor has the focus, selection or not, and goes when it loses it', () => {
     vi.useFakeTimers();
     const ed = make('hello world');
     ed.view.focus();
@@ -117,6 +118,10 @@ suite('touch selection menu', () => {
     vi.advanceTimersByTime(400);
     expect(menu()).not.toBeNull();
     ed.view.dispatch({ selection: { anchor: 3 } });
+    vi.advanceTimersByTime(400);
+    expect(menu()).not.toBeNull();
+    ed.view.contentDOM.blur();
+    ed.view.dispatch({ selection: { anchor: 4 } });
     expect(menu()).toBeNull();
   });
 
@@ -185,7 +190,7 @@ suite('apostrophes from the keyboard autocorrect', () => {
 });
 
 suite('touch: a selected word brings its synonyms', () => {
-  it('shows them above the docked menu, and replaces the word when one is chosen', () => {
+  it('shows none: the list would cover the text being edited', () => {
     vi.useFakeTimers();
     const ed = make('a big house', { thesaurus: { synonyms: (w) => (w === 'big' ? ['large', 'great'] : null) } });
     ed.view.focus();
@@ -193,9 +198,8 @@ suite('touch: a selected word brings its synonyms', () => {
     ed.view.dispatch({ selection: { anchor: 2, head: 5 } }); // "big"
     vi.advanceTimersByTime(400);
     const items = [...document.querySelectorAll('.cm-synonym-list .cm-synonym')] as HTMLElement[];
-    expect(items.map((i) => i.textContent)).toEqual(['large', 'great']);
-    items[0]!.click();
-    expect(ed.text()).toBe('a large house');
+    expect(items).toEqual([]);
+    expect(menu()).not.toBeNull();
   });
 
   it('shows none when the selection is more than the one word', () => {

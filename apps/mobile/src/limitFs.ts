@@ -8,19 +8,28 @@ export interface FsTiming {
   (op: string, target: string, waitMs: number, runMs: number, bytes: number, state: { running: number; queued: number }): void;
 }
 
+/**
+ * What a person is waiting for (saving a page, reading one, renaming) goes before the looking around that indexing and
+ * watching do (`stat`, `lstat`, `readdir`, which are most of the calls of a big workspace: thousands in a burst). Otherwise a
+ * save waits behind all of them in line: with 126 waiting it took 3 to 12 seconds, and Android asked whether to close the app.
+ */
+const BACKGROUND = new Set(['stat', 'lstat', 'readdir', 'access', 'realpath', 'primeTree']);
+
 export function limitFs<T extends object>(fs: T, { max = 3, breathe = 12, onDone }: { max?: number; breathe?: number; onDone?: FsTiming } = {}): T {
   let running = 0;
   let sinceTurn = 0;
-  const waiting: Array<() => void> = [];
+  const urgent: Array<() => void> = [];
+  const background: Array<() => void> = [];
+  const queued = (): number => urgent.length + background.length;
   const next = (): void => {
-    while (running < max && waiting.length) {
+    while (running < max && queued()) {
       running++;
-      waiting.shift()!();
+      (urgent.length ? urgent : background).shift()!();
     }
   };
   const run = async <R>(job: () => Promise<R>, label?: { op: string; target: string }): Promise<R> => {
     const asked = Date.now();
-    if (running >= max) await new Promise<void>((resolve) => waiting.push(resolve));
+    if (running >= max) await new Promise<void>((resolve) => (BACKGROUND.has(label?.op ?? '') ? background : urgent).push(resolve));
     else running++;
     const started = Date.now();
     let bytes = 0;
@@ -37,7 +46,7 @@ export function limitFs<T extends object>(fs: T, { max = 3, breathe = 12, onDone
       return out;
     } finally {
       running--;
-      onDone?.(label?.op ?? '?', label?.target ?? '', started - asked, Date.now() - started, bytes, { running, queued: waiting.length });
+      onDone?.(label?.op ?? '?', label?.target ?? '', started - asked, Date.now() - started, bytes, { running, queued: queued() });
       next();
     }
   };

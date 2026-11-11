@@ -378,3 +378,19 @@ suite('<!-- closes itself', () => {
     expect(typeKeys('-', '<!-- x\n<!')).toEqual(expect.objectContaining({ text: '<!-- x\n<!-' }));
   });
 });
+
+suite('wikilink brackets', () => {
+  const typeAt = (ed: NoteEditor, ch: string): void => {
+    const sel = ed.state.selection.main;
+    const handled = ed.state
+      .facet(EditorView.inputHandler)
+      .some((h) => h(ed.view, sel.from, sel.to, ch, () => ed.state.update({ changes: { from: sel.from, to: sel.to, insert: ch } })));
+    if (!handled) ed.view.dispatch({ changes: { from: sel.from, to: sel.to, insert: ch }, selection: { anchor: sel.from + ch.length } });
+  };
+  it('typing the second [ closes the link too', () => {
+    const { ed } = make('');
+    typeAt(ed, '[');
+    typeAt(ed, '[');
+    expect(ed.text()).toBe('[[]]');
+  });
+});

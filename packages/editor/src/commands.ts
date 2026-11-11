@@ -172,6 +172,8 @@ export function pairOnlyBesideSpace(): Extension {
       // the characters that open and close with themselves need space before them too (a lone ` after a word ends a code span)
       const spacePrev = prev === '' || /\s/.test(prev);
       if (spaceNext && (spacePrev || /[([{]/.test(text))) return false;
+      // the second `[` of a wikilink closes too: `[|]` becomes `[[|]]`
+      if (text === '[' && prev === '[' && next === ']') return false;
       view.dispatch({ changes: { from, insert: text }, selection: { anchor: from + 1 }, scrollIntoView: true, userEvent: 'input.type' });
       return true;
     }),

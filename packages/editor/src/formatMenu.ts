@@ -630,7 +630,7 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
         return false;
       },
       keydown: () => {
-        if (open) closeFormatMenu();
+        if (open && !open.dock) closeFormatMenu(); // the docked menu stays while typing
         return false;
       },
     }),
@@ -641,12 +641,13 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
       if (!u.selectionSet && !u.focusChanged && !u.docChanged) return;
       const view = u.view;
       clearTimeout(settle);
-      if (view.state.readOnly || view.state.selection.main.empty || !view.hasFocus) {
+      // on a touch screen the menu is there whenever the editor has the focus (and so the keyboard is up), not only for a selection
+      if (view.state.readOnly || !view.hasFocus) {
         if (open?.dock) closeFormatMenu();
         return;
       }
       settle = setTimeout(() => {
-        if (view.state.readOnly || view.state.selection.main.empty || !view.hasFocus) return;
+        if (view.state.readOnly || !view.hasFocus) return;
         // The system's own "Select all" selects what is drawn, and a long page is drawn a part at a time: a selection that is
         // exactly the drawn part of a longer page was meant to be all of it.
         {
@@ -661,9 +662,8 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
         const sel = view.state.selection.main;
         const target = misspeltAt(view, sel.from + 1 <= sel.to ? sel.from + 1 : sel.from, options.spell);
         const wholeWord = !!target && target.from === sel.from && target.to === sel.to;
-        const syn = wholeWord ? null : synonymsAt(view, sel.from + 1 <= sel.to ? sel.from + 1 : sel.from, options.thesaurus);
-        const synWhole = !!syn && syn.from === sel.from && syn.to === sel.to;
-        showFormatMenu(view, 0, 0, wholeWord && target && options.spell ? { target, host: options.spell } : undefined, synWhole ? syn : undefined, { dock: true });
+        // no synonyms on a touch screen: the list covers the text being edited
+        showFormatMenu(view, 0, 0, wholeWord && target && options.spell && !sel.empty ? { target, host: options.spell } : undefined, undefined, { dock: true });
       }, 350);
     }),
     // keep the line being edited above the docked menu

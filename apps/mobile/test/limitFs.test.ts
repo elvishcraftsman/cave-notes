@@ -30,4 +30,22 @@ describe('limitFs', () => {
     await expect(fs.boom()).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.ok()).resolves.toBe('fine');
   });
+
+  it('lets a save and a read go ahead of the stat, lstat and readdir calls that are waiting', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const fake = {
+      async readdir(n: string): Promise<void> { if (n === 'hold') await gate; order.push(`readdir ${n}`); },
+      async lstat(n: string): Promise<void> { order.push(`lstat ${n}`); },
+      async writeFile(n: string): Promise<void> { order.push(`writeFile ${n}`); },
+      async readFile(n: string): Promise<void> { order.push(`readFile ${n}`); },
+    };
+    const fs = limitFs(fake, { max: 1, breathe: 1000 });
+    const first = fs.readdir('hold');
+    const rest = [fs.lstat('a'), fs.lstat('b'), fs.writeFile('page'), fs.readFile('other')];
+    release();
+    await Promise.all([first, ...rest]);
+    expect(order).toEqual(['readdir hold', 'writeFile page', 'readFile other', 'lstat a', 'lstat b']);
+  });
 });

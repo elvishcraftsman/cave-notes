@@ -18,7 +18,14 @@ export const noteTheme = EditorView.theme({
   '.cm-scroller': { fontFamily: 'var(--editor-font)', fontWeight: 'var(--editor-weight, 400)', lineHeight: 'var(--editor-line-height, 1.7)', letterSpacing: 'var(--editor-letter-spacing, normal)', wordSpacing: 'var(--editor-word-spacing, normal)', overflow: 'auto' },
   // minWidth 0: a long line of code must not keep the text column from getting narrower than the line (the column is a flex item, whose smallest size is otherwise its widest unbreakable line, so the page scrolled sideways in windows narrower than the column)
   '.cm-content': { maxWidth: '48rem', margin: '0 auto', padding: '6px 36px 45vh', caretColor: 'var(--view-fg)', minWidth: '0' },
-  '.cm-content:not(.cm-plain)': { boxSizing: 'border-box' },
+  // a very light line where the text of a line can start, so an indented line (or the first line of a list) can be told from one at the edge
+  '.cm-content:not(.cm-plain)': {
+    boxSizing: 'border-box',
+    backgroundImage: 'linear-gradient(color-mix(in srgb, var(--border) 45%, transparent), color-mix(in srgb, var(--border) 45%, transparent))',
+    backgroundSize: '1px 100%',
+    backgroundPosition: '35px 0',
+    backgroundRepeat: 'no-repeat',
+  },
   '.cm-line': { padding: '0' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--view-fg)', borderLeftWidth: '2px' },
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': {

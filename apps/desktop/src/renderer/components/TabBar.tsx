@@ -167,6 +167,7 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
         <FloatingMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <MenuItem icon="close" label="Close Tab" shortcut="Ctrl+W" onClick={() => { const id = menu.id; setMenu(null); void ctl.closeTab(id); }} />
           <MenuItem icon="close" label="Close Other Tabs" disabled={tabs.length < 2} onClick={() => { const id = menu.id; setMenu(null); void ctl.closeOtherTabs(id); }} />
+          <MenuItem icon="rename" label="Rename Page…" disabled={!tabs.find((x) => x.id === menu.id)?.path || !!tabs.find((x) => x.id === menu.id)?.single} onClick={() => { const t = tabs.find((x) => x.id === menu.id); setMenu(null); if (t?.path) void ctl.activateTab(t.id).then(() => ctl.renamePage(t.path!)); }} />
           {ctl.caps.windows && <MenuItem icon="page" label="Move to New Window" disabled={tabs.length < 2} onClick={() => { const id = menu.id; setMenu(null); void ctl.tearOffTab(id); }} />}
           {ctl.caps.systemFileActions && <MenuItem icon="folder" label="Reveal in File Explorer" onClick={() => { const id = menu.id; setMenu(null); void ctl.revealTab(id); }} />}
           <div class="menu-separator" />

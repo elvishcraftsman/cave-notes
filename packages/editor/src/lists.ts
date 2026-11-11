@@ -46,7 +46,8 @@ function infoOf(state: EditorState, item: SyntaxNode): ItemInfo {
 export function itemOnLine(state: EditorState, tree: Tree, lineNumber: number): SyntaxNode | null {
   const line = state.doc.line(lineNumber);
   if (line.text.trim() === '') return null;
-  const lead = /^[ \t]*/.exec(line.text)![0].length;
+  const q = quotePrefix(line.text);
+  const lead = q + /^[ \t]*/.exec(line.text.slice(q))![0].length;
   let node: SyntaxNode | null = tree.resolveInner(line.from + lead, 1);
   while (node && node.name !== 'ListItem') node = node.parent;
   return node;
@@ -85,17 +86,26 @@ export function lineSpan(state: EditorState, item: SyntaxNode): [number, number]
 }
 
 const sibling = (item: SyntaxNode, dir: -1 | 1): SyntaxNode | null => {
-  const s = dir < 0 ? item.prevSibling : item.nextSibling;
+  // in a blockquote the \"> \" marks of the lines between two items are nodes of their own between them
+  let s = dir < 0 ? item.prevSibling : item.nextSibling;
+  while (s?.name === 'QuoteMark') s = dir < 0 ? s.prevSibling : s.nextSibling;
   return s?.name === 'ListItem' ? s : null;
 };
+
+/**
+ * Length of the blockquote marks ("> ", "> > ") a line starts with. The indentation of a list item inside a quote comes after
+ * them, so a change of indent has to be made there, not at the start of the line (where it would turn the line into code).
+ */
+export const quotePrefix = (text: string): number => /^(?:[ ]{0,3}>[ ]?)*/.exec(text)![0].length;
 
 /** Change the leading space of `line` by `delta` columns (spaces added, or taken away as far as there are any). */
 function pushShift(changes: ChangeSpec[], line: { from: number; text: string }, delta: number): void {
   if (delta === 0 || line.text.trim() === '') return;
-  if (delta > 0) changes.push({ from: line.from, insert: ' '.repeat(delta) });
+  const q = quotePrefix(line.text);
+  if (delta > 0) changes.push({ from: line.from + q, insert: ' '.repeat(delta) });
   else {
-    const k = Math.min(-delta, /^ */.exec(line.text)![0].length);
-    if (k > 0) changes.push({ from: line.from, to: line.from + k });
+    const k = Math.min(-delta, /^ */.exec(line.text.slice(q))![0].length);
+    if (k > 0) changes.push({ from: line.from + q, to: line.from + q + k });
   }
 }
 
@@ -105,16 +115,19 @@ function pushShift(changes: ChangeSpec[], line: { from: number; text: string }, 
  */
 function usesTabs(state: EditorState, lineNumber: number): boolean {
   const doc = state.doc;
-  const lead = (n: number): string => /^[ \t]*/.exec(doc.line(n).text)![0];
+  const lead = (n: number): string => {
+    const t = doc.line(n).text;
+    return /^[ \t]*/.exec(t.slice(quotePrefix(t)))![0];
+  };
   const own = lead(lineNumber);
   if (own.includes('\t')) return true;
   if (own.length > 0) return false;
-  const marker = /^[ \t]+(?:[-*+]|\d{1,9}[.)]|[A-Za-z]{1,8}[.)])[ \t]/;
+  const marker = /^(?:[ ]{0,3}>[ ]?)*[ \t]+(?:[-*+]|\d{1,9}[.)]|[A-Za-z]{1,8}[.)])[ \t]/;
   for (let n = lineNumber + 1; n <= doc.lines; n++) {
     const text = doc.line(n).text;
     if (text.trim() === '') break;
-    if (marker.test(text)) return text.startsWith('\t');
-    if (!/^[ \t]/.test(text)) break;
+    if (marker.test(text)) return text.slice(quotePrefix(text)).startsWith('\t');
+    if (!/^[ \t]/.test(text.slice(quotePrefix(text)))) break;
   }
   return false;
 }
@@ -156,6 +169,21 @@ function groupsOf(ms: Mover[]): Mover[][] {
   return groups;
 }
 
+/** Columns a top-level list item is indented by (not counting the marks of a blockquote it is in). */
+function topIndent(state: EditorState, item: SyntaxNode): number {
+  const mark = item.getChild('ListMark')!;
+  const line = state.doc.lineAt(mark.from);
+  return mark.from - line.from - quotePrefix(line.text);
+}
+
+/** How far Shift-Tab moves a top-level first item back: to the previous multiple of its marker's width. */
+function topOutdentStep(state: EditorState, item: SyntaxNode): number {
+  const rel = topIndent(state, item);
+  const info = infoOf(state, item);
+  const width = Math.max(1, info.contentCol - info.markCol);
+  return rel - Math.floor((rel - 1) / width) * width;
+}
+
 /**
  * How far a group is moved by Tab: under the item above it, or, when it has none (the first item of a list), one step further
  * in by the width of its own marker. Null when it cannot move (it would be as deep as a code block).
@@ -169,7 +197,13 @@ function indentStep(state: EditorState, group: Mover[]): { delta: number; under:
     return delta > 0 ? { delta, under: prev } : null;
   }
   const parent = first.parent?.parent;
-  if (parent?.name !== 'ListItem') return null; // the first item of the whole list stays at the left
+  if (parent?.name !== 'ListItem') {
+    // the first item of a list at the top level moves in too, up to the 3 columns Markdown allows before it would be code;
+    // the items after it follow (they are lined up with it)
+    const rel = topIndent(state, first);
+    const width = mine.contentCol - mine.markCol;
+    return rel < 3 && width > 0 ? { delta: Math.min(width, 3 - rel), under: null } : null;
+  }
   const limit = infoOf(state, parent).contentCol + 3;
   const delta = mine.contentCol - mine.markCol;
   return mine.markCol + delta <= limit ? { delta, under: null } : null;
@@ -194,7 +228,7 @@ export function indentListItems(view: EditorView): boolean {
       const unit = usesTabs(state, a) ? '\t' : ' '.repeat(step.delta);
       for (let n = a; n <= b; n++) {
         const ln = doc.line(n);
-        if (ln.text.trim() !== '') changes.push({ from: ln.from, insert: unit });
+        if (ln.text.trim() !== '') changes.push({ from: ln.from + quotePrefix(ln.text), insert: unit });
       }
       // an item that starts a new nested numbered list starts it at 1 (or a, or i)
       if (k === 0 && step.under && m.item.parent?.name === 'OrderedList' && step.under.lastChild?.name !== 'OrderedList') {
@@ -223,7 +257,8 @@ export function canIndentListItems(state: EditorState): boolean {
 export function canOutdentListItems(state: EditorState): boolean {
   return movers(state).some(({ item }) => {
     const parent = item.parent?.parent;
-    return parent?.name === 'ListItem' && infoOf(state, item).markCol - infoOf(state, parent).markCol > 0;
+    if (parent?.name !== 'ListItem') return !sibling(item, -1) && topIndent(state, item) > 0;
+    return infoOf(state, item).markCol - infoOf(state, parent).markCol > 0;
   });
 }
 
@@ -235,16 +270,26 @@ export function outdentListItems(view: EditorView): boolean {
   let any = false;
   for (const m of movers(state)) {
     const parent = m.item.parent?.parent;
-    if (parent?.name !== 'ListItem') continue;
-    const delta = infoOf(state, m.item).markCol - infoOf(state, parent).markCol;
+    let delta: number;
+    if (parent?.name !== 'ListItem') {
+      if (sibling(m.item, -1) || topIndent(state, m.item) <= 0) continue; // only the first item of a top-level list moves back
+      delta = topOutdentStep(state, m.item);
+    } else delta = infoOf(state, m.item).markCol - infoOf(state, parent).markCol;
     if (delta <= 0) continue;
     any = true;
-    const [a, b] = spanOf(state, m);
+    const [a, b0] = spanOf(state, m);
+    let b = b0;
+    if (parent?.name !== 'ListItem') {
+      // the whole list moves back with its first item: the others would otherwise be left nested under it
+      for (let next = sibling(m.item, 1); next; next = sibling(next, 1)) b = lineSpan(state, next)[1];
+    }
     for (let n = a; n <= b; n++) {
       const ln = doc.line(n);
       // a tab-indented line gives up one tab; a space-indented one gives up as many spaces as the item is nested by
-      const k = ln.text.startsWith('\t') ? 1 : Math.min(delta, /^ */.exec(ln.text)![0].length);
-      if (k > 0) changes.push({ from: ln.from, to: ln.from + k });
+      const q = quotePrefix(ln.text);
+      const rest = ln.text.slice(q);
+      const k = rest.startsWith('\t') ? 1 : Math.min(delta, /^ */.exec(rest)![0].length);
+      if (k > 0) changes.push({ from: ln.from + q, to: ln.from + q + k });
     }
   }
   if (!any) return false;
@@ -537,7 +582,7 @@ function renumberChanges(oldState: EditorState, state: EditorState, changes_: Ch
     from,
     to,
     enter: (n) => {
-      if (n.name === 'OrderedList') lists.push(n.node);
+      if (n.name === 'OrderedList' || n.name === 'BulletList') lists.push(n.node);
     },
   });
 
@@ -570,6 +615,10 @@ function renumberChanges(oldState: EditorState, state: EditorState, changes_: Ch
     seen.add(list.from);
     const items = list.getChildren('ListItem');
     if (items.length === 0) continue;
+    if (list.name === 'BulletList') {
+      alignSiblings(state, items, shift);
+      continue;
+    }
     const start = startOf(list, items[0]!);
     if (!Number.isFinite(start)) continue;
     const firstMarker = markerOf(state, items[0]!);
@@ -586,9 +635,34 @@ function renumberChanges(oldState: EditorState, state: EditorState, changes_: Ch
       const [a, b] = lineSpan(state, item);
       for (let n = a + 1; n <= b; n++) shift.set(n, (shift.get(n) ?? 0) + delta);
     });
+    alignSiblings(state, items, shift);
   }
   for (const [n, d] of shift) pushShift(changes, doc.line(n), d);
   return changes;
+}
+
+/**
+ * The items of one list start in the same column. Moving an item that has sub-items leaves those where they were, and when
+ * the item's marker gets narrower or wider (\"III.\" to \"B.\") they no longer line up under it: they are now its neighbours,
+ * but a few columns further in, which is what made the saved file look wrong. Lines are moved (with what is under them) to
+ * the column of the first item. Tab-indented lists are left alone.
+ */
+function alignSiblings(state: EditorState, items: SyntaxNode[], shift: Map<number, number>): void {
+  if (items.length < 2) return;
+  const doc = state.doc;
+  const colOf = (item: SyntaxNode): number | null => {
+    const line = doc.lineAt(item.from);
+    const own = /^[ \t]*/.exec(line.text.slice(quotePrefix(line.text)))![0];
+    return own.includes('\t') ? null : infoOf(state, item).markCol;
+  };
+  const want = colOf(items[0]!);
+  if (want === null) return;
+  for (const item of items.slice(1)) {
+    const col = colOf(item);
+    if (col === null || col === want) continue;
+    const [a, b] = lineSpan(state, item);
+    for (let n = a; n <= b; n++) shift.set(n, (shift.get(n) ?? 0) + want - col);
+  }
 }
 
 const renumbering: Extension = EditorState.transactionFilter.of((tr) => {

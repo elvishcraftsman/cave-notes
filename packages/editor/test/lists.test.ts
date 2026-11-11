@@ -72,10 +72,37 @@ suite('Tab and Shift-Tab in lists', () => {
     expect(ed.text()).toContain('3. b');
   });
 
-  it('leave the first item of a list where it is', () => {
+  it('indent the first item of a list (and the list with it), up to 3 columns, and take it back', () => {
     const ed = make('1. a‸\n2. b');
     press(ed, 'Tab');
+    expect(ed.text()).toBe('   1. a\n   2. b');
+    press(ed, 'Tab'); // as far as Markdown allows before it is code
+    expect(ed.text()).toBe('   1. a\n   2. b');
+    press(ed, 'Tab', { shift: true });
     expect(ed.text()).toBe('1. a\n2. b');
+    const bullets = make('- a‸\n- b');
+    press(bullets, 'Tab');
+    press(bullets, 'Tab');
+    expect(bullets.text()).toBe('   - a\n   - b');
+    press(bullets, 'Tab', { shift: true });
+    expect(bullets.text()).toBe('  - a\n  - b');
+  });
+
+  it('put the indent of an item in a blockquote after the \"> \"', () => {
+    const ed = make('> 1. a\n> 2. b‸\n> 3. c');
+    press(ed, 'Tab');
+    expect(ed.text()).toBe('> 1. a\n>    1. b\n> 2. c');
+    press(ed, 'Tab', { shift: true });
+    expect(ed.text()).toBe('> 1. a\n> 2. b\n> 3. c');
+  });
+
+  it('keep what stays behind in line with its new neighbours when a marker changes width', () => {
+    const ed = make('II. B\n    A. p\n    B. q\n       x\nIII. C‸');
+    ed.view.dispatch({ selection: { anchor: ed.text().indexOf('B. q') + 1 } });
+    press(ed, 'Tab', { shift: true });
+    press(ed, 'Tab');
+    const lines = ed.text().split('\n');
+    expect(lines.filter((l) => /^ *[A-Z]\. /.test(l)).map((l) => /^ */.exec(l)![0].length)).toEqual([4, 4]);
   });
 
   it('widen the step when the marker does ("10. " is four columns)', () => {

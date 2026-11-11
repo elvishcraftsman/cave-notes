@@ -155,8 +155,9 @@ function wikilinkSource(fetch: NonNullable<EditorOptions['wikilinkCompletions']>
     if (!items.length && !canCreate) return null;
     const start = m.from + m.text.indexOf('[[') + 2;
     const write = (view: EditorView, from: number, to: number, label: string): void => {
-      const hasClose = view.state.doc.sliceString(to, to + 2) === ']]';
-      const insert = hasClose ? label : `${label}]]`;
+      // bring the closing brackets up to two: none, one (a stray from auto-closing) or both may already be there
+      const have = /^\]{0,2}/.exec(view.state.doc.sliceString(to, to + 2))![0].length;
+      const insert = label + ']'.repeat(2 - have);
       view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + label.length + 2 } });
     };
     return {
