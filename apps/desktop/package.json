@@ -1,6 +1,6 @@
 {
   "name": "@cave-notes/desktop",
-  "version": "0.9.0",
+  "version": "0.11.0",
   "private": true,
   "description": "Cave Notes: hierarchical Markdown notes with live preview, outline, links and search.",
   "main": "dist/main.cjs",
