@@ -1,3 +1,4 @@
+import { criticize } from './critic';
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
@@ -19,6 +20,10 @@ export interface Inline {
   note?: number;
   /** the label of that footnote (`[^note]` has `note`) */
   noteId?: string;
+  /** inside a CriticMarkup highlight `{==…==}`: the number of that annotation (see critic.ts) */
+  hl?: number;
+  /** an empty piece where a CriticMarkup comment `{>>…<<}` is anchored: its id (the `hl` of the highlight it belongs to) and text */
+  cmt?: { id: number; text: string };
 }
 
 export type ListKind = 'decimal' | 'alpha' | 'ALPHA' | 'roman' | 'ROMAN';
@@ -84,6 +89,13 @@ function shadow(text: string): { text: string; markers: Map<number, Marker> } {
     if (f) fence = fence === null ? f[1]![0]! : fence === f[1]![0] ? null : fence;
     if (fence !== null) return line;
     // `::: name` opens a styled block and `:::` closes it; both are shown to the parser as comments (read back in `blocks`)
+    // a line of only colons closes blocks: `:::` one, and `::: :::` (or `::: ::: :::`) that many, so a block that holds another
+    // can be closed on one line
+    const closers = /^ {0,3}(:{3,}(?:[ \t]+:{3,})*)[ \t]*$/.exec(line);
+    if (closers) {
+      const n = closers[1]!.split(/[ \t]+/).length;
+      return n === 1 ? '<!--cn-end-->' : `<!--cn-end ${n}-->`;
+    }
     const d = /^ {0,3}(:{3,})[ \t]*(.*?)[ \t]*:*[ \t]*$/.exec(line);
     if (d) {
       if (d[2] === '') return '<!--cn-end-->';
@@ -131,9 +143,12 @@ function groupDivs(nodes: Node[]): Node[] {
       into.push(div);
       stack.push({ node: div, into });
       into = div.children!;
-    } else if (n.type === 'html' && (n.value ?? '').trim() === '<!--cn-end-->') {
-      const top = stack.pop();
-      if (top) into = top.into;
+    } else if (n.type === 'html' && /^<!--cn-end(?: \d+)?-->$/.test((n.value ?? '').trim())) {
+      const count = Number(/\d+/.exec(n.value ?? '')?.[0] ?? 1);
+      for (let i = 0; i < count; i++) {
+        const top = stack.pop();
+        if (top) into = top.into;
+      }
     } else into.push(n);
   }
   return out;
@@ -149,7 +164,14 @@ const HTML_TAG = /<\/?(?:div|span|p|b|i|em|strong|u|s|sub|sup|small|mark|center|
 /** numbering of footnotes while one document is read */
 let noteOrder = new Map<string, number>();
 
+/** Annotation numbers while one document is read (see critic.ts). */
+let criticSeq = 0;
+
 function inlines(nodes: Node[] | undefined, style: Omit<Inline, 'text'> = {}): Inline[] {
+  return criticize(inlinesRaw(nodes, style), () => ++criticSeq);
+}
+
+function inlinesRaw(nodes: Node[] | undefined, style: Omit<Inline, 'text'> = {}): Inline[] {
   const out: Inline[] = [];
   for (const n of nodes ?? []) {
     switch (n.type) {
@@ -165,11 +187,11 @@ function inlines(nodes: Node[] | undefined, style: Omit<Inline, 'text'> = {}): I
         if (v) out.push({ ...style, text: v });
         break;
       }
-      case 'strong': out.push(...inlines(n.children, { ...style, bold: true })); break;
-      case 'emphasis': out.push(...inlines(n.children, { ...style, italic: true })); break;
-      case 'delete': out.push(...inlines(n.children, { ...style, strike: true })); break;
+      case 'strong': out.push(...inlinesRaw(n.children, { ...style, bold: true })); break;
+      case 'emphasis': out.push(...inlinesRaw(n.children, { ...style, italic: true })); break;
+      case 'delete': out.push(...inlinesRaw(n.children, { ...style, strike: true })); break;
       case 'inlineCode': out.push({ ...style, text: n.value ?? '', code: true }); break;
-      case 'link': out.push(...inlines(n.children, { ...style, link: n.url ?? '' })); break;
+      case 'link': out.push(...inlinesRaw(n.children, { ...style, link: n.url ?? '' })); break;
       case 'break': out.push({ ...style, text: '', br: true }); break;
       case 'image': if (n.alt) out.push({ ...style, text: n.alt }); break;
       case 'html': {
@@ -181,7 +203,7 @@ function inlines(nodes: Node[] | undefined, style: Omit<Inline, 'text'> = {}): I
         }
         break;
       }
-      default: out.push(...inlines(n.children, style)); if (!n.children && n.value) out.push({ ...style, text: n.value });
+      default: out.push(...inlinesRaw(n.children, style)); if (!n.children && n.value) out.push({ ...style, text: n.value });
     }
   }
   return out;
@@ -255,8 +277,9 @@ function blocks(input: Node[] | undefined, markers: Map<number, Marker>): Block[
   // A paragraph that a block quote interrupts goes on after the quote when no blank line comes between: `flow` is true
   // while that could still be the case (after a paragraph, and after a quote that touches it).
   let flow = false;
-  // The same after a list: a line holding only `<!-- -->` right under the list ends it (so the text below is not part of
-  // its last item) and prints nothing; a paragraph that touches that line goes on with the paragraph above the list.
+  // The same after a list or a block quote: a line holding only `<!-- -->` right under it ends it (so the text below is not
+  // part of its last item, or of the quote) and prints nothing; a paragraph that touches that line goes on with the paragraph
+  // above the list or the quote.
   let listFlow = false; // a list that followed a paragraph (or touches one) and no blank line since
   let bridged = false; // the comment line was met right after such a list
   let prev: Node | null = null;
@@ -264,7 +287,8 @@ function blocks(input: Node[] | undefined, markers: Map<number, Marker>): Block[
     const touches = !!prev && !!prev.position && !!n.position && !blankBetween(prev.position.end.line, n.position.start.line);
     const isMark = n.type === 'html' && /^<!--\s*-->$/.test((n.value ?? '').trim());
     const continued = (n.type === 'paragraph' && prev?.type === 'blockquote' && flow && touches) || (n.type === 'paragraph' && bridged && touches);
-    bridged = isMark && listFlow && touches;
+    // (after a block quote that goes on a paragraph: the same, so the text under the comment is not pulled into the quote)
+    bridged = isMark && touches && (listFlow || (prev?.type === 'blockquote' && flow));
     listFlow = n.type === 'list' ? flow && touches : isMark ? bridged : false;
     flow = n.type === 'paragraph' ? true : n.type === 'blockquote' ? flow && touches : false;
     prev = n;
@@ -340,6 +364,7 @@ export function parseDoc(markdown: string, opts: { splitImages?: boolean } = {})
   const { text, markers } = shadow(lead && (lead[1]!.trim() === '' || !hasFence) ? clean.replace(/^---/, '***') : clean);
   const tree = unified().use(remarkParse).use(remarkFrontmatter, ['yaml']).use(remarkGfm).parse(text) as unknown as Node;
   noteOrder = new Map();
+  criticSeq = 0;
   sourceLines = text.split('\n');
   const defs = new Map<string, Node>();
   for (const n of tree.children ?? []) if (n.type === 'footnoteDefinition' && n.identifier !== undefined && !defs.has(n.identifier)) defs.set(n.identifier, n);
@@ -381,7 +406,7 @@ export function slideBreaks(markdown: string): { lines: string[]; breaks: number
       breaks.push(n.position.start.line);
       prev = null;
     } else if (n.type === 'html' && /^<!--cn-div/.test((n.value ?? '').trim())) depth++;
-    else if (n.type === 'html' && /^<!--cn-end/.test((n.value ?? '').trim())) depth = Math.max(0, depth - 1);
+    else if (n.type === 'html' && /^<!--cn-end/.test((n.value ?? '').trim())) depth = Math.max(0, depth - Number(/\d+/.exec(n.value ?? '')?.[0] ?? 1));
     else if (depth > 0 || n.type === 'footnoteDefinition' || n.type === 'definition') continue;
     else {
       // a heading that comes after something that is not a heading starts a new slide (no rule needed)

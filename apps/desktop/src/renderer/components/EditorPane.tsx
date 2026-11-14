@@ -9,6 +9,7 @@ import { createCanvasHost } from '../canvas/host';
 import { createEmbedHost } from '../views/embedHost';
 import { ChildrenBar } from './ChildrenBar';
 import { FloatingMenu, MenuItem, StatusPage } from './Overlays';
+import { savedViewTemplate } from '@cave-notes/ui-views';
 import { stripExt } from '../paths';
 import { Icon, WorkspaceIcon } from './icons';
 
@@ -171,6 +172,7 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       onBlur: () => ctl.onEditorBlur(),
       spell: ctl.spellHost,
       thesaurus: ctl.thesaurusHost,
+      savedViews: () => ctl.saved.value.queries.map((x) => ({ label: x.title ?? x.name, template: savedViewTemplate(x.name) })),
       wikilinkCompletions: async (q) => (await ctl.suggest(q)).map((s) => ({ label: s.label, detail: stripExt(s.path) })),
       fixCapitals: ctl.settings.value.fixCapitals,
       createLinkedPage: (name) => void ctl.createLinkedPage(name),

@@ -1,4 +1,4 @@
-/** Every keyboard shortcut, for the Keyboard Shortcuts dialog and docs/shortcuts.md (a test keeps the two in step). */
+/** Every keyboard shortcut, for the Keyboard Shortcuts dialog and docs/02-writing/06-shortcuts.md (a test keeps the two in step). */
 export interface ShortcutGroup {
   title: string;
   items: Array<{ keys: string; does: string }>;

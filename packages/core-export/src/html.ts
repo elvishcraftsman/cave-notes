@@ -1,5 +1,6 @@
 import { namedDecls, namedList } from './named';
 import type { Block, Inline, ListKind } from './doc';
+import { collectComments } from './critic';
 import { pagedCss } from './paginate';
 import { PAGE_CM, hasHeaderFooter, hfTokens, type HeaderFooter, type StyleSet } from './styles';
 
@@ -9,10 +10,17 @@ const family = (f: string): string => `'${f.replace(/'/g, '')}', ${/mono|consol|
 const LIST_TYPE: Record<ListKind, string> = { decimal: 'decimal', alpha: 'lower-alpha', ALPHA: 'upper-alpha', roman: 'lower-roman', ROMAN: 'upper-roman' };
 export const LIST_ATTR: Record<ListKind, string> = { decimal: '1', alpha: 'a', ALPHA: 'A', roman: 'i', ROMAN: 'I' };
 
+/** The number each CriticMarkup comment is shown by, while a document is turned into HTML (comment id -> 1, 2, 3 …). */
+let commentNos = new Map<number, number>();
+
 function inline(items: Inline[]): string {
   return items
     .map((i) => {
       if (i.br) return '<br>';
+      if (i.cmt) {
+        const n = commentNos.get(i.cmt.id) ?? 0;
+        return `<sup class="cm"><a href="#cm${n}" id="cmr${n}" title="${esc(i.cmt.text)}">[${n}]</a></sup>`;
+      }
       if (i.note !== undefined && noteRef) return noteRef(i);
       if (i.note !== undefined) return `<sup class="fn"><a href="#fn${i.note}" id="fnr${i.note}">${i.note}</a></sup>`;
       let h = esc(i.text);
@@ -20,6 +28,7 @@ function inline(items: Inline[]): string {
       if (i.strike) h = `<s>${h}</s>`;
       if (i.italic) h = `<em>${h}</em>`;
       if (i.bold) h = `<strong>${h}</strong>`;
+      if (i.hl !== undefined) h = `<mark class="hl">${h}</mark>`;
       if (i.link) h = /^(https?:|mailto:)/i.test(i.link) ? `<a href="${esc(i.link)}">${h}</a>` : h;
       return h;
     })
@@ -35,6 +44,7 @@ let noteRef: ((i: Inline) => string) | null = null;
 export function blocksHtml(blocks: Block[], src?: (url: string) => string | null, note?: (i: Inline) => string): string {
   const before = imageSrc;
   const beforeNote = noteRef;
+  commentNos = new Map(collectComments(blocks).map((c) => [c.id, c.n]));
   imageSrc = src ?? null;
   noteRef = note ?? null;
   try {
@@ -128,7 +138,7 @@ table{border-collapse:collapse;margin:0 0 ${s.body.paragraphAfter}pt;max-width:1
 th,td{border:.5pt solid ${s.table.border};padding:3pt 6pt;vertical-align:top}
 th{background:${s.table.headerBackground}}
 .img{color:#777;font-style:italic}
-sup.fn{font-size:.75em;line-height:0}sup.fn a{text-decoration:none;color:${s.link.color}}
+sup.cm{font-size:.75em;line-height:0}sup.cm a{text-decoration:none;color:#8a5a00}mark.hl{background:#fff2a8;color:inherit}\n.comments{margin-top:14pt;font-size:${s.footnotes.sizePt}pt;line-height:1.3}.comments h2{font-size:1em;margin:0 0 4pt 0}.comment{margin:0 0 3pt 0}.comment-n{font-weight:bold;margin-right:4pt}\nsup.fn{font-size:.75em;line-height:0}sup.fn a{text-decoration:none;color:${s.link.color}}
 .notes{margin-top:14pt;font-size:${s.footnotes.sizePt}pt;color:${s.footnotes.color};font-style:${s.footnotes.italic ? 'italic' : 'normal'};line-height:1.3}
 .notes hr{border:0;border-top:.5pt solid #999;width:30%;margin:0 0 6pt 0}
 .note{margin:0 0 3pt 0}.note-n{font-size:.8em;vertical-align:super;line-height:0;margin-right:2pt}${s.footnotes.endnotes ? '\n.notes{page-break-before:always}' : ''}${s.css.trim() ? `\n${s.css.replace(/<\/style/gi, '')}` : ''}`;
@@ -142,10 +152,14 @@ function indents(b: Block, before: Block | undefined, s: StyleSet): boolean {
 /** A complete HTML page for the blocks, in a style set. `paper` adds a sheet-of-paper look for on-screen previews. */
 export function renderHtml(blocks: Block[], style: StyleSet, opts: { title?: string; paper?: boolean; /** lay the text out in page-sized columns for `paginate` (the preview and the page count) */ paged?: boolean; /** extra CSS (the @font-face rules of bundled fonts) */ css?: string } = {}): string {
   const title = opts.title ?? '';
+  const comments = collectComments(blocks);
+  commentNos = new Map(comments.map((c) => [c.id, c.n]));
+  // a PDF cannot hold comments of its own, so the comments are numbered where they are and listed at the end
+  const commentList = comments.length === 0 ? '' : `<section class="comments"><hr><h2>Comments</h2>${comments.map((c) => `<div class="comment" id="cm${c.n}"><span class="comment-n">[${c.n}]</span>${esc(c.text)}</div>`).join('')}</section>`;
   const head = style.titleFromPage && title && !(blocks[0]?.t === 'heading' && blocks[0].level === 1) ? `<h1>${esc(title)}</h1>` : '';
   const [w] = PAGE_CM[style.page.size];
   const paper = opts.paper
     ? `html{background:#d9d9d9}body{box-sizing:border-box;width:${w}cm;max-width:100%;margin:12px auto;padding:${style.page.marginCm}cm;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3)}`
     : '';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${opts.css ?? ''}\n${styleCss(style, title)}\n${paper}${opts.paged ? pagedCss(style) : ''}</style></head><body>${opts.paged ? '<div class="cn-flow">' : ''}${head}${blocks.map((b, i) => block(b, indents(b, blocks[i - 1], style))).join('\n')}${opts.paged ? '</div>' : ''}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${opts.css ?? ''}\n${styleCss(style, title)}\n${paper}${opts.paged ? pagedCss(style) : ''}</style></head><body>${opts.paged ? '<div class="cn-flow">' : ''}${head}${blocks.map((b, i) => block(b, indents(b, blocks[i - 1], style))).join('\n')}${commentList}${opts.paged ? '</div>' : ''}</body></html>`;
 }

@@ -13,6 +13,10 @@ export interface TreeItem {
   unlisted?: boolean;
   /** `icon: name` in its attributes: an icon of the bundled set, shown in the tree and the gallery */
   icon?: string;
+  /** `indicatorText: …` in its attributes: the text of the dot shown beside the page in the tree (none when the page ignores indicators) */
+  indicator?: string;
+  /** `ignoreIndicators: true`: the page never shows an indicator (the page menu can undo that) */
+  indicatorsIgnored?: boolean;
   /** a folder that is a workspace of its own (it holds `.cave-notes`): where it is on disk */
   workspaceRoot?: string;
 }
@@ -634,7 +638,7 @@ export interface Settings {
   showRight: boolean;
   leftWidth: number;
   rightWidth: number;
-  rightTab: 'outline' | 'links';
+  rightTab: 'outline' | 'links' | 'annotations';
   /** keep the sub-page bar under the editor expanded */
   childrenDocked: boolean;
   bounds: { width: number; height: number } | null;
@@ -706,7 +710,7 @@ export interface Settings {
   disabledPlugins: string[];
   /** AppImage updates: `install` downloads a newer one and puts it in place of this one, `notify` only says there is one, `off` never looks */
   updateMode: 'install' | 'notify' | 'off';
-  /** where to look for updates instead of the project's GitHub releases: a GitHub repository address, or the address of a small JSON file (see docs/updates.md); empty: the default */
+  /** where to look for updates instead of the project's GitHub releases: a GitHub repository address, or the address of a small JSON file (see docs/07-the-app/01-updates.md); empty: the default */
   updateUrl: string;
   /** when the last look for an update was made (milliseconds since 1970); this computer only */
   lastUpdateCheck: number;
@@ -803,6 +807,14 @@ export interface MainApi {
   isFile(absPath: string): Promise<boolean>;
   /** The folder holding the built-in documentation (opened as a read-only workspace). */
   docsFolder(): Promise<string>;
+  /** Ask where to save a .zip of the documentation (to give to an AI chat, say) and write it there; the file's path, or null when cancelled. */
+  saveDocsZip(): Promise<string | null>;
+  /** The export styles in the other YAML files of the app's styles/ folder (those added from a file), as one text. */
+  getGlobalStyleFiles(): Promise<string>;
+  /** Ask for files (or a folder) to add as a plugin, export style or template; the paths chosen (empty when cancelled). */
+  pickImportFiles(mode: 'file' | 'folder'): Promise<string[]>;
+  /** Put the chosen files where the person said (see ImportWhere). */
+  importFromFile(req: ImportRequest): Promise<ImportResult>;
   /** The logs there are now (the application log, and the automation log of each open workspace) and the folder that holds the application log. */
   logSources(): Promise<{ dir: string; sources: LogSource[] }>;
   /** The text of one log (the end of it, when it is large), or of all of them (`all`). */
@@ -932,6 +944,8 @@ export interface Capabilities {
   fileWatching: boolean;
   /** a hardware keyboard and mouse are expected (shortcuts, hover, right-click) */
   keyboardAndMouse: boolean;
+  /** the app can look for a newer version of itself and offer it (the AppImage updates itself; Android opens the new APK) */
+  appUpdates: boolean;
 }
 
 export const DESKTOP_CAPABILITIES: Capabilities = {
@@ -943,6 +957,7 @@ export const DESKTOP_CAPABILITIES: Capabilities = {
   multiWorkspace: true,
   fileWatching: true,
   keyboardAndMouse: true,
+  appUpdates: true,
 };
 
 /** What the preload script exposes as window.cave: a raw, whitelisted pipe. The renderer wraps it in typed proxies. */
@@ -960,7 +975,7 @@ export interface RawBridge {
 
 export const MAIN_METHODS = [
   'chooseWorkspace', 'getSettings', 'setSettings', 'attachWorkspace', 'detachWorkspace', 'openPath', 'appConfigFolder', 'showInFolder', 'openExternal', 'updateStatus', 'checkForUpdate', 'installUpdate', 'restartApp',
-  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'logSources', 'readLog',
+  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [
@@ -987,12 +1002,33 @@ export interface PluginInfo {
   id: string;
   label: string;
   ask: PluginAsk[];
+  /** `icon:` of the rule: a name of the bundled icon set, shown in the Plugins menu and window */
+  icon?: string;
+  /** `description:` of the rule: a longer, several-line text for the Plugins window (it shows the first lines, and "Read more") */
+  description?: string;
   /** a plugin another workspace offers to all that this one has not accepted: choosing it asks first */
   pending?: { source: string; name: string };
   /** `workspace`: written in this workspace's settings (or accepted from another); `default`: comes with the app (see the app config folder) */
   origin?: 'workspace' | 'default';
   /** for a default plugin: its file in the app config folder, such as `plugins/number-headings.yaml` */
   file?: string;
+}
+
+/** Adding plugins, export styles or templates from files (see main/importFiles.ts). */
+export type ImportKind = 'plugin' | 'style' | 'template';
+/** `app`: the app's folder (all workspaces, this computer); `workspace`: this workspace's .cave-notes (this workspace, every computer); `global`: the same, tagged !global (all workspaces, every computer that has this one) */
+export type ImportWhere = 'app' | 'workspace' | 'global';
+export interface ImportRequest {
+  kind: ImportKind;
+  where: ImportWhere;
+  /** absolute paths of what was chosen or dropped: files, folders or .zip files */
+  sources: string[];
+  workspaceRoot?: string;
+}
+export interface ImportResult {
+  ok: boolean;
+  message: string;
+  added: string[];
 }
 
 export interface UninstallResult {

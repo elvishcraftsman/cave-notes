@@ -5,7 +5,7 @@
  *   { ok: true,  value, logs }     `value` is what the script returned (a string becomes { text })
  *   { ok: false, error }           the script threw, ran too long, used too much memory or returned something unusable
  *
- * `input` is plain data: text, cursor, page, props and so on (see docs/automation/javascript.md). A script cannot reach
+ * `input` is plain data: text, cursor, page, props and so on (see docs/04-automation/06-javascript.md). A script cannot reach
  * the workspace, the network or the rest of the app; see sandbox-worker.js for how that is kept true.
  */
 import { Worker } from 'node:worker_threads';

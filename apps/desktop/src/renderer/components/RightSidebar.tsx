@@ -5,12 +5,17 @@ import type { LinkInfo } from '../../shared/api';
 import { Icon, type IconName } from './icons';
 import { stripExt } from '../paths';
 import { CanvasObjects } from './CanvasPanes';
+import { FloatingMenu, MenuItem } from './Overlays';
+import { useState } from 'preact/hooks';
+import type { Annotation } from '@cave-notes/editor';
 
 /** `[=Label](automation:rule-id)` is a button, not a link to anywhere. */
 const isAutomationButton = (l: { target: string }): boolean => /^automation:/i.test(l.target.trim());
 
 export function RightSidebar({ ctl }: { ctl: Controller }): JSX.Element {
-  const tab = ctl.settings.value.rightTab;
+  const notes = ctl.annotations.value;
+  // the Annotations tab is only there when the page has highlights or comments; with none, the sidebar shows the outline
+  const tab = ctl.settings.value.rightTab === 'annotations' && notes.length === 0 ? 'outline' : ctl.settings.value.rightTab;
   const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? '');
   const linkCount = ctl.links.value.filter((l) => (l.kind !== 'page' || l.target !== '') && !isAutomationButton(l)).length;
   return (
@@ -22,10 +27,46 @@ export function RightSidebar({ ctl }: { ctl: Controller }): JSX.Element {
         <button role="tab" aria-selected={tab === 'links'} class={tab === 'links' ? 'on' : ''} onClick={() => ctl.setRightTab('links')}>
           Links{linkCount + ctl.backlinks.value.length > 0 ? <span class="count">{linkCount + ctl.backlinks.value.length}</span> : null}
         </button>
+        {notes.length > 0 && (
+          <button role="tab" aria-selected={tab === 'annotations'} class={tab === 'annotations' ? 'on' : ''} onClick={() => ctl.setRightTab('annotations')}>
+            Notes<span class="count">{notes.length}</span>
+          </button>
+        )}
       </div>
-      <div class="right-body">{tab === 'outline' ? <Outline ctl={ctl} /> : <Links ctl={ctl} />}</div>
+      <div class="right-body">{tab === 'outline' ? <Outline ctl={ctl} /> : tab === 'annotations' ? <Annotations ctl={ctl} /> : <Links ctl={ctl} />}</div>
       <DocStats ctl={ctl} />
     </div>
+  );
+}
+
+/** The highlights and comments of the page (CriticMarkup): click one to go to it, delete it with its button or its right-click menu. */
+function Annotations({ ctl }: { ctl: Controller }): JSX.Element {
+  const [menu, setMenu] = useState<{ x: number; y: number; a: Annotation } | null>(null);
+  const items = ctl.annotations.value;
+  const label = (a: Annotation): string => (a.text !== '' ? a.text : a.comment !== null ? 'Comment' : 'Highlight').replace(/\s+/g, ' ');
+  return (
+    <>
+      <ul class="annotations" role="list" aria-label="Highlights and comments">
+        {items.map((a) => (
+          <li key={a.from} class="annotation-row" onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, a }); }}>
+            <button class="annotation-main" onClick={() => ctl.goToAnnotation(a)} title={`Line ${a.line}`}>
+              <span class={`annotation-hl ${a.text === '' ? 'lone' : ''}`}>{label(a)}</span>
+              {a.comment !== null && a.comment !== '' && <span class="annotation-comment">{a.comment}</span>}
+              {a.comment === '' && <span class="annotation-comment empty">(no comment yet)</span>}
+            </button>
+            <button class="annotation-delete" aria-label={`Remove ${a.text !== '' ? 'the highlight' : 'the comment'} on line ${a.line}`} title="Remove" onClick={() => ctl.removeAnnotation(a)}>
+              <Icon name="trash" size={14} />
+            </button>
+          </li>
+        ))}
+      </ul>
+      {menu && (
+        <FloatingMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          <MenuItem icon="page" label="Go to It" onClick={() => { ctl.goToAnnotation(menu.a); setMenu(null); }} />
+          <MenuItem icon="trash" label={menu.a.text !== '' ? 'Remove Highlight and Comment' : 'Remove Comment'} onClick={() => { ctl.removeAnnotation(menu.a); setMenu(null); }} />
+        </FloatingMenu>
+      )}
+    </>
   );
 }
 

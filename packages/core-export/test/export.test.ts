@@ -358,11 +358,59 @@ describe('a paragraph that goes on after a list', () => {
   });
 });
 
+describe('a paragraph that goes on after a block quote', () => {
+  const paras = (md: string) => parseDoc(md).filter((b) => b.t === 'para') as Array<{ cont?: boolean }>;
+  it('continues the paragraph above when a lone comment line ends the quote', () => {
+    const md = 'He said:\n> Grace is not earned.\n<!-- -->\nand the argument goes on.\n';
+    const bs = parseDoc(md);
+    expect(bs.map((b) => b.t)).toEqual(['para', 'quote', 'para']);
+    expect(paras(md)[1]!.cont).toBe(true);
+  });
+  it('without the comment line the text is pulled into the quote; a blank line makes a new paragraph', () => {
+    expect(parseDoc('He said:\n> Grace.\nmore.\n').map((b) => b.t)).toEqual(['para', 'quote']);
+    expect(paras('He said:\n> Grace.\n<!-- -->\n\nafter.\n')[1]!.cont).toBeFalsy();
+  });
+});
+
+describe('the default styles as a file', () => {
+  it('written out as YAML they read back as the same styles', async () => {
+    const { BUILTIN_STYLES, stringifyStyleSets, parseStyleSetsYaml } = await import('../src/index');
+    const back = parseStyleSetsYaml(stringifyStyleSets(BUILTIN_STYLES));
+    expect(back.errors).toEqual([]);
+    expect(back.sets.map((x) => x.name)).toEqual(BUILTIN_STYLES.map((x) => x.name));
+    for (const [i, b] of BUILTIN_STYLES.entries()) {
+      expect(back.sets[i]!.body).toEqual(b.body);
+      expect(back.sets[i]!.page).toEqual(b.page);
+      expect(back.sets[i]!.headings).toEqual(b.headings);
+    }
+  });
+});
+
 describe('counting words', () => {
   it('leaves out the attributes and the marks', async () => {
     const { countWords } = await import('../src/index');
     expect(countWords('---\ntitle: A long title here\n---\n# Two words\n\nOne **bold** [link](http://x.y) and `code`.\n\n- item one\n- item two\n')).toBe(2 + 5 + 4);
     expect(countWords('')).toBe(0);
+  });
+
+  it('does not count footnotes', async () => {
+    const { countWords } = await import('../src/index');
+    expect(countWords('One two three[^a].\n\n[^a]: This note has seven words in it.\n')).toBe(3);
+  });
+
+  it('does not count a nocount block: alone, with other classes, or holding another block', async () => {
+    const { countWords, parseDoc } = await import('../src/index');
+    expect(countWords('Body words here.\n\n::: nocount\nIgnored words in here.\n:::\n\nMore body.\n')).toBe(5);
+    expect(countWords('Body.\n\n::: hanging nocount\n# Bibliography\n\nSmith, A. A book.\n:::\n')).toBe(1);
+    const nested = 'Body words.\n\n::: nocount\n# Bibliography\n\n::: hanging\nFirst item\n\nSecond item\n::: :::\n\nAfter the block counts.\n';
+    expect(countWords(nested)).toBe(2 + 4);
+    // the block that closes two on one line really closes both
+    const blocks = parseDoc(nested);
+    expect(blocks.map((b) => b.t)).toEqual(['para', 'div', 'para']);
+    const outer = blocks[1] as Extract<(typeof blocks)[number], { t: 'div' }>;
+    expect(outer.classes).toEqual(['nocount']);
+    expect(outer.blocks.map((b) => b.t)).toEqual(['heading', 'div']);
+    expect((outer.blocks[1] as typeof outer).classes).toEqual(['hanging']);
   });
 });
 

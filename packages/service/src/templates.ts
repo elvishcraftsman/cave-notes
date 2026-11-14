@@ -54,6 +54,37 @@ async function entries(dir: string): Promise<string[]> {
   }
 }
 
+/**
+ * The template files in a templates folder, as paths relative to it. A template is a single note file. A template set is a
+ * notes page in the folder (its readme) with a folder of the same name: the readme is not a template itself, and the notes in
+ * the folder are templates, as if they were in the templates folder directly.
+ */
+async function templateFiles(base: string, exts: string[], sub = '', depth = 1): Promise<string[]> {
+  const names = (await entries(sub ? path.join(base, ...sub.split('/')) : base)).filter((n) => !n.startsWith('.')).sort();
+  const out: string[] = [];
+  for (const f of names) {
+    const rel = sub ? `${sub}/${f}` : f;
+    const ext = exts.find((e) => f.toLowerCase().endsWith(e));
+    if (ext) {
+      const stem = f.slice(0, -ext.length);
+      if (depth < 3 && names.includes(stem) && (await isDir(path.join(base, ...(sub ? [...sub.split('/'), stem] : [stem]))))) continue; // a set's readme
+      out.push(rel);
+    } else if (depth < 3 && (await isDir(path.join(base, ...rel.split('/'))))) {
+      // a folder is read only when a note of the same name sits beside it (a set); other folders are left alone
+      if (exts.some((e) => names.includes(f + e))) out.push(...(await templateFiles(base, exts, rel, depth + 1)));
+    }
+  }
+  return out;
+}
+
+async function isDir(p: string): Promise<boolean> {
+  try {
+    return (await fs.stat(p)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Every template usable for sub-pages of `page` (null = the top level), nearest first, one per name. */
 export async function listTemplates(root: string, page: string | null, appDir?: string | null): Promise<TemplateInfo[]> {
   const exts = noteExtensions();
@@ -76,15 +107,17 @@ export async function listTemplates(root: string, page: string | null, appDir?: 
       if (isTemplateText(text)) add({ name: f.slice(0, -ext.length), holder: folder === '' ? null : null, rel });
     }
   }
-  for (const f of await entries(join(root, TEMPLATES_DIR))) {
-    const ext = exts.find((e) => f.toLowerCase().endsWith(e));
-    if (ext) add({ name: f.slice(0, -ext.length), holder: null, rel: `${TEMPLATES_DIR}/${f}` });
+  for (const rel of await templateFiles(join(root, TEMPLATES_DIR), exts)) {
+    const f = rel.slice(rel.lastIndexOf('/') + 1);
+    const ext = exts.find((e) => f.toLowerCase().endsWith(e))!;
+    add({ name: f.slice(0, -ext.length), holder: null, rel: `${TEMPLATES_DIR}/${rel}` });
   }
   // the app's own templates come last: the workspace's win by name
   if (appDir) {
-    for (const f of (await entries(appDir)).sort()) {
-      const ext = exts.find((e) => f.toLowerCase().endsWith(e));
-      if (ext && !f.startsWith('.')) add({ name: f.slice(0, -ext.length), holder: null, rel: `app/${f}`, abs: path.join(appDir, f) });
+    for (const rel of await templateFiles(appDir, exts)) {
+      const f = rel.slice(rel.lastIndexOf('/') + 1);
+      const ext = exts.find((e) => f.toLowerCase().endsWith(e))!;
+      add({ name: f.slice(0, -ext.length), holder: null, rel: `app/${rel}`, abs: path.join(appDir, ...rel.split('/')) });
     }
   }
   return [...found.values()];

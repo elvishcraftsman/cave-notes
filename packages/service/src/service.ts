@@ -233,7 +233,7 @@ export class WorkspaceService implements WorkerApi {
     this.globalsEnabled = opts.globalsEnabled !== false;
     o.inheritedSig = '';
     await this.refreshGlobals(o).catch((e) => log.warn('globally global settings could not be read', e));
-    const stopFiles = watchWorkspace(root, (b) => void this.onFilesChanged(b.files, b.folders, b.schema, b.others, b.automations), this.options.watchDebounceMs ?? 150, single ?? undefined);
+    const stopFiles = watchWorkspace(root, (b) => void this.onFilesChanged(b.files, b.folders, b.schema, b.others, b.automations, b.ignores), this.options.watchDebounceMs ?? 150, single ?? undefined);
     const stopGlobals = this.watchGlobals(o);
     o.stopWatching = async () => {
       stopGlobals();
@@ -587,11 +587,11 @@ export class WorkspaceService implements WorkerApi {
       if (off.root === o.root || (c && c.hash === off.hash && c.apply.includes(o.root))) continue;
       const rules = off.sections.rules;
       if (!rules?.length) continue;
-      for (const r of parseAutomations(YAML.stringify({ rules })).rules as Array<{ id: string; name: string; ask: PluginInfo['ask']; enabled: boolean; triggers: Array<{ kind: string; label?: string | null }> }>) {
+      for (const r of parseAutomations(YAML.stringify({ rules })).rules as Array<{ id: string; name: string; ask: PluginInfo['ask']; icon?: string | null; description?: string | null; enabled: boolean; triggers: Array<{ kind: string; label?: string | null }> }>) {
         const t = r.triggers.find((x) => x.kind === 'plugin');
         if (!t || !r.enabled || have.has(r.id)) continue;
         have.add(r.id);
-        out.push({ id: r.id, label: t.label ?? r.name, ask: r.ask, pending: { source: off.root, name: off.name }, origin: 'workspace' });
+        out.push({ id: r.id, label: t.label ?? r.name, ask: r.ask, ...(r.icon ? { icon: r.icon } : {}), ...(r.description ? { description: r.description } : {}), pending: { source: off.root, name: off.name }, origin: 'workspace' });
       }
     }
     return orderPlugins(out);
@@ -694,9 +694,22 @@ export class WorkspaceService implements WorkerApi {
     this.refreshPending.clear();
   }
 
-  private async onFilesChanged(files: Set<string>, folders: Set<string>, schema = false, others = false, automations = false): Promise<void> {
+  private async onFilesChanged(files: Set<string>, folders: Set<string>, schema = false, others = false, automations = false, ignores = false): Promise<void> {
     const o = this.ws;
     if (!o) return;
+    if (ignores) {
+      // a .caveignore changed: what it hides has to be looked at again
+      o.tree.reloadIgnore();
+      try {
+        await o.index.reconcile();
+      } catch (e) {
+        log.error('reconcile after .caveignore change failed', e);
+      }
+      if (this.ws !== o) return;
+      o.lookup = null;
+      this.emit('index:updated', { path: null });
+      this.emit('tree:changed', { parents: 'all' });
+    }
     const tBatch = performance.now();
     activity.batches++;
     activity.files += files.size + folders.size;
@@ -898,6 +911,7 @@ export class WorkspaceService implements WorkerApi {
       for (const e of entries) {
         if (e.name.startsWith('.') || e.name === 'node_modules' || e.isSymbolicLink()) continue;
         const rel = dir ? `${dir}/${e.name}` : e.name;
+        if (!o.single && (e.isDirectory() ? await o.tree.skipDir(rel) : await o.tree.isIgnored(rel, false))) continue; // listed in a .caveignore
         if (e.isDirectory() && !o.single) await walk(rel);
         else if (e.isFile() && isNoteFile(e.name.replace(/\.sync-conflict-[^/]*?(\.[^./]+)?$/, '$1') || e.name) && isConflictName(e.name) && (!o.single || conflictOriginal(rel) === o.single)) out.push(rel);
       }
@@ -958,6 +972,8 @@ export class WorkspaceService implements WorkerApi {
     const hiddenFromChildren = opts.forChildren ? o.index.hiddenOnlyPaths(parent, 'children') : null;
     const templates = o.index.templatePaths(parent);
     const icons = o.index.iconPaths(parent);
+    const indicators = o.index.indicatorPaths(parent);
+    const ignoring = o.index.indicatorIgnoringPaths(parent);
     const count = o.index.db.prepare('SELECT COUNT(*) AS n FROM pages WHERE parent_path = ?');
     const out: TreeItem[] = [];
     for (const i of items) {
@@ -985,8 +1001,23 @@ export class WorkspaceService implements WorkerApi {
         path: i.path, name: i.name, exists: i.exists, hasChildren, ...(isHidden ? { hidden: true } : {}),
         ...(shownUnlisted ? { unlisted: true } : {}), ...(shownUnlisted && templates.has(i.path) ? { template: true } : {}),
         ...(i.workspace ? (nestedIcon ? { icon: nestedIcon } : {}) : icons.has(i.path) ? { icon: icons.get(i.path)! } : {}),
+        ...(!i.workspace && indicators.has(i.path) ? { indicator: indicators.get(i.path)! } : {}),
+        ...(!i.workspace && ignoring.has(i.path) ? { indicatorsIgnored: true } : {}),
         ...(i.workspace ? { workspaceRoot: path.join(o.root, ...pageFolder(i.path).split('/')) } : {}),
       });
+    }
+    // the documentation is read-only and its files are numbered to put them in order: the tree shows the titles, not the file names
+    if (o.docs) {
+      for (const item of out) {
+        if (!item.exists) continue;
+        try {
+          const head = (await fs.readFile(path.join(o.root, ...item.path.split('/')), 'utf8')).slice(0, 2000);
+          const title = /^#[ \t]+(.+?)[ \t]*#*[ \t]*$/m.exec(head.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, ''))?.[1];
+          if (title) item.name = title;
+        } catch {
+          /* no file or unreadable: the file name stays */
+        }
+      }
     }
     return out;
   }
@@ -1197,6 +1228,7 @@ export class WorkspaceService implements WorkerApi {
     for (const e of entries) {
       if (!e.isFile() || e.name.startsWith('.') || isNoteFile(e.name) || isConflictName(e.name)) continue;
       const p = rel ? `${rel}/${e.name}` : e.name;
+      if (await o.tree.isIgnored(p, false)) continue;
       const st = await fs.stat(this.absDir(p)).catch(() => null);
       out.push({ path: p, name: e.name, size: st?.size ?? 0 });
     }
@@ -1742,6 +1774,8 @@ export class WorkspaceService implements WorkerApi {
     let backlinks = 0;
     for (const pg of pages) backlinks += o.index.backlinks(pg).filter((b) => !inside(b.fromPath)).length;
 
+    // tombstones: the ids must be read now, while the pages are still here (the person may still cancel)
+    await o.automation?.beforeDelete(pages).catch((e: Error) => log.warn(`tombstones: ${e.message}`));
     const trash: string[] = [];
     if (status === 'page') trash.push(this.abs(page));
     const folder = this.abs(pageFolder(page));
@@ -1753,6 +1787,7 @@ export class WorkspaceService implements WorkerApi {
     const o = this.open;
     await o.index.refresh(pages);
     o.lookup = null;
+    await o.automation?.afterDelete(pages).catch((e: Error) => log.warn(`tombstones: ${e.message}`));
     const parents = new Set<string | null>(pages.map((x) => parentPage(x)));
     this.emit('tree:changed', { parents: [...parents] });
     this.emit('index:updated', { path: null });
@@ -2048,9 +2083,18 @@ export class WorkspaceService implements WorkerApi {
     return { rows, total: r.total, errors: r.errors, ...(colors.length > 0 ? {} : {}) };
   }
 
+  /**
+   * The files a Workspace Preferences box shows and replaces for a section: those of the main folder, and the file the app
+   * puts new things in (plugins/automations.yaml, styles/export-styles.yaml). Other plugins and styles are files of their own.
+   */
+  private boxOwners(cfg: Awaited<ReturnType<typeof readSettings>>, key: string): string[] {
+    const usual = homeFor({ files: [], owners: {} }, key);
+    return (cfg.owners[key] ?? []).filter((n) => !n.includes('/') || n === usual);
+  }
+
   /** The text of one section as it is written in the file that has it (comments kept); put together from several files when more than one has it. */
   private async sectionText(dir: string, cfg: Awaited<ReturnType<typeof readSettings>>, key: string): Promise<string> {
-    const owners = cfg.owners[key] ?? [];
+    const owners = this.boxOwners(cfg, key);
     if (owners.length === 0) return '';
     const show = (v: unknown): string => (v === undefined || v === null ? '' : `${YAML.stringify(v, { lineWidth: 0 }).trimEnd()}\n`);
     if (owners.length > 1) return show(cfg.sections[key]);
@@ -2063,7 +2107,7 @@ export class WorkspaceService implements WorkerApi {
   /** Put a section (a parsed YAML node, or null to remove it) into the file that has it. A section spread over several files is gathered into the first. */
   private async putSection(dir: string, key: string, node: unknown | null): Promise<void> {
     const cfg = await readSettings(dir);
-    const owners = cfg.owners[key] ?? [];
+    const owners = this.boxOwners(cfg, key);
     if (node === null) {
       for (const name of owners) await editYaml(path.join(dir, name), (doc) => doc.delete(key));
       return;

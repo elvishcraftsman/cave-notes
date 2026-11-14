@@ -30,6 +30,17 @@ echo "Building AppImage package..."
 cd apps/desktop
 npm run package:appimage:uruntime
 
+echo "Building the Android APK..."
+(cd apps/mobile/scripts && bash ./build-apk.sh)
+APK_BUILT="apps/mobile/dist/cave-notes-debug.apk"
+if [ ! -f "$APK_BUILT" ]; then
+  echo "Error: Built APK not found at $APK_BUILT"
+  exit 1
+fi
+# the phone app looks for an .apk among the files of the newest release
+APK_PATH="apps/mobile/dist/Cave_Notes-${NEW_VERSION}.apk"
+cp "$APK_BUILT" "$APK_PATH"
+
 # 5. Define target artifact path relative to project root
 # (Navigating back to root directory to locate output binary)
 cd ../..
@@ -46,12 +57,10 @@ git push --follow-tags
 
 # 7. Create GitHub Release and upload AppImage
 echo "Creating GitHub Release v${NEW_VERSION}..."
-gh release create "v${NEW_VERSION}" "$ARTIFACT_PATH" \
+gh release create "v${NEW_VERSION}" "$ARTIFACT_PATH" "$APK_PATH" \
   --title "${NEW_VERSION}" \
   --notes "Release v${NEW_VERSION}"
 
 echo ""
 echo "Successfully published v${NEW_VERSION} to GitHub Releases!"
 
-cd apps/mobile/scripts
-bash ./build-apk.sh

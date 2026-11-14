@@ -723,9 +723,10 @@ describe('settings in one file', () => {
     expect(text).toContain('status: done');
     expect(text).toContain('type: text');
     expect(text).toContain('queries:');
-    // a section that is not in the file yet goes there too (it is the only settings file)
+    // a new export style always goes into styles/, whatever settings files there are
     expect(await svc.setExportStyles('Plain:\n  units: cm\n')).toEqual({ ok: true });
-    expect(await read('.cave-notes/setup.yaml')).toContain('export-style:');
+    expect(await read('.cave-notes/styles/export-styles.yaml')).toContain('Plain');
+    expect(await read('.cave-notes/setup.yaml')).not.toContain('export-style:');
     expect(await svc.getExportStyles()).toContain('Plain');
   });
 });

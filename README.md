@@ -1,6 +1,6 @@
 # Cave Notes
 
-A notes app where you’ll own everything and be happy.
+A notes app where you’ll own everything and be happy. Built on Electron, currently built for Linux and Android.
 
 # Features
 - Powerful search and automations
@@ -31,17 +31,21 @@ You can see the AppImage release [here](https://github.com/elvishcraftsman/cave-
 
 # Building
 
+The repository is a monorepo (`packages/*` and `apps/*`) with the desktop app in `apps/desktop` and the Android app in `apps/mobile`.
+
 ## Requirements
 
-- Node.js 20 or newer, and npm.
+- Node.js 22 or newer, and npm.
 - A C/C++ toolchain and Python 3 (`gcc`, `g++`, `make`, `python3`) so `better-sqlite3` can compile against Electron.
 - Network access on the first install (npm packages, Electron binary, Electron headers).
 - Fedora Silverblue note: the host is immutable, so do development inside a toolbox or distrobox container, for example `toolbox create cave && toolbox enter cave`, then `sudo dnf install nodejs npm gcc-c++ make python3`. The Electron window opens from the container normally under GNOME (Wayland or X11).
+- For the AppImage: `curl` and `mksquashfs` (package `squashfs-tools`, version 4.4 or newer).
+- For the Android APK: Ubuntu or Debian, `unzip`, `curl` and JDK 21 (the script installs what is missing and downloads the Android command-line tools and SDK, about 1 GB, into `~/Android/Sdk`). The default Java may be newer; the script uses JDK 21 whatever it is.
 
 ## First run
 
 ```bash
-unzip cave-notes-in-progress.zip -d cave-notes && cd cave-notes
+unzip cave-notes.zip -d cave-notes && cd cave-notes/*/   # or: git clone, then cd into it
 npm install                        # at the repo root: installs every package in the monorepo
 cd apps/desktop
 npm run rebuild                    # compiles better-sqlite3 for Electron's ABI (needed once, and after upgrading Electron)
@@ -49,6 +53,8 @@ npm start                          # builds the bundles, then launches Electron
 ```
 
 To open a specific folder at launch: `npm start -- /path/to/notes` (or set `CAVE_OPEN=/path/to/notes`). With no folder it shows the welcome screen and remembers your last workspace.
+
+Running from the source like this does **not** register the app with your desktop (no launcher, no `.md` file association). That happens only when you run an installed build such as the AppImage. To register a source checkout anyway, start it once with `--install-desktop-integration`.
 
 ## Everyday commands
 
@@ -58,14 +64,22 @@ To open a specific folder at launch: `npm start -- /path/to/notes` (or set `CAVE
 | `apps/desktop` | `npm run build` | bundles main, preload, worker and renderer into `dist/` |
 | `apps/desktop` | `npm start` | build, then launch |
 | `apps/desktop` | `npm run typecheck` | TypeScript check |
-| `apps/desktop` | `npm test` | worker service tests (21) |
-| `apps/desktop` | `npm run e2e` | drives the real app in a virtual display (see below) |
+| `apps/desktop` | `npm test` | desktop and service tests (vitest) |
+| `apps/desktop` | `npm run e2e -- e2e/flows.cjs` | drives the real app in a virtual display (see below) |
+| `apps/desktop` | `npm run package:appimage:uruntime` | builds the AppImage without a FUSE 2 requirement (`package:appimage:fuse2` for the classic runtime, `package:appimage` for both) |
+| `apps/mobile` | `npm run apk` | builds the Android debug APK to `apps/mobile/dist/cave-notes-debug.apk` (`bash scripts/build-apk.sh --install` also installs it on a connected phone) |
+| `apps/mobile` | `npm test`, `npm run typecheck` | tests and type check of the Android app |
 | any `packages/*` | `npm test`, `npm run typecheck` | per-package checks |
+
 There is no hot reload yet: after changing renderer or main code, quit the app and run `npm start` again. `packages/editor`, `ui-tree` and `ui-search` are consumed from source, so they need no separate build.
 
 ## End-to-end tests
 
-`npm run e2e` needs `xvfb` (`sudo dnf install xorg-x11-server-Xvfb`) and uses plain Node for the worker (`CAVE_WORKER_NODE=1`), so it does not need `npm run rebuild`. It creates a sample workspace in `/tmp/cave-sample`, runs the script in `e2e/flows.cjs` against the built app, and writes screenshots to `/tmp/cave-shots`. Expect `73 passed, 0 failed`. Run `npm run build` first if you changed code.
+`npm run e2e -- e2e/flows.cjs` needs `xvfb` (`sudo dnf install xorg-x11-server-Xvfb`) and uses plain Node for the worker (`CAVE_WORKER_NODE=1`), so it does not need `npm run rebuild`. It creates a sample workspace in `/tmp/cave-sample`, runs the script against the built app, and writes screenshots to `/tmp/cave-shots`. Expect `73 passed, 0 failed` for `flows.cjs`. Run `npm run build` first if you changed code. The other scripts in `e2e/` (`features.cjs`, `views.cjs`, `relations.cjs`, `sync.cjs`) are run the same way.
+
+## Releasing
+
+`./build.sh` (from the repo root, with `gh` signed in) asks for the new version, bumps it with `npm version`, runs `npm ci`, builds the uruntime AppImage, pushes the commit and tag, builds the Android APK, and creates the GitHub release with both attached (`Cave_Notes-<version>.apk` next to the AppImage). The phone app finds new versions by looking for an `.apk` among the files of the newest release. The APK is signed with the debug key of the computer that builds it, and Android only installs an update over an app signed with the same key, so always build releases on the same computer (or keep `~/.android/debug.keystore`).
 
 ## Handy environment variables
 
@@ -74,6 +88,7 @@ There is no hot reload yet: after changing renderer or main code, quit the app a
 | `CAVE_OPEN=/path` | open this folder at startup |
 | `CAVE_NATIVE_FRAME=1` | use the system title bar instead of the custom header bar |
 | `CAVE_WORKER_NODE=1` | run the indexing worker in plain Node (no Electron rebuild of SQLite needed) |
+| `CAVE_NO_DESKTOP_INTEGRATION=1` | never write the launcher and file associations |
 | `ELECTRON_OZONE_PLATFORM_HINT=auto` | let Electron choose Wayland or X11 |
 
 ## Troubleshooting
@@ -83,7 +98,15 @@ There is no hot reload yet: after changing renderer or main code, quit the app a
 - **"The SUID sandbox helper binary was not configured correctly":** common in containers. For development only, launch with `npx electron . --no-sandbox`.
 - **Blank window or GPU errors in a container:** try `npx electron . --disable-gpu`.
 - **Search finds nothing in a freshly opened big folder:** wait for the footer to stop saying "Indexing…".
+- **The Android build complains about Java or Gradle:** it needs JDK 21; run `bash scripts/build-apk.sh` again and let it install it.
 
 # License
 
 MIT-0. Use as you wish.
+
+# Publishing
+```bash
+git add .
+git commit -m "notes"
+./build.sh
+```

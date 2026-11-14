@@ -280,6 +280,20 @@ export function TreeView({ ctl }: { ctl: Controller }): JSX.Element {
               </button>
               {isIconName(row.icon) ? <WorkspaceIcon name={row.icon} size={16} class="row-icon" /> : <Icon name={nested ? 'cave' : row.exists ? 'page' : 'folder'} size={16} class="row-icon" />}
               <span class="row-label">{row.name}</span>
+              {row.indicator && (
+                <button
+                  type="button"
+                  class="row-indicator"
+                  title={row.indicator}
+                  aria-label={`Indicator: ${row.indicator}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    ctl.openIndicator(e, row.path, row.indicator!);
+                  }}
+                >
+                  <span class="row-indicator-dot" />
+                </button>
+              )}
             </div>
           );
         })}

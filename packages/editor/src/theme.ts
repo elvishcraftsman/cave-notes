@@ -18,14 +18,6 @@ export const noteTheme = EditorView.theme({
   '.cm-scroller': { fontFamily: 'var(--editor-font)', fontWeight: 'var(--editor-weight, 400)', lineHeight: 'var(--editor-line-height, 1.7)', letterSpacing: 'var(--editor-letter-spacing, normal)', wordSpacing: 'var(--editor-word-spacing, normal)', overflow: 'auto' },
   // minWidth 0: a long line of code must not keep the text column from getting narrower than the line (the column is a flex item, whose smallest size is otherwise its widest unbreakable line, so the page scrolled sideways in windows narrower than the column)
   '.cm-content': { maxWidth: '48rem', margin: '0 auto', padding: '6px 36px 45vh', caretColor: 'var(--view-fg)', minWidth: '0' },
-  // a very light line where the text of a line can start, so an indented line (or the first line of a list) can be told from one at the edge
-  '.cm-content:not(.cm-plain)': {
-    boxSizing: 'border-box',
-    backgroundImage: 'linear-gradient(color-mix(in srgb, var(--border) 45%, transparent), color-mix(in srgb, var(--border) 45%, transparent))',
-    backgroundSize: '1px 100%',
-    backgroundPosition: '35px 0',
-    backgroundRepeat: 'no-repeat',
-  },
   '.cm-line': { padding: '0' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--view-fg)', borderLeftWidth: '2px' },
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': {
@@ -94,9 +86,13 @@ export const noteTheme = EditorView.theme({
   '.cm-frontmatter': { fontFamily: 'var(--mono-font)', fontSize: 'calc(var(--mono-font-size, 0.9em) * 0.9)', color: 'var(--dim-fg)', background: 'var(--card-bg)', padding: '0 14px' },
   '.cm-table-header': { fontWeight: '700' },
   // Block widgets get padding, never margins: CodeMirror cannot measure a margin, and every line below would be off by it.
-  '.cm-table-wrap': { position: 'relative', padding: '0.6em 0 0.4em', cursor: 'default', outline: 'none' },
+  // the room for the add-row button is always there (the button itself is out of the flow), so the height of the table never
+  // depends on where the pointer is
+  '.cm-table-wrap': { position: 'relative', padding: '0.6em 0 calc(22px + 0.4em)', cursor: 'default', outline: 'none' },
   '.cm-table-main': { display: 'flex', alignItems: 'stretch', gap: '4px' },
-  '.cm-table-scroll': { overflowX: 'auto', minWidth: '0', paddingBottom: '2px' },
+  // a scrollbar of the browser would add its height when it is shown (and when the pointer is over it): the table scrolls with the wheel, the touch or the arrow keys
+  '.cm-table-scroll': { overflowX: 'auto', overflowY: 'hidden', minWidth: '0', paddingBottom: '2px', scrollbarWidth: 'none' },
+  '.cm-table-scroll::-webkit-scrollbar': { display: 'none', height: '0' },
   '.cm-table': { borderCollapse: 'collapse', minWidth: '50%', fontSize: '0.95em' },
   '.cm-table th, .cm-table td': { border: '1px solid var(--border)', padding: '5px 12px', textAlign: 'left', verticalAlign: 'top', overflowWrap: 'anywhere' },
   '.cm-table th': { background: 'var(--card-bg)', fontWeight: '700' },
@@ -120,7 +116,7 @@ export const noteTheme = EditorView.theme({
   '.cm-table-edit, .cm-table-add-col, .cm-table-add-row': { border: '0', borderRadius: '5px', background: 'transparent', color: 'var(--dim-fg)', cursor: 'pointer', font: 'inherit', fontSize: '12px', lineHeight: '1', opacity: '0', transition: 'opacity 0.12s' },
   '.cm-table-edit': { padding: '2px 6px', fontFamily: 'var(--mono-font)' },
   '.cm-table-add-col': { width: '22px', flex: 'none', fontSize: '16px' },
-  '.cm-table-add-row': { display: 'block', width: '100%', height: '20px', marginTop: '2px', fontSize: '16px' },
+  '.cm-table-add-row': { position: 'absolute', left: '0', right: '0', bottom: '0.4em', display: 'block', boxSizing: 'border-box', width: '100%', height: '20px', margin: '0', padding: '0', fontSize: '16px', lineHeight: '20px' },
   '.cm-table-wrap:hover .cm-table-edit, .cm-table-wrap:hover .cm-table-add-col, .cm-table-wrap:hover .cm-table-add-row, .cm-table-wrap:focus-within .cm-table-edit, .cm-table-edit:focus-visible, .cm-table-add-col:focus-visible, .cm-table-add-row:focus-visible': { opacity: '1' },
   '.cm-table-edit:hover, .cm-table-add-col:hover, .cm-table-add-row:hover': { background: 'var(--card-bg)', color: 'var(--view-fg)' },
   '.cm-table code': { fontFamily: 'var(--mono-font)', fontSize: 'var(--mono-font-size, 0.9em)', background: 'var(--card-bg)', borderRadius: '4px', padding: '0 0.3em' },
@@ -228,7 +224,14 @@ export const formatMenuCss = `
 /* touch: the selection menu sits along the bottom edge (above the keyboard), out of the way of the selection handles and the system's own cut/copy/paste bar */
 .cm-format-dock { left: 0; right: 0; bottom: 0; top: auto; max-width: none; align-items: stretch; gap: 4px; overflow-x: auto; border-radius: 14px 14px 0 0; border-bottom: 0;
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); }
-.cm-format-dock .cm-format-row { flex-wrap: nowrap; }
+.cm-format-dock .cm-format-row { flex-wrap: nowrap; flex: 1 1 auto; justify-content: space-around; }
+.cm-format-dock { flex-direction: row; scrollbar-width: none; }
+.cm-format-dock::-webkit-scrollbar { display: none; }
+.cm-format-dock .cm-dock-launch { flex-direction: column; gap: 1px; min-width: 56px; height: 52px; padding: 4px 8px; }
+.cm-dock-face { display: inline-flex; align-items: center; justify-content: center; height: 22px; font-size: 18px; font-weight: 800; line-height: 1; }
+.cm-dock-name { font-size: 11px; line-height: 1; opacity: .8; }
+.cm-dock-panel { position: fixed; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: 14px 14px 0 0; max-height: 50vh; overflow-y: auto; box-shadow: 0 -4px 18px rgba(0,0,0,.22); }
+.cm-dock-panel .cm-format-group { flex-wrap: wrap; }
 .cm-format-dock .cm-format-btn { min-width: 44px; height: 44px; flex: none; }
 .cm-format-dock .cm-format-caret { min-width: 28px; width: 28px; }
 .cm-format-dock .cm-glyph { font-size: 18px; }

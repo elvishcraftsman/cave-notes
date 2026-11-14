@@ -1,5 +1,12 @@
 apply plugin: 'com.android.application'
 
+// The app's version is the one in the package.json at the top of the repository (npm version bumps it), so the app knows which
+// version it is when it looks for a newer one. Android wants a whole number that grows: 0.9.2 -> 902.
+def cnVersion = new groovy.json.JsonSlurper().parse(file('../../../../package.json')).version.toString()
+def cnParts = cnVersion.split('[.-]').take(3).collect { it.isInteger() ? it.toInteger() : 0 }
+while (cnParts.size() < 3) { cnParts << 0 }
+def cnCode = Math.max(1, cnParts[0] * 10000 + cnParts[1] * 100 + cnParts[2])
+
 android {
     namespace = "com.lynnmichaelmartin.cavenotes"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +14,8 @@ android {
         applicationId "com.lynnmichaelmartin.cavenotes"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode cnCode
+        versionName cnVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

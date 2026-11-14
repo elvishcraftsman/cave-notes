@@ -23,7 +23,7 @@ test('the documentation names every action, trigger, variable, function and sett
   for (const v of VARIABLES) assert.ok(mentions(`\`${v}\``), `variable ${v}`);
   for (const f of THIS_FIELDS) assert.ok(mentions(`\`${f}\``), `this.${f}`);
   for (const t of ['change', 'match', 'schedule', 'at', 'created', 'modified', 'deleted', 'button', 'plugin']) assert.ok(mentions(`on: { ${t}`) || mentions(`on: ${t}`) || mentions(`\`on: ${t}`), `trigger ${t}`);
-  for (const k of ['devices', 'sync_delay', 'live_window', 'heartbeat', 'max_depth', 'max_runs_per_minute']) assert.ok(mentions(k), `setting ${k}`);
+  for (const k of ['devices', 'sync_delay', 'live_window', 'heartbeat', 'max_depth', 'max_runs_per_minute', 'wake_delay', 'tombstones', 'came_back']) assert.ok(mentions(k), `setting ${k}`);
   for (const k of ['id', 'name', 'enabled', 'on', 'where', 'require', 'unless', 'if', 'let', 'do', 'runs', 'device']) assert.ok(mentions(`| \`${k}\``), `rule field ${k}`);
   for (const k of ['trigger.kind', 'trigger.property', 'trigger.at', 'rule.id', 'device.name', 'created.path', 'shell.code']) assert.ok(mentions(k), k);
 });

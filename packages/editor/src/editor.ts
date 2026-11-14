@@ -19,6 +19,8 @@ import { dashes } from './dashes';
 import { footnotes, openingFixes } from './footnotes';
 import { formatMenu, type SpellHost, type ThesaurusHost } from './formatMenu';
 import { commentAutoClose, fenceAutoClose, insertLink, insertViewBlock, listEnterKeepsSpace, pairOnlyBesideSpace, toggleWrap } from './commands';
+import { type Annotation, annotationsOf, criticMarkup, removeAnnotation } from './critic';
+import { indentGuide } from './indentGuide';
 import { type ListConfig, listConfig, listSupport } from './lists';
 import { listPaste } from './listPaste';
 import { type FollowableLink, linkAt } from './links';
@@ -31,11 +33,13 @@ import { noteTheme } from './theme';
 import { codeScroll } from './codeScroll';
 import { selectAll, type HtmlRenderer } from './selectAll';
 
-/** The first `# Heading` of a page: its text and the 1-based line it is on. Frontmatter and fenced code are skipped. */
+/**
+ * The title heading of a page: its `# Heading` text and the 1-based line it is on, but only when it is the first thing on the
+ * page (after any frontmatter and blank lines). A level-1 heading partway through the text is a section, not the title.
+ */
 export function findFirstH1(lines: Iterable<string>, limit = 400): { text: string; line: number } | null {
   let n = 0;
   let inFront = false;
-  let fence: string | null = null;
   for (const raw of lines) {
     n++;
     if (n > limit) return null;
@@ -48,15 +52,9 @@ export function findFirstH1(lines: Iterable<string>, limit = 400): { text: strin
       if (/^(---|\.\.\.)[ \t]*$/.test(line)) inFront = false;
       continue;
     }
-    const f = /^ {0,3}(```+|~~~+)/.exec(line);
-    if (f) {
-      if (fence === null) fence = f[1]!;
-      else if (f[1]!.startsWith(fence[0]!) && f[1]!.length >= fence.length) fence = null;
-      continue;
-    }
-    if (fence !== null) continue;
+    if (line.trim() === '') continue;
     const h = /^ {0,3}#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/.exec(line);
-    if (h) return { text: h[1]!.trim(), line: n };
+    return h ? { text: h[1]!.trim(), line: n } : null; // the first thing there is decides
   }
   return null;
 }
@@ -132,6 +130,8 @@ export interface EditorOptions {
   spell?: SpellHost;
   /** Thesaurus for the right-click menu: synonyms to replace a single word with. */
   thesaurus?: ThesaurusHost;
+  /** Saved queries offered in the selection menu's "Insert database view" drop-down. */
+  savedViews?: () => Array<{ label: string; template: string }>;
   /** Hierarchical list styles (see ListConfig); can be changed later with setListOptions. */
   lists?: Partial<ListConfig>;
 }
@@ -344,7 +344,7 @@ export class NoteEditor {
           drop: (e, view) => this.dropped(e, view),
         }),
       ),
-      o.formatMenu === false ? [] : formatMenu({ onSelection: o.selectionMenu !== false, ...(o.spell ? { spell: o.spell } : {}), ...(o.thesaurus ? { thesaurus: o.thesaurus } : {}) }),
+      o.formatMenu === false ? [] : formatMenu({ onSelection: o.selectionMenu !== false, ...(o.spell ? { spell: o.spell } : {}), ...(o.thesaurus ? { thesaurus: o.thesaurus } : {}), ...(o.savedViews ? { savedViews: o.savedViews } : {}) }),
       selectAll(o.renderHtml),
       fenceAutoClose(),
       footnotes(),
@@ -353,6 +353,8 @@ export class NoteEditor {
       this.wrapCompartment.of(wrapAttributes(this.wrapCode)),
       EditorView.scrollMargins.of(() => ({ bottom: this.bottomInset })),
       listSupport(),
+      indentGuide(),
+      criticMarkup(),
       o.attributeBar === false ? [] : attributeBar(),
       yamlHints(),
       // Ctrl+F finds, Ctrl+H finds and replaces (the panel has both fields); F3 / Ctrl+G step through the matches
@@ -791,6 +793,24 @@ export class NoteEditor {
   /** List the items of numbered lists in outline() too (off by default). Call outline() again afterwards. */
   setOutlineLists(on: boolean): void {
     this.outlineLists = on;
+  }
+
+  /** The CriticMarkup highlights and comments of the page, in order. */
+  annotations(): Annotation[] {
+    return this.isPlain ? [] : annotationsOf(this.view.state);
+  }
+
+  /** Put the cursor at the start of an annotation (its highlighted text, or its comment) and scroll to it. */
+  goToAnnotation(a: Annotation): void {
+    const pos = a.text !== '' ? a.hlFrom : a.cFrom;
+    this.view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'center' }) });
+    this.view.focus();
+  }
+
+  /** Take the annotation that starts at `from` away (a highlight goes back to plain text; a lone comment is deleted). */
+  removeAnnotationAt(from: number): void {
+    const a = annotationsOf(this.view.state).find((x) => x.from === from);
+    if (a) removeAnnotation(this.view, a);
   }
 
   outline(): OutlineItem[] {

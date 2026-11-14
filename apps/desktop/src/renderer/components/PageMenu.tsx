@@ -8,6 +8,21 @@ import { FloatingMenu, MenuItem } from './Overlays';
  */
 export function PageMenuHost({ ctl }: { ctl: Controller }): JSX.Element | null {
   const menu = ctl.pageMenu.value;
+  const pop = ctl.indicatorPop.value;
+  if (!menu && pop) {
+    // the dot of an indicator was clicked: its text, and the ways to get rid of it
+    const closePop = (): void => {
+      ctl.indicatorPop.value = null;
+    };
+    return (
+      <FloatingMenu x={pop.x} y={pop.y} onClose={closePop}>
+        <div class="indicator-text" role="note">{pop.text}</div>
+        <div class="menu-separator" />
+        <MenuItem icon="check" label="Dismiss" onClick={() => void ctl.dismissIndicator(pop.path)} />
+        <MenuItem icon="trash" label="Ignore All for This Page" onClick={() => void ctl.ignoreIndicators(pop.path)} />
+      </FloatingMenu>
+    );
+  }
   if (!menu) return null;
   const close = (): void => {
     ctl.pageMenu.value = null;
@@ -53,6 +68,7 @@ export function PageMenuHost({ ctl }: { ctl: Controller }): JSX.Element | null {
       <MenuItem icon="page" label="Open in New Tab" onClick={on((p) => void ctl.openInNewTab(p))} />
       <MenuItem icon="rename" label="Rename…" shortcut="F2" onClick={on((p) => void ctl.renamePage(p))} />
       <MenuItem icon="gallery" label="Set Icon…" onClick={on((p) => ctl.openPageIcon(p))} />
+      {ctl.tree.rows.find((r) => r.path === menu.path)?.indicatorsIgnored && <MenuItem icon="page" label="Show Indicators Again" onClick={on((p) => void ctl.unignoreIndicators(p))} />}
       <MenuItem icon="page" label="Apply Template…" onClick={on((p) => void ctl.applyTemplate(p))} />
       <MenuItem icon="copy" label="Duplicate" onClick={on((p) => void ctl.duplicatePages([p]))} />
       <MenuItem icon="back" label="Move to…" onClick={on((p) => ctl.openTransfer([p], 'move'))} />

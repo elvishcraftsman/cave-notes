@@ -8,6 +8,7 @@ import { HeaderBar } from './HeaderBar';
 import { MobileDrawer } from './MobileDrawer';
 import { IndexBars } from './IndexBars';
 import { Icon } from './icons';
+import { BusyHost } from './BusyHost';
 import { FileMenuHost, PageMenuHost } from './PageMenu';
 import { StatusPage, Toasts } from './Overlays';
 import { RightSidebar } from './RightSidebar';
@@ -210,6 +211,7 @@ export function App({ ctl }: { ctl: Controller }): JSX.Element {
         </div>
       )}
       <PageMenuHost ctl={ctl} />
+      <BusyHost ctl={ctl} />
       <FileMenuHost ctl={ctl} />
       <Toasts ctl={ctl} />
       <DialogHost ctl={ctl} />

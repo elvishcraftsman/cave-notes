@@ -90,6 +90,14 @@ export function substituteThis(query, path) {
 
 /** how long the last values of a deleted page are kept, in case it was moved */
 const GRAVE_MS = 60_000;
+/** ticks come about every half minute: a longer silence means the computer was asleep (or the app was frozen) */
+const WAKE_GAP = 3 * 60_000;
+/** how long a deleted page is remembered (tombstones) */
+const TOMB_KEEP = 365 * DAY;
+/** how long a page about to be deleted is waited for (the person may cancel the deletion) */
+const DELETING_MS = 15 * 60_000;
+/** the rule-like name tombstone work is logged under */
+const TOMB_RULE = { id: 'tombstones', name: 'Tombstones' };
 
 export class AutomationEngine {
   /** @param {{ host: object, deviceId: string, deviceName?: string, log?: (level:string, msg:string) => void }} o */
@@ -101,7 +109,7 @@ export class AutomationEngine {
     this.rules = [];
     this.settings = { ...DEFAULT_SETTINGS };
     this.problems = [];
-    this.state = { v: 1, snapshot: {}, members: {}, sched: {}, pending: [], fired: {} };
+    this.state = { v: 1, snapshot: {}, members: {}, sched: {}, pending: [], fired: {}, buried: {}, cameBack: {} };
     this.ownWrites = new Map(); // path -> { depth, until }
     this.recent = []; // timestamps of recent runs (global rate limit)
     this.perPage = new Map(); // rule|path -> { wrote: timestamps, failed: timestamps } (circuit breaker)
@@ -109,6 +117,9 @@ export class AutomationEngine {
     this.running = new Set();
     this.grave = new Map(); // path -> { at, snap: { prop: value } }: pages deleted a moment ago, in case they were moved
     this.lastBeat = 0;
+    this.lastTickAt = 0;
+    this.holdUntil = 0; // until then, nothing that did not start on this computer is acted on: sync may still be catching up
+    this.deleting = new Map(); // path -> { id, at, title }: pages the person is deleting in this app (tombstones)
     this.lastAt = 0;
     this.lastMatch = 0;
     this.deviceCache = { at: 0, list: [] };
@@ -162,6 +173,7 @@ export class AutomationEngine {
   /** Begin: catch up on what happened while the app was closed (changes, missed schedules, due dates). */
   async start() {
     this.started = true;
+    await this.hold('the app started');
     await this.catchUp();
     await this.tick();
   }
@@ -201,6 +213,23 @@ export class AutomationEngine {
     return !(await this.devices()).some((d) => d.id !== this.deviceId && t - Number(d.seen) <= this.settings.liveWindowMs);
   }
 
+  /**
+   * After the app starts or the computer wakes up, the synced folder may still be catching up: a page deleted on another
+   * computer can still be here, and a page edited there can still be old here. Acting on it now could undo that work (a
+   * write to a page deleted elsewhere brings it back). So for `wake_delay`, nothing is acted on except what the person does
+   * on this computer; what comes due meanwhile waits until then and is looked at again. Only when other computers share
+   * the workspace: alone, there is nothing to catch up with.
+   */
+  async hold(reason) {
+    const ms = this.settings.wakeDelayMs;
+    if (!(ms > 0)) return;
+    if (!(await this.devices()).some((d) => d.id !== this.deviceId)) return;
+    const t = this.now().getTime();
+    if (t + ms <= this.holdUntil) return;
+    this.holdUntil = t + ms;
+    this.note('info', `automations: ${reason}; waiting ${Math.round(ms / 1000)} s for sync to catch up before acting on anything that did not start on this computer`);
+  }
+
   async doneElsewhere(key) {
     for (const d of await this.devices()) if (d.id !== this.deviceId && d.fired && d.fired[key]) return d;
     return null;
@@ -208,13 +237,15 @@ export class AutomationEngine {
 
   async heartbeat(force = false) {
     if (!this.host.writeDevice) return;
-    if (!this.activeRules().some((r) => r.runs === 'once')) return;
+    if (!this.activeRules().some((r) => r.runs === 'once') && !this.settings.tombstones) return;
     const t = this.now().getTime();
     if (!force && t - this.lastBeat < this.settings.heartbeatMs) return;
     this.lastBeat = t;
     const fired = Object.fromEntries(Object.entries(this.state.fired).sort((a, b) => b[1] - a[1]).slice(0, 2000));
+    const device = { id: this.deviceId, name: this.deviceName, seen: t, version: 1, fired };
+    if (Object.keys(this.state.buried).length > 0) device.buried = this.state.buried;
     try {
-      await this.host.writeDevice({ id: this.deviceId, name: this.deviceName, seen: t, version: 1, fired });
+      await this.host.writeDevice(device);
     } catch (e) {
       this.note('warn', `automations: could not write this computer's file: ${e.message}`);
     }
@@ -332,6 +363,8 @@ export class AutomationEngine {
       }
     }
     for (const w of work) await this.fire(w.rule, w.path, w.trig, w.depth, w.mtime, w.origin);
+    // a page deleted on purpose that turns up again (sync brought it back) is pointed out
+    if (this.settings.tombstones) for (const c of changes) if (c.kind !== 'deleted' && c.origin !== 'local') await this.checkCameBack(c.path);
     // a page may start to match because of a change elsewhere, so a match takes the origin of the whole batch
     const batch = changes.some((c) => c.origin === 'local') ? 'local' : changes.every((c) => c.origin === 'external') ? 'external' : undefined;
     await this.checkMatches(false, batch);
@@ -417,19 +450,30 @@ export class AutomationEngine {
     if (!this.started) return;
     const now = this.now();
     const t = now.getTime();
+    if (this.lastTickAt && t - this.lastTickAt > WAKE_GAP) {
+      this.deviceCache.at = 0; // the other computers' files may have changed meanwhile
+      await this.hold(`nothing happened for ${Math.round((t - this.lastTickAt) / 60_000)} min (the computer was probably asleep)`);
+    }
+    this.lastTickAt = t;
+    const held = t < this.holdUntil;
     await this.heartbeat();
-    const waiting = this.state.pending.filter((e) => e.due <= t);
-    this.state.pending = this.state.pending.filter((e) => e.due > t);
+    const waiting = held ? [] : this.state.pending.filter((e) => e.due <= t);
+    this.state.pending = this.state.pending.filter((e) => !waiting.includes(e));
     for (const e of waiting) await this.execute(e);
     for (const rule of this.activeRules()) {
       for (const trig of rule.triggers) {
-        if (trig.kind === 'schedule') await this.tickSchedule(rule, trig, now);
+        // a missed schedule is not lost: it is seen as soon as the wait is over, with the pages as they are then
+        if (trig.kind === 'schedule') {
+          if (!held) await this.tickSchedule(rule, trig, now);
+        }
         else if (trig.kind === 'at' && t - this.lastAt >= AT_EVERY) await this.tickAt(rule, trig, now);
       }
     }
     if (t - this.lastAt >= AT_EVERY) this.lastAt = t;
     if (t - this.lastMatch >= MATCH_EVERY) await this.checkMatches(true);
     for (const [k, ts] of Object.entries(this.state.fired)) if (t - ts > LEDGER_KEEP) delete this.state.fired[k];
+    for (const [k, b] of Object.entries(this.state.buried)) if (t - Number(b?.at ?? 0) > TOMB_KEEP) delete this.state.buried[k];
+    for (const [k, at] of Object.entries(this.state.cameBack)) if (t - at > TOMB_KEEP) delete this.state.cameBack[k];
     await this.flush();
   }
 
@@ -506,6 +550,113 @@ export class AutomationEngine {
       }
     }
     await this.checkMatches(true);
+    if (this.settings.tombstones) {
+      for (const p of (await this.query(TOMB_RULE, `has:${this.settings.tombstones.property}`)).paths) await this.checkCameBack(p);
+    }
+  }
+
+  // ---------------------------------------------------------------- tombstones
+
+  /** The page's id (the tombstones `property`), or null. */
+  pageId(info) {
+    if (!info || !this.settings.tombstones) return null;
+    const v = textOf(this.attrCI(info, this.settings.tombstones.property));
+    return v && v.trim() ? v.split('\n')[0].trim() : null;
+  }
+
+  /** Where and when a page with this id was deleted on purpose, by this computer or another: { at, path, title, by } or null. */
+  async tombstone(id) {
+    if (!id || !this.settings.tombstones) return null;
+    const own = this.state.buried[id];
+    if (own) return { ...own, by: this.deviceName };
+    for (const d of await this.devices()) {
+      if (d.id !== this.deviceId && d.buried && typeof d.buried === 'object' && d.buried[id]) return { ...d.buried[id], by: d.name ?? d.id };
+    }
+    return null;
+  }
+
+  /** Why rules leave this page alone (it was deleted on purpose and has come back), or null. */
+  async buriedReason(info) {
+    const tomb = await this.tombstone(this.pageId(info));
+    if (!tomb) return null;
+    return `this page was deleted on ${tomb.by} on ${new Date(tomb.at).toISOString().slice(0, 10)} (its ${this.settings.tombstones.property} has a tombstone), so rules leave it alone`;
+  }
+
+  /**
+   * The person is about to delete these pages in this app (before the confirmation). Remember the ids of the ones the
+   * tombstones setting covers, while they can still be read. Returns how many.
+   */
+  async beforeDelete(paths) {
+    const ts = this.settings.tombstones;
+    if (!ts || paths.length === 0) return 0;
+    const t = this.now().getTime();
+    for (const [p, e] of this.deleting) if (t - e.at > DELETING_MS) this.deleting.delete(p);
+    const q = ts.where ? `(${ts.where}) has:${ts.property}` : `has:${ts.property}`;
+    const covered = new Set((await this.query(TOMB_RULE, q)).paths);
+    let n = 0;
+    for (const p of paths) {
+      if (!covered.has(p)) continue;
+      const info = await this.host.pageInfo(p);
+      const id = this.pageId(info);
+      if (!id) continue;
+      this.deleting.set(p, { id, at: t, title: info.title });
+      n++;
+    }
+    return n;
+  }
+
+  /** The person deleted these pages in this app: those that are really gone get a tombstone, which every computer sees. */
+  async afterDelete(paths) {
+    const t = this.now().getTime();
+    let n = 0;
+    for (const p of paths) {
+      const e = this.deleting.get(p);
+      if (!e) continue;
+      this.deleting.delete(p);
+      if (t - e.at > DELETING_MS || (await this.host.pageInfo(p))) continue;
+      this.state.buried[e.id] = { at: t, path: p, title: e.title };
+      delete this.state.cameBack[e.id];
+      this.record({ rule: TOMB_RULE, path: p, trig: { kind: 'deleted' }, status: 'done', detail: `remembered as deleted (${this.settings.tombstones.property}: ${e.id})` });
+      n++;
+    }
+    if (n > 0) {
+      this.dirty = true;
+      await this.heartbeat(true); // tell the other computers at once
+      await this.flush();
+    }
+    return n;
+  }
+
+  /** A page whose id has a tombstone is here: say so once (per deletion), and move it aside when the setting asks. */
+  async checkCameBack(path) {
+    const ts = this.settings.tombstones;
+    const info = await this.host.pageInfo(path);
+    const id = this.pageId(info);
+    const tomb = await this.tombstone(id);
+    if (!tomb || (this.state.cameBack[id] ?? 0) >= tomb.at) return;
+    this.state.cameBack[id] = this.now().getTime();
+    this.dirty = true;
+    if (ts.cameBack === 'ignore') return;
+    let where = path;
+    if (ts.cameBack !== 'notify') {
+      try {
+        const r = await this.host.movePage(path, ts.cameBack);
+        if (r.moved) where = r.to;
+      } catch (e) {
+        this.note('warn', `automations: could not move ${path} aside: ${e.message}`);
+      }
+    }
+    const day = new Date(tomb.at).toISOString().slice(0, 10);
+    this.record({ rule: TOMB_RULE, path: where, trig: { kind: 'created' }, status: 'done', detail: `came back after being deleted on ${tomb.by} on ${day}${where !== path ? `; moved to ${where}` : ''}` });
+    try {
+      await this.host.notify({
+        title: 'A deleted page came back',
+        body: `"${info.title}" was deleted on ${tomb.by} on ${day} but is here again, probably restored by sync. Rules leave it alone. Delete it again, or remove its ${ts.property} to keep it.`,
+        path: where,
+      });
+    } catch {
+      /* a courtesy */
+    }
   }
 
   // ---------------------------------------------------------------- firing
@@ -561,7 +712,8 @@ export class AutomationEngine {
       return;
     }
     this.recent.push(t);
-    const delay = await this.delayFor(rule, origin);
+    let delay = await this.delayFor(rule, origin);
+    if (origin !== 'local' && t < this.holdUntil) delay += this.holdUntil - t; // just started or woke up: let sync catch up first
     const entry = { key, ruleId: rule.id, path, trig, depth, due: t + delay };
     if (delay > 0) {
       this.state.pending.push(entry);
@@ -662,6 +814,8 @@ export class AutomationEngine {
       }
     }
     if (path !== null && info) {
+      const gone = await this.buriedReason(info);
+      if (gone) return { status: 'skipped', detail: gone };
       if (rule.require && (await this.query(rule, rule.require, path)).paths.length === 0) return { status: 'skipped', detail: 'does not meet "require"' };
       if (rule.unless && (await this.query(rule, rule.unless, path)).paths.length > 0) return { status: 'skipped', detail: 'meets "unless"' };
     }
@@ -685,6 +839,12 @@ export class AutomationEngine {
     const touch = (p) => {
       if (p) this.ownWrites.set(p, { depth: depth + 1, until: this.now().getTime() + 30_000 });
     };
+    // no rule writes to a page that was deleted on purpose (tombstones): that write is what would bring it back everywhere
+    const guard = async (p) => {
+      if (!this.settings.tombstones || !p) return;
+      const why = await this.buriedReason(await h.pageInfo(p));
+      if (why) throw new Error(why);
+    };
     const api = {
       root: h.root,
       search: async (q, thisPath) => (await h.search(thisPath ? substituteThis(q, thisPath) : q, thisPath)).paths,
@@ -692,11 +852,13 @@ export class AutomationEngine {
       readText: (p) => h.readText(p),
       async writeText(p, text, base) {
         if (dry) return { ok: true };
+        await guard(p);
         touch(p);
         return h.writeText(p, text, base);
       },
       async setProperties(p, changes) {
         if (dry) return { changed: true };
+        await guard(p);
         touch(p);
         return h.setProperties(p, changes);
       },
@@ -708,6 +870,7 @@ export class AutomationEngine {
       },
       async movePage(p, dest) {
         if (dry) return { moved: true, to: `${dest.replace(/\/+$/, '').replace(/\.md$/, '')}/${p.split('/').pop()}` };
+        await guard(p);
         touch(p);
         const r = await h.movePage(p, dest);
         if (r.moved) touch(r.to);
@@ -812,13 +975,13 @@ export class AutomationEngine {
 
   // ---------------------------------------------------------------- plugins
 
-  /** The rules that show in the Plugins menu: [{ id, label, ask }]. */
+  /** The rules that show in the Plugins menu: [{ id, label, ask, icon?, description? }]. */
   plugins() {
     const out = [];
     for (const r of this.rules) {
       if (!r.enabled || r.disabledByUser || !this.deviceAllowed(r)) continue;
       const t = r.triggers.find((x) => x.kind === 'plugin');
-      if (t) out.push({ id: r.id, label: t.label ?? r.name, ask: r.ask });
+      if (t) out.push({ id: r.id, label: t.label ?? r.name, ask: r.ask, ...(r.icon ? { icon: r.icon } : {}), ...(r.description ? { description: r.description } : {}) });
     }
     return out;
   }

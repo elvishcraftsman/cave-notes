@@ -43,7 +43,12 @@ test('a change goes to the file that has the section, else to the usual file, el
   assert.equal(homeFor(one, 'schema'), 'setup.yaml'); // no schema.yaml here: the one file with settings
   const two = cfg({ 'workspace.yaml': 'queries:\n  a: b\n', 'schema.yaml': '# nothing yet\n' });
   assert.equal(homeFor(two, 'schema'), 'schema.yaml');
-  assert.equal(homeFor(cfg({}), 'rules'), 'automations.yaml');
+  // what the app makes new goes into the subfolders
+  assert.equal(homeFor(cfg({}), 'rules'), 'plugins/automations.yaml');
+  assert.equal(homeFor(cfg({}), 'export-style'), 'styles/export-styles.yaml');
+  // a main-folder file that has the section is preferred over a plugin's
+  const both = cfg({ 'plugins/p.yaml': 'rules:\n  - id: a\n    on: {}\n', 'workspace.yaml': 'rules:\n  - id: b\n    on: {}\n' });
+  assert.equal(homeFor(both, 'rules'), 'workspace.yaml');
 });
 
 test('an index reads its schema, global attributes and saved queries from one single file', async (t) => {
@@ -73,4 +78,26 @@ test('moving a section to another file changes nothing', async (t) => {
   await w.write('.cave-notes/schema.yaml', 'schema:\n  n: { type: number }\n');
   assert.equal((await idx.reloadSchema()).changed, true);
   assert.deepEqual(paths(idx.search('n:>5')), ['A.md']);
+});
+
+test('plugins/ and styles/ are read; the main folder wins; a subfolder may only hold its own sections', async (t) => {
+  const root = await tmpRoot(t);
+  const w = ws(root);
+  await w.writeAll({
+    'A.md': '# A',
+    '.cave-notes/plugins/simple.yaml': 'queries:\n  q: n:>1\nrules:\n  - id: r1\n    name: from plugin\n',
+    '.cave-notes/plugins/Big.md': '# Big plugin readme',
+    '.cave-notes/plugins/Big/parts.yaml': 'schema:\n  n: { type: number }\n',
+    '.cave-notes/plugins/Big/helper.js': '// helper file, not settings',
+    '.cave-notes/plugins/bad.yaml': 'color: red\n',
+    '.cave-notes/styles/paper.yaml': 'export-style:\n  Paper: {}\n',
+    '.cave-notes/workspace.yaml': 'queries:\n  q: n:>5\nrules:\n  - id: r1\n    name: from main\n',
+  });
+  const c = await readConfig(root + '/.cave-notes');
+  assert.deepEqual(c.files.map((f) => f.name), ['plugins/bad.yaml', 'plugins/Big/parts.yaml', 'plugins/simple.yaml', 'styles/paper.yaml', 'workspace.yaml']);
+  assert.equal(c.sections.queries.q, 'n:>5', 'the main folder wins over the plugin');
+  assert.deepEqual(c.sections.rules.map((r) => r.name), ['from main']);
+  assert.ok(c.sections.schema.n && c.sections['export-style'].Paper);
+  assert.ok(c.warnings.some((x) => x.includes('plugins/bad.yaml') && x.includes('color')), 'a section a plugin may not hold is reported');
+  assert.ok(!c.warnings.some((x) => x.includes('both')), 'overriding a plugin is not a conflict');
 });

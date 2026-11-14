@@ -57,7 +57,7 @@ interface Data {
 export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: string; api: ViewBlockApi }): JSX.Element {
   const parsed = useMemo(() => parseViewSet(source), [source]);
   const set = parsed.ok ? parsed.set : null;
-  // a block can hold several views (see `view:` in docs/queries.md); one is shown at a time
+  // a block can hold several views (see `view:` in docs/03-organizing/02-queries.md); one is shown at a time
   const [activeIdx, setActiveIdx] = useState(set?.openIndex ?? 0);
   const idx = set ? Math.min(activeIdx, set.views.length - 1) : 0;
   const config = set ? set.views[idx]! : null;

@@ -164,6 +164,18 @@ export class AutomationRunner {
     this.o.emit('automation:active', { active: rules.length > 0, timed });
   }
 
+  /** The person is about to delete these pages in the app: remember the ids that get a tombstone (see the tombstones setting). */
+  beforeDelete(pages: string[]): Promise<number> {
+    if (this.closed) return Promise.resolve(0);
+    return this.run(() => this.engine.beforeDelete(pages));
+  }
+
+  /** The person deleted these pages in the app: those really gone get their tombstone. */
+  afterDelete(pages: string[]): Promise<number> {
+    if (this.closed) return Promise.resolve(0);
+    return this.run(() => this.engine.afterDelete(pages));
+  }
+
   /** The rules whose criteria the page meets (for the indicator on an open page). */
   rulesFor(p: string): Promise<Array<{ id: string; name: string; triggers: string[]; definition: string }>> {
     return this.run(() => this.engine.rulesFor(p));
@@ -389,11 +401,19 @@ export class AutomationRunner {
        * such a file, from the same rule, is ever replaced or removed. The person is asked each time anything would change.
        */
       async installAutomations(spec: { ruleId: string; owner: string; file: string; content: string | null; remove: boolean; page: string }) {
-        const target = path.join(o.root, '.cave-notes', spec.file);
+        // installed automations always go into plugins/ (an earlier version put them beside the settings files: such a file of
+        // ours is found there and moved when it is next installed or removed)
+        const legacy = path.join(o.root, '.cave-notes', spec.file);
         const mark = `# installed by "${spec.owner}"`;
-        const existing = await readText(target);
-        if (existing !== null && !existing.startsWith('# installed by "')) return { error: `.cave-notes/${spec.file} is a file of yours (it was not installed by a rule), so it is left alone` };
-        if (existing !== null && !existing.startsWith(`${mark}\n`)) return { error: `.cave-notes/${spec.file} was installed by something else (not "${spec.owner}"), so it is left alone` };
+        const target = path.join(o.root, '.cave-notes', 'plugins', spec.file);
+        let existing = await readText(target);
+        if (existing === null) {
+          const old = await readText(legacy);
+          if (old !== null && old.startsWith(`${mark}\n`)) existing = old;
+        }
+        const wasLegacy = existing !== null && (await readText(target)) === null;
+        if (existing !== null && !existing.startsWith('# installed by "')) return { error: `.cave-notes/plugins/${spec.file} is a file of yours (it was not installed by a rule), so it is left alone` };
+        if (existing !== null && !existing.startsWith(`${mark}\n`)) return { error: `.cave-notes/plugins/${spec.file} was installed by something else (not "${spec.owner}"), so it is left alone` };
         let text: string | null = null;
         let summary = { rules: [] as Array<{ id: string; name: string }>, js: false, shell: false, installs: false };
         if (spec.remove) {
@@ -422,6 +442,7 @@ export class AutomationRunner {
           o.emit('automation:rules', { id, root: o.root, ruleId: spec.ruleId, file: spec.file, remove: spec.remove, created: existing === null, summary, content: text ?? existing ?? '' });
         });
         if (!answer.allowed) return { denied: true, reason: answer.reason ?? 'you did not allow it' };
+        if (wasLegacy) await fs.rm(legacy, { force: true });
         if (spec.remove) await fs.rm(target, { force: true });
         else {
           await fs.mkdir(path.dirname(target), { recursive: true });
@@ -453,7 +474,15 @@ export class AutomationRunner {
           if (!n.endsWith('.yaml')) continue;
           try {
             const doc = YAML.parse((await fs.readFile(path.join(dir, n), 'utf8')) as string) as Partial<DeviceFile> | null;
-            if (doc && typeof doc.id === 'string' && typeof doc.seen === 'number') out.push({ id: doc.id, name: typeof doc.name === 'string' ? doc.name : doc.id, seen: doc.seen, fired: doc.fired && typeof doc.fired === 'object' ? doc.fired : {} });
+            if (doc && typeof doc.id === 'string' && typeof doc.seen === 'number') {
+              out.push({
+                id: doc.id,
+                name: typeof doc.name === 'string' ? doc.name : doc.id,
+                seen: doc.seen,
+                fired: doc.fired && typeof doc.fired === 'object' ? doc.fired : {},
+                ...(doc.buried && typeof doc.buried === 'object' ? { buried: doc.buried } : {}),
+              });
+            }
           } catch {
             /* a half-synced file: the next read will do */
           }

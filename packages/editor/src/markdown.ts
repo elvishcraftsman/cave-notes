@@ -101,9 +101,28 @@ const SpacedDestination: MarkdownConfig = {
   ],
 };
 
+/**
+ * CommonMark lets only a list that starts at 1 interrupt a paragraph (so that a wrapped line like "2026. A good year" is not
+ * taken for a list). Here a numbered list can start at any number right under a paragraph line, as in the other note apps.
+ * (Lettered and Roman markers reach the parser as numbers, so they work the same way.)
+ */
+const NumberedListInterrupts: MarkdownConfig = {
+  parseBlock: [
+    {
+      name: 'NumberedListInterrupt',
+      // it parses nothing itself: it only tells the parser where a paragraph ends
+      parse: () => false,
+      endLeaf(_cx, line) {
+        if (line.indent - line.baseIndent >= 4) return false; // indented that far it is code, not a list
+        return /^\d{1,9}[.)](?:[ \t]|$)/.test(line.text.slice(line.pos));
+      },
+    },
+  ],
+};
+
 /** GitHub-flavoured Markdown plus frontmatter. */
 export function markdownSupport(): Extension {
-  const support = markdown({ base: markdownLanguage, extensions: [Frontmatter, SpacedDestination], addKeymap: true });
+  const support = markdown({ base: markdownLanguage, extensions: [Frontmatter, SpacedDestination, NumberedListInterrupts], addKeymap: true });
   // Lettered and Roman list markers: the parser is shown them as numbers of the same width (see listMarkers.ts).
   const parser = support.language.parser as unknown as { createParse(input: never, ...rest: never[]): unknown };
   const create = parser.createParse.bind(parser) as (...a: unknown[]) => unknown;

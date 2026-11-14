@@ -187,11 +187,13 @@ export function makeHost(ws, { rulesState = {}, shell, notes = [] } = {}) {
   return host;
 }
 
-export async function makeEngine(world, ws, rules, { id = 'laptop', name = id, host: hostOpts, start = true } = {}) {
+export async function makeEngine(world, ws, rules, { id = 'laptop', name = id, host: hostOpts, start = true, wake = false } = {}) {
   const host = makeHost(ws, hostOpts);
   const engine = new AutomationEngine({ host, deviceId: id, deviceName: name });
   await engine.load(rules);
   if (start) await engine.start();
+  // most tests are about something else than the wait for sync after starting (wake-delay.test.js is about that one)
+  if (!wake) engine.holdUntil = 0;
   return { engine, host };
 }
 

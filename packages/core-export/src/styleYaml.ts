@@ -4,7 +4,7 @@ import { BUILTIN_STYLES, cleanNamedStyles, cleanStyleSet, headerFooterDiffers, t
 /**
  * Style sets as YAML: friendlier than the stored form. Lengths may carry a unit (`2.5cm`, `1in`, `25mm`, `12pt`); a bare
  * number in a length that is a page measure counts in the set's `units`. A set can start from another with `base`.
- * See docs/export-styles.md.
+ * See docs/05-exporting/01-export-styles.md.
  */
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);

@@ -690,8 +690,9 @@ export async function openIndex(rootDir, options = {}) {
         const r = rel === '' ? d.name : `${rel}/${d.name}`;
         if (d.isDirectory()) {
           if (hidden.has(d.name.normalize('NFC'))) continue;
+          if (await tree.skipDir(r)) continue; // listed in a .caveignore (and nothing in it is brought back)
           try {
-            if ((await fs.lstat(path.join(abs(r), '.cave-notes'))).isDirectory()) continue; // another workspace
+            if ((await fs.lstat(path.join(abs(r), '.cave-notes'))).isDirectory() && (await tree.isWorkspaceDir(r))) continue; // another workspace
           } catch {
             /* an ordinary folder */
           }
@@ -699,6 +700,7 @@ export async function openIndex(rootDir, options = {}) {
         } else if (d.isFile()) {
           if (exts.some((e) => d.name.toLowerCase().endsWith(e))) continue;
           if (hidden.has(d.name.normalize('NFC'))) continue;
+          if (await tree.isIgnored(r, false)) continue; // listed in a .caveignore
           out.push(r);
         }
         if (out.length >= ALL_FILES_CAP) return;
@@ -1273,6 +1275,27 @@ export async function openIndex(rootDir, options = {}) {
     return new Set(rows.map((r) => r.path));
   }
 
+  // `indicatorText:` puts a dot beside the page in the tree; `ignoreIndicators: true` on the page keeps every indicator away
+  const INDICATOR_WHERE = "lower(a.key) = 'indicatortext' AND a.type = 'string' AND a.text_value != ''";
+  const NOT_IGNORED = "NOT EXISTS (SELECT 1 FROM attrs i WHERE i.page_id = p.id AND lower(i.key) = 'ignoreindicators' AND ((i.type = 'bool' AND i.num_value = 1) OR lower(i.text_value) = 'true'))";
+  const IGNORING_WHERE = "lower(a.key) = 'ignoreindicators' AND ((a.type = 'bool' AND a.num_value = 1) OR lower(a.text_value) = 'true')";
+  const indicatorOfParent = db.prepare(`SELECT p.path, a.text_value AS text FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${INDICATOR_WHERE} AND ${NOT_IGNORED}`);
+  const indicatorAll = db.prepare(`SELECT p.path, a.text_value AS text FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${INDICATOR_WHERE} AND ${NOT_IGNORED} ORDER BY p.path`);
+  const ignoringOfParent = db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${IGNORING_WHERE}`);
+  const ignoringAll = db.prepare(`SELECT DISTINCT p.path FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${IGNORING_WHERE} ORDER BY p.path`);
+
+  /** The indicator text of each page that has one (`indicatorText: …`), unless the page ignores indicators: path -> text. */
+  function indicatorPaths(parent) {
+    const rows = parent === undefined ? indicatorAll.all() : indicatorOfParent.all(parent);
+    return new Map(rows.map((r) => [r.path, r.text]));
+  }
+
+  /** The pages that ignore all indicators (`ignoreIndicators: true`). */
+  function indicatorIgnoringPaths(parent) {
+    const rows = parent === undefined ? ignoringAll.all() : ignoringOfParent.all(parent);
+    return new Set(rows.map((r) => r.path));
+  }
+
   const ICON_WHERE = "lower(a.key) = 'icon' AND a.type = 'string' AND a.text_value != ''";
   const iconOfParent = db.prepare(`SELECT p.path, a.text_value AS icon FROM pages p JOIN attrs a ON a.page_id = p.id WHERE p.parent_path IS ? AND ${ICON_WHERE}`);
   const iconAll = db.prepare(`SELECT p.path, a.text_value AS icon FROM pages p JOIN attrs a ON a.page_id = p.id WHERE ${ICON_WHERE} ORDER BY p.path`);
@@ -1367,6 +1390,8 @@ export async function openIndex(rootDir, options = {}) {
     hiddenPaths,
     hiddenOnlyPaths,
     iconPaths,
+    indicatorPaths,
+    indicatorIgnoringPaths,
     templatePaths,
     orderOf: (p) => q.orderOf.get(p)?.o ?? undefined,
     close,

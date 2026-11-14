@@ -9,6 +9,7 @@ import { insertViewBlock } from './commands';
 import { insertTable } from './tables';
 import { activeFormats, type BlockFormat, type InlineFormat, toggleBlock, toggleInline } from './formatting';
 import { insertFootnote } from './footnotes';
+import { annotationAt, toggleComment } from './critic';
 
 /**
  * The formatting menu: right-click in the text, or release the mouse with text selected. It is a short, wide bar of
@@ -17,7 +18,7 @@ import { insertFootnote } from './footnotes';
  * Plain DOM so it works anywhere; it is styled with the host's CSS variables (see .cm-format-menu in theme.ts).
  */
 
-type IconKey = 'table' | 'grid' | 'code' | 'link' | 'quote' | 'codeblock' | 'bullets' | 'numbers' | 'tasks' | 'chevron' | 'check' | 'indent' | 'outdent' | 'selectall' | 'selecthtml' | 'copy' | 'footnote';
+type IconKey = 'table' | 'grid' | 'code' | 'link' | 'quote' | 'codeblock' | 'bullets' | 'numbers' | 'tasks' | 'chevron' | 'check' | 'indent' | 'outdent' | 'selectall' | 'selecthtml' | 'copy' | 'footnote' | 'comment';
 
 /** 16px grid, 1.5px strokes, currentColor: the same style as the app's own symbolic icons. */
 const ICON_PATHS: Record<IconKey, string> = {
@@ -37,6 +38,7 @@ const ICON_PATHS: Record<IconKey, string> = {
   selecthtml: 'M2.5 2.5h11v11h-11z M6 5.5L4.5 8 6 10.5 M10 5.5L11.5 8 10 10.5',
   copy: 'M5.5 5.5h8v8h-8z M2.5 10.5v-8h8',
   footnote: 'M2.5 13L6 4.5 9.5 13 M3.7 10h4.6 M11.2 4.3l1.3-.8v4',
+  comment: 'M2.5 3.5h11v7h-5.2l-3.1 2.6v-2.6h-2.7z',
   outdent: 'M2.5 3.5h11 M8 7.5h5.5 M8 11.5h5.5 M5.3 6.2L2.5 8.5 5.3 10.8',
 };
 
@@ -69,6 +71,8 @@ interface Tool {
   block?: BlockFormat;
   /** a button that does something to the text instead of switching a format on or off */
   action?: (view: EditorView) => void;
+  /** whether such a button shows as on (the comment button, when the cursor is in a comment) */
+  isOn?: (view: EditorView) => boolean;
 }
 
 interface Variant {
@@ -86,6 +90,8 @@ const INLINE: Tool[] = [
   { label: 'Link', hint: 'Ctrl+K', icon: 'link', inline: 'link' },
   // a reference at the end of the selection and the note itself at the end of the page, with the cursor in it
   { label: 'Insert footnote', hint: 'Ctrl+Alt+F', icon: 'footnote', action: (view) => void insertFootnote(view) },
+  // highlights the selection and adds a comment (CriticMarkup); on one that is already there it takes it away
+  { label: 'Comment', hint: 'Ctrl+Alt+M', icon: 'comment', action: (view) => void toggleComment(view), isOn: (view) => annotationAt(view.state) !== null },
 ];
 
 const HEADINGS: Variant[] = [
@@ -225,7 +231,10 @@ export function closeFormatMenu(): void {
  */
 export function showFormatMenu(view: EditorView, x: number, y: number, spelling?: { target: SpellTarget; host: SpellHost }, synonyms?: SynonymTarget, opts: { dock?: boolean; selectOnly?: boolean } = {}): void {
   const dock = opts.dock === true;
-  closeFormatMenu();
+  // a docked menu that is already up is replaced in one step, once the new one is in place: closing it first made it vanish
+  // and come back at every change of the selection
+  const previous = dock && open?.dock ? open : null;
+  if (!previous) closeFormatMenu();
   installFormatMenuStyles();
   const active = activeFormats(view.state);
   const menu = document.createElement('div');
@@ -233,6 +242,15 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
   menu.setAttribute('role', 'toolbar');
   menu.setAttribute('aria-label', 'Formatting');
 
+  /** the panel of the docked menu that is open (the touch menu is one row of buttons, each opening a panel of tools) */
+  let dockPanel: { btn: HTMLElement; el: HTMLElement } | null = null;
+  const closeDockPanel = (): void => {
+    if (!dockPanel) return;
+    dockPanel.el.style.display = 'none';
+    dockPanel.btn.setAttribute('aria-expanded', 'false');
+    dockPanel.btn.classList.remove('cm-format-on');
+    dockPanel = null;
+  };
   let sub: HTMLElement | null = null;
   let subOwner: HTMLElement | null = null;
   let spellList: HTMLElement | null = null;
@@ -245,7 +263,9 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
   };
 
   const run = (apply: () => void): void => {
-    closeFormatMenu();
+    // the docked menu stays: it is brought up to date by the change the action makes (and is not shown twice)
+    if (dock) closeDockPanel();
+    else closeFormatMenu();
     apply();
     view.focus();
   };
@@ -262,7 +282,7 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
     b.title = tip(t);
     b.setAttribute('aria-label', t.label);
     b.setAttribute('aria-pressed', String(on));
-    b.dataset.format = t.inline ?? t.block ?? 'footnote';
+    b.dataset.format = t.inline ?? t.block ?? (t.icon === 'comment' ? 'comment' : 'footnote');
     if (t.glyph) {
       const g = document.createElement('span');
       g.className = `cm-glyph ${t.glyph.cls}`;
@@ -358,7 +378,7 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
   };
 
   // text styles
-  const styles = group(...INLINE.map((t) => tool(t, active.inline.has(t.inline!))));
+  const styles = group(...INLINE.map((t) => tool(t, t.isOn ? t.isOn(view) : active.inline.has(t.inline!))));
 
   // heading level: one button that shows the level in use and opens the list
   const level = HEADINGS.find((h) => h.block !== 'paragraph' && active.block.has(h.block));
@@ -427,7 +447,44 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
   tableBtn.appendChild(svg('grid'));
   keepFocus(tableBtn);
   tableBtn.addEventListener('click', () => run(() => insertTable(view)));
-  const inserts = group(tableBtn, viewBtn);
+  // the saved queries of the workspace, as a drop-down beside the button: each inserts a view that shows that query
+  const saved = savedViewsHost ? savedViewsHost() : [];
+  let viewGroup: HTMLElement = viewBtn;
+  if (saved.length > 0) {
+    const caretBtn = document.createElement('button');
+    caretBtn.type = 'button';
+    caretBtn.className = 'cm-format-btn cm-format-caret';
+    caretBtn.title = 'Insert a view of a saved query';
+    caretBtn.setAttribute('aria-label', 'Insert a view of a saved query');
+    caretBtn.setAttribute('aria-haspopup', 'menu');
+    caretBtn.setAttribute('aria-expanded', 'false');
+    caretBtn.appendChild(svg('chevron', 12));
+    keepFocus(caretBtn);
+    caretBtn.addEventListener('click', () => {
+      if (subOwner === caretBtn) return closeSub();
+      closeSub();
+      if (spellList) spellList.style.display = 'none';
+      const list = document.createElement('div');
+      list.className = 'cm-format-sub cm-saved-list';
+      list.setAttribute('role', 'menu');
+      for (const q of saved.slice(0, 30)) entry(list, q.label, 'cm-saved-view', () => insertViewBlock(view, q.template));
+      menu.appendChild(list);
+      caretBtn.setAttribute('aria-expanded', 'true');
+      sub = list;
+      subOwner = caretBtn;
+      const a = (caretBtn.parentElement ?? caretBtn).getBoundingClientRect();
+      const lr = list.getBoundingClientRect();
+      const below = a.bottom + 2;
+      list.style.left = `${Math.max(4, Math.min(a.left, window.innerWidth - lr.width - 4))}px`;
+      list.style.top = `${below + lr.height > window.innerHeight - 4 && a.top - lr.height - 2 > 4 ? a.top - lr.height - 2 : below}px`;
+    });
+    const wrap = document.createElement('div');
+    wrap.className = 'cm-format-split';
+    viewBtn.classList.add('cm-format-split-main');
+    wrap.append(viewBtn, caretBtn);
+    viewGroup = wrap;
+  }
+  const inserts = group(tableBtn, viewGroup);
 
   // two rows: text styles and blocks above, lists and inserts below
   const row = (...kids: HTMLElement[]): HTMLElement => {
@@ -444,10 +501,61 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
     // a page that cannot change: nothing to format, but its text can still be selected and copied
     const copy = action('Copy', 'copy', !view.state.selection.main.empty, () => document.execCommand('copy'));
     menu.append(row(group(copy), divider(), selects));
+  } else if (dock) {
+    // touch: ONE row, scrolling sideways if it is too wide. Each button opens a panel of the tools of its kind above the row
+    const launch = (label: string, cue: { glyph?: string; icon?: IconKey }, content: HTMLElement): HTMLElement => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cm-format-btn cm-dock-launch';
+      btn.title = label;
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('aria-haspopup', 'true');
+      btn.setAttribute('aria-expanded', 'false');
+      const face = document.createElement('span');
+      face.className = 'cm-dock-face';
+      if (cue.glyph) face.textContent = cue.glyph;
+      else face.appendChild(svg(cue.icon!));
+      const name = document.createElement('span');
+      name.className = 'cm-dock-name';
+      name.textContent = label;
+      btn.append(face, name);
+      keepFocus(btn);
+      const panel = document.createElement('div');
+      panel.className = 'cm-format-sub cm-dock-panel';
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', label);
+      panel.style.display = 'none';
+      panel.appendChild(content);
+      menu.appendChild(panel);
+      btn.addEventListener('click', () => {
+        const wasOpen = dockPanel?.el === panel;
+        closeSub();
+        closeDockPanel();
+        if (wasOpen) return;
+        panel.style.display = '';
+        panel.style.bottom = `${menu.offsetHeight}px`;
+        btn.setAttribute('aria-expanded', 'true');
+        btn.classList.add('cm-format-on');
+        dockPanel = { btn, el: panel };
+      });
+      return btn;
+    };
+    const r = row(
+      launch('Format', { glyph: 'B' }, styles),
+      launch('Blocks', { glyph: '¶' }, blocks),
+      launch('Lists', { icon: 'bullets' }, lists),
+      launch('Insert', { icon: 'grid' }, inserts),
+      launch('Select', { icon: 'selectall' }, selects),
+    );
+    menu.append(r);
   } else menu.append(row(styles, divider(), blocks), row(lists, divider(), inserts, divider(), selects));
 
   if (dock) menu.classList.add('cm-format-dock');
   document.body.appendChild(menu);
+  if (previous) {
+    previous.close();
+    open = null;
+  }
   if (!dock) {
     const r = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - r.width - 4))}px`;
@@ -577,6 +685,8 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
   };
 }
 
+let savedViewsHost: (() => Array<{ label: string; template: string }>) | null = null;
+
 export interface FormatMenuOptions {
   /** Also show the menu when the mouse is released with text selected (default true). */
   onSelection?: boolean;
@@ -584,6 +694,8 @@ export interface FormatMenuOptions {
   spell?: SpellHost;
   /** Thesaurus behind the synonyms offered for a word that is spelled right. */
   thesaurus?: ThesaurusHost;
+  /** The workspace's saved queries: the drop-down beside "Insert database view" offers a view of each. `template` is the block's text. */
+  savedViews?: () => Array<{ label: string; template: string }>;
 }
 
 /**
@@ -591,6 +703,7 @@ export interface FormatMenuOptions {
  * system, which selects the word; the menu then appears along the bottom edge once a selection has settled.
  */
 export function formatMenu(options: FormatMenuOptions = {}): Extension {
+  savedViewsHost = options.savedViews ?? null;
   /** what the last pointer in the editor was: 'mouse', 'pen' or 'touch' */
   let lastPointer = 'mouse';
   let settle: ReturnType<typeof setTimeout> | undefined;

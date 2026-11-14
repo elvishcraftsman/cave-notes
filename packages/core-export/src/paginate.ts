@@ -90,18 +90,21 @@ function textsOf(blocks: Block[], out: string[]): void {
   for (const b of blocks) {
     switch (b.t) {
       case 'heading': case 'para': out.push(plainText(b.inlines)); break;
-      case 'quote': case 'div': textsOf(b.blocks, out); break;
+      // a block that says `nocount` (`::: nocount`, or `::: hanging nocount`) is not counted, with everything in it
+      case 'quote': textsOf(b.blocks, out); break;
+      case 'div': if (!b.classes.includes('nocount')) textsOf(b.blocks, out); break;
       case 'code': out.push(b.text); break;
       case 'list': for (const it of b.items) textsOf(it.blocks, out); break;
       case 'table': for (const c of [...b.head, ...b.rows.flat()]) out.push(plainText(c)); break;
-      case 'notes': for (const n of b.items) textsOf(n, out); break;
+      // the footnotes are not part of the count
+      case 'notes': break;
       case 'image': out.push(b.alt); break;
       default: break;
     }
   }
 }
 
-/** The words of a page as a word processor counts them: no attributes at the top, no Markdown marks, notes included. */
+/** The words of a page as a word processor counts them: no attributes at the top, no Markdown marks, no footnotes, and not what is in a `nocount` block. */
 export function countWords(markdown: string): number {
   const texts: string[] = [];
   textsOf(parseDoc(markdown), texts);

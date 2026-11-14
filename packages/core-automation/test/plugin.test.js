@@ -211,3 +211,33 @@ test('run_js is not run in a dry run, and a host can refuse it', async () => {
   assert.equal(r.status, 'failed');
   assert.match(r.detail, /switched off in Preferences/);
 });
+
+test('a plugin can have its own icon and a several-line description', async () => {
+  const world = new World();
+  const ws = new FakeWorkspace(world, { 'A.md': '# A\n' });
+  const rules = `
+rules:
+  - id: fancy
+    name: Fancy
+    icon: wand-sparkles
+    description: |
+      First line of the text.
+      Second line.
+
+      A new paragraph.
+    on: { plugin: "Fancy plugin" }
+    do:
+      - transform_text: { steps: [ trim_lines ] }
+  - id: bad-icon
+    icon: "Not An Icon!"
+    on: { plugin: "Plain" }
+    do:
+      - transform_text: { steps: [ trim_lines ] }
+`;
+  const { engine } = await makeEngine(world, ws, rules);
+  const [fancy, plain] = engine.plugins();
+  assert.equal(fancy.icon, 'wand-sparkles');
+  assert.equal(fancy.description, 'First line of the text.\nSecond line.\n\nA new paragraph.');
+  assert.equal(plain.icon, undefined, 'an icon name that is not a plain name is left out');
+  assert.equal(plain.description, undefined);
+});

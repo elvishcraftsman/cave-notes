@@ -173,6 +173,20 @@ describe('looking for workspaces', () => {
     const found = await scanForWorkspaces([root], [path.join(root, 'Skip')]);
     expect(found.map((p) => path.relative(root, p))).toEqual(['One', 'One/Inner', 'Two/Deep']);
   });
+
+  it('honours .caveignore: a listed .cave-notes makes no workspace, a listed folder is not entered', async () => {
+    for (const d of ['One', 'Two/docs', 'Three/docs', 'Big/Ws']) await write(`${d}/.cave-notes/workspace.yaml`, '');
+    await write('.caveignore', '*/docs/.cave-notes\nBig/\n');
+    const found = await scanForWorkspaces([root]);
+    expect(found.map((p) => path.relative(root, p))).toEqual(['One']);
+  });
+
+  it('drops a .caveignore line that would hide every workspace', async () => {
+    for (const d of ['One', 'Two']) await write(`${d}/.cave-notes/workspace.yaml`, '');
+    await write('.caveignore', '.cave-notes\n');
+    const found = await scanForWorkspaces([root]);
+    expect(found.map((p) => path.relative(root, p))).toEqual(['One', 'Two']);
+  });
 });
 
 describe('a workspace removed on another computer', () => {

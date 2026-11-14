@@ -1,5 +1,6 @@
 // Bundles the spike page into www/: one script, one stylesheet (the desktop theme, which also styles the editor).
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
 import { cp, mkdir, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { webWorkerBuildOptions } from '@cave-notes/service/build/worker-options';
@@ -19,7 +20,7 @@ await build({
   target: 'chrome120',
   jsx: 'automatic',
   jsxImportSource: 'preact',
-  define: { __APP_VERSION__: JSON.stringify('android-dev') },
+  define: { __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version) },
   loader: { '.css': 'css', '.woff2': 'file', '.woff': 'file', '.txt': 'text' },
   assetNames: 'fonts/[name]-[hash]',
 });

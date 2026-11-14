@@ -405,6 +405,18 @@ def('if', 'if(test, a, b)', 'a when the test is true, otherwise b.', (a) => {
   return truthy(a[0]) ? a[1] : (a[2] ?? null);
 });
 def('coalesce', 'coalesce(a, b, ...)', 'The first value that is not empty.', (a) => a.find((x) => x !== null && x !== undefined && x !== '') ?? null);
+const ID_LETTERS = 'abcdefghjkmnpqrstvwxyz';
+const ID_CHARS = `0123456789${ID_LETTERS}`;
+def('new_id', 'new_id()', 'A new id that no other page has: 16 letters and digits, different every time it is called (it is random, not worked out from the page). Write it into a property once and it stays with the page through renames and moves: `set_property: { id: "${new_id()}" }`. `new_id("task")` puts a word in front: `task-…`.', (a) => {
+  need('new_id', a, 0, 1);
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  // the first one is a letter, so the id is never read back as a number
+  let id = ID_LETTERS[bytes[0] % ID_LETTERS.length];
+  for (const b of bytes.subarray(1)) id += ID_CHARS[b & 31];
+  const word = a[0] === undefined || a[0] === null ? '' : String(a[0]).trim();
+  return word ? `${word}-${id}` : id;
+});
 def('default', 'default(value, fallback)', 'The value, or the fallback when it is empty.', (a) => {
   need('default', a, 2);
   return a[0] === null || a[0] === undefined || a[0] === '' ? a[1] : a[0];

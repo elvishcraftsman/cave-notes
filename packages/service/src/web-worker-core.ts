@@ -65,7 +65,8 @@ export function startWebWorker(scope: WorkerScope, deps: WorkerDeps): () => void
   let allClosed: () => Promise<void> = () => Promise.resolve();
   /** set while a closed workspace's index is still being shut down (and so snapshotted) in the background */
   let closing: Promise<void> | null = null;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
 
   const init = async (info: InitInfo): Promise<void> => {
     configureLog({ file: null, level: isLevel(info.logLevel) ? info.logLevel : 'info', tag: info.logTag ?? 'web-worker', mirror: !info.logToHost, sink: info.logToHost ? (line) => post({ kind: 'log', line }) : null });
@@ -96,7 +97,20 @@ export function startWebWorker(scope: WorkerScope, deps: WorkerDeps): () => void
         }
       },
     });
-    timer = setInterval(() => snapshotAll(), deps.snapshotEveryMs ?? 30_000);
+    // The index is saved now and then (and always when the app goes to the background). Saving writes the whole database, which on
+    // a big workspace takes seconds and, on a phone, keeps the file layer busy: so the wait grows with what the last save cost.
+    const every = deps.snapshotEveryMs ?? 120_000;
+    const tick = (): void => {
+      const t0 = Date.now();
+      let saved = 0;
+      try {
+        saved = snapshotAll();
+      } finally {
+        const took = Date.now() - t0;
+        if (!stopped) timer = setTimeout(tick, saved > 0 ? Math.max(every, took * 60) : every);
+      }
+    };
+    timer = setTimeout(tick, every);
     log.info(`service ready (sqlite ${driver.sqliteVersion})`);
   };
 
@@ -152,7 +166,8 @@ export function startWebWorker(scope: WorkerScope, deps: WorkerDeps): () => void
   };
 
   return () => {
-    clearInterval(timer);
+    stopped = true;
+    clearTimeout(timer);
     clearTimeout(writeTimer);
     scope.onmessage = null;
   };

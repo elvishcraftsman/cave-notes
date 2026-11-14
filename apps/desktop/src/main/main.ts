@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,6 +20,9 @@ import { readConfigSync } from '@cave-notes/core-index/config';
 import { handleJs } from './automation-js';
 import { Approvals, handleShell, type ShellRequest } from './automation-shell';
 import { ScriptTrust, runScript as runScriptBlock } from './script-runner';
+import { BUILTIN_STYLES, stringifyStyleSets } from '@cave-notes/core-export';
+import { importFromFiles } from './importFiles';
+import { zipFolder } from './zip';
 import { listLogSources, readLogSource, type AutomationLogRef } from './logs';
 import { configureLog, isLevel, log, logFile, logLevel, rotateLog, setLogLevel, watchEventLoop, type Level } from '../shared/log';
 
@@ -361,6 +364,49 @@ async function copyFonts(dest: string): Promise<void> {
 const globalDir = (): string => path.join(app.getPath('userData'), 'global-settings');
 /** The app's own settings folder (its plugins and templates), and the folder of defaults that ships inside the app. */
 const appConfigDir = (): string => appConfigFolder(app.getPath('userData'));
+
+/**
+ * The export styles of every workspace live in the app's own folder, in `styles/` like a workspace's. The default styles are
+ * written there the first time, so they can be edited like any other. (Before, styles were in `export-styles.yaml` of the
+ * app data folder: it is moved here the first time.)
+ */
+const globalStylesFile = (): string => {
+  const dir = path.join(appConfigDir(), 'styles');
+  const file = path.join(dir, 'export-styles.yaml');
+  const old = path.join(app.getPath('userData'), 'export-styles.yaml');
+  const seeded = path.join(dir, '.defaults-seeded');
+  try {
+    if (!fs.existsSync(file) && fs.existsSync(old)) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.copyFileSync(old, file);
+      fs.rmSync(old, { force: true });
+    }
+    if (!fs.existsSync(file) && !fs.existsSync(seeded)) {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, `# The export styles of every workspace. The styles that come with Cave Notes are here so you can change them; delete one and the built-in version is used again.\n# A workspace's own style with the same name wins over the one here.\n${stringifyStyleSets(BUILTIN_STYLES)}`);
+      fs.writeFileSync(seeded, 'The default export styles were written to export-styles.yaml once; this file keeps them from coming back if you remove them.\n');
+    }
+  } catch (e) {
+    log.warn(`the global export styles folder: ${(e as Error).message}`);
+  }
+  return file;
+};
+
+/** The styles in the other YAML files of that folder (ones that were added from a file): all of them in one text. */
+const otherStyleFiles = (): string => {
+  const main = globalStylesFile();
+  const dir = path.dirname(main);
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((n) => /\.ya?ml$/i.test(n) && !n.startsWith('.') && path.join(dir, n) !== main)
+      .sort((a, b) => a.localeCompare(b))
+      .map((n) => fs.readFileSync(path.join(dir, n), 'utf8'))
+      .join('\n');
+  } catch {
+    return '';
+  }
+};
 const shippedDefaultsDir = (): string => (app.isPackaged ? path.join(process.resourcesPath, 'defaults') : path.join(app.getAppPath(), 'defaults'));
 
 const noteTypesNow = (): { exts: string[]; create: string } => ({ exts: settings.get().noteExts, create: settings.get().noteCreate });
@@ -1038,6 +1084,14 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
     async docsFolder() {
       return docsRoot();
     },
+    async saveDocsZip() {
+      const opts = { title: 'Save the Documentation as a Zip', defaultPath: path.join(app.getPath('documents'), 'Cave Notes Documentation.zip'), filters: [{ name: 'Zip archive', extensions: ['zip'] }] };
+      const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts);
+      if (r.canceled || !r.filePath) return null;
+      const file = r.filePath.toLowerCase().endsWith('.zip') ? r.filePath : `${r.filePath}.zip`;
+      await fs.promises.writeFile(file, zipFolder(docsRoot(), 'Cave Notes Documentation'));
+      return file;
+    },
     async logSources() {
       return { dir: LOG_DIR, sources: await listLogSources(logFile(), automationLogRefs()) };
     },
@@ -1062,13 +1116,27 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
       const nw = createWindow({ tabs: [{ root: tab.root, path: tab.path, ...(tab.single ? { single: true } : {}) }], activeTab: 0 }, w, { x: point.x - 120, y: point.y - 24, width: at.width, height: at.height });
       attach(tab.root, nw.id);
     },
+    async pickImportFiles(mode) {
+      const opts: Electron.OpenDialogOptions = mode === 'folder'
+        ? { title: 'Choose a folder to add', properties: ['openDirectory', 'multiSelections'] }
+        : { title: 'Choose files or a zip to add', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Files and zips', extensions: ['yaml', 'yml', 'md', 'markdown', 'txt', 'js', 'json', 'zip'] }, { name: 'All files', extensions: ['*'] }] };
+      const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts);
+      return r.canceled ? [] : r.filePaths;
+    },
+    async importFromFile(req) {
+      return importFromFiles(req, appConfigDir());
+    },
+    async getGlobalStyleFiles() {
+      return otherStyleFiles();
+    },
     async getGlobalExportStyles() {
-      return fs.promises.readFile(path.join(app.getPath('userData'), 'export-styles.yaml'), 'utf8').catch(() => '');
+      return fs.promises.readFile(globalStylesFile(), 'utf8').catch(() => '');
     },
     async setGlobalExportStyles(text) {
       const { errors } = parseStyleSetsYaml(text);
       if (errors.length > 0) throw new Error(errors[0]);
-      const file = path.join(app.getPath('userData'), 'export-styles.yaml');
+      const file = globalStylesFile();
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
       if (text.trim() === '') await fs.promises.rm(file, { force: true });
       else await fs.promises.writeFile(file, text.endsWith('\n') ? text : `${text}\n`);
     },
@@ -1600,8 +1668,9 @@ app.on('second-instance', (_e, argv, cwd) => {
 /**
  * Put the launcher and icons into ~/.local/share on first run, so the app is in the application grid and in "Open With" for
  * Markdown files, and fix them when the app has moved. The AppImage ($APPIMAGE is set by its runtime) is started by its
- * file; an unpacked build by its executable; a source checkout by Electron and the app's folder. Only on Linux.
- * `--remove-desktop-integration` / `--install-desktop-integration` undo and redo it.
+ * file; an unpacked build by its executable. Only on Linux. A source checkout run in development (`npm start`) does NOT
+ * register anything: only an installed app (the AppImage or a packaged build) does. `--install-desktop-integration` still
+ * forces it for a checkout, and `--remove-desktop-integration` undoes it.
  */
 function setupDesktopIntegration(): boolean {
   if (process.platform !== 'linux') return false;
@@ -1616,7 +1685,12 @@ function setupDesktopIntegration(): boolean {
       app.quit();
       return true;
     }
-    if (process.argv.includes('--install-desktop-integration')) fs.rmSync(optOutFile, { force: true });
+    const forced = process.argv.includes('--install-desktop-integration');
+    if (forced) fs.rmSync(optOutFile, { force: true });
+    if (!appImage && !app.isPackaged && !forced) {
+      log.info('desktop integration: skipped (running from source; install the app, or pass --install-desktop-integration)');
+      return false;
+    }
     const result = integrate({ appImage, ...(command ? { command } : {}), iconsDir: path.join(__dirname, 'icons'), version: app.getVersion(), optOutFile });
     log.info(`desktop integration: ${result} (${appImage ?? command?.join(' ')})`);
   } catch (e) {
@@ -1639,12 +1713,31 @@ function runningVariant(appImage: string | null): ReturnType<typeof variantOf> {
   return variantOf(appImage ? path.basename(appImage) : '', marker);
 }
 
-/** Start again from the AppImage's own path (the copy inside the mounted image goes away when this process ends). */
+/**
+ * Start again from the AppImage's own path (the copy inside the mounted image goes away when this process ends).
+ *
+ * `app.relaunch()` starts the new process the moment this one exits, which can be before this one has let go of the single
+ * instance lock: the new one then finds "another Cave Notes" running, hands over its arguments and quits, so the app just closed.
+ * So the lock is given up first, and an AppImage is started by a small detached shell that waits a moment (until this process
+ * and its mount are gone) and then runs the new file.
+ */
 function restartForUpdate(): void {
   const appImage = process.env.APPIMAGE;
   log.info(`restarting${appImage ? ` from ${appImage}` : ''}`);
-  if (appImage) app.relaunch({ execPath: appImage, args: [] });
-  else app.relaunch();
+  app.releaseSingleInstanceLock();
+  if (appImage && path.isAbsolute(appImage)) {
+    try {
+      // what the old AppImage runtime put in the environment describes the old mount: the new runtime sets its own
+      const env = { ...process.env };
+      for (const k of ['APPDIR', 'APPIMAGE', 'ARGV0', 'OWD', 'APPIMAGE_SILENT_INSTALL']) delete env[k];
+      const child = spawn('/bin/sh', ['-c', 'sleep 1; exec "$0"', appImage], { detached: true, stdio: 'ignore', env });
+      child.on('error', (e) => log.warn(`restart: could not start ${appImage}: ${e.message}`));
+      child.unref();
+    } catch (e) {
+      log.warn(`restart: ${(e as Error).message}; trying the ordinary relaunch`);
+      app.relaunch({ execPath: appImage, args: [] });
+    }
+  } else app.relaunch();
   app.quit();
 }
 

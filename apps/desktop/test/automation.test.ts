@@ -60,6 +60,28 @@ afterEach(async () => {
 const TASK = (status: string, due = '2026-10-15') => `---\nkind: task\nstatus: ${status}\ndue: ${due}\n---\n# Water plants\n`;
 
 describe('automations on a real workspace', () => {
+  it('a page deleted in the app gets a tombstone in this computer\'s device file, and is pointed out if it comes back', async () => {
+    const page = '---\ntype: task\nid: k3f9q2xw7m1t0hbz\n---\n# Old\n';
+    await open({ 'Tasks/Old.md': page, 'Tasks/Kept.md': '---\ntype: task\nid: abc\n---\n# Kept\n' }, `
+settings: { tombstones: { where: type:task } }
+rules: []
+`);
+    const info = await svc.deleteInfo('Tasks/Old.md');
+    const cancelled = await svc.deleteInfo('Tasks/Kept.md'); // the person says no to this one
+    for (const f of info.trash) await fs.rm(f, { recursive: true, force: true });
+    await svc.afterDelete(info.pages);
+    await svc.afterDelete(cancelled.pages);
+    const devices = path.join(root, '.cave-notes', 'devices');
+    const file = await waitFor(async () => (await fs.readdir(devices).catch(() => [] as string[]))[0], 'the device file');
+    const doc = YAML.parse(await fs.readFile(path.join(devices, file), 'utf8')) as { buried?: Record<string, { path: string }> };
+    expect(Object.keys(doc.buried ?? {})).toEqual(['k3f9q2xw7m1t0hbz']);
+    expect(doc.buried?.k3f9q2xw7m1t0hbz?.path).toBe('Tasks/Old.md');
+
+    await write('Tasks/Old.md', page); // sync brings it back
+    const note = await waitFor(() => eventsOf('automation:notify')[0], 'the came-back notice');
+    expect(JSON.stringify(note.payload)).toMatch(/A deleted page came back/);
+  });
+
   it('a task marked done on disk spawns its next occurrence and is stamped', async () => {
     await open({ 'Tasks/Water.md': TASK('todo') }, `
 rules:
@@ -313,11 +335,11 @@ rules:
       expect(req.summary).toMatchObject({ js: true, shell: false, installs: false });
       expect(req.summary.rules.map((r) => r.id)).toEqual(['from-extra']);
       expect(req.content).toContain('# installed by "demo"');
-      expect(await exists('.cave-notes/extra.yaml')).toBe(false); // nothing is written before the answer
+      expect(await exists('.cave-notes/plugins/extra.yaml')).toBe(false); // nothing is written before the answer
       await svc.automationRulesResult(req.id, { allowed: true });
       const res = await run;
       expect(res.status).toBe('done');
-      const file = await read('.cave-notes/extra.yaml');
+      const file = await read('.cave-notes/plugins/extra.yaml');
       expect(file.split('\n')[0]).toBe('# installed by "demo"');
       expect(file).toContain('- id: from-extra');
       expect(await exists('N/Made.md')).toBe(true);
@@ -337,18 +359,18 @@ rules:
       const res = await run;
       expect(res.status).toBe('failed');
       expect(res.detail).toMatch(/you did not allow it/);
-      expect(await exists('.cave-notes/extra.yaml')).toBe(false);
+      expect(await exists('.cave-notes/plugins/extra.yaml')).toBe(false);
       expect(await exists('N/Made.md')).toBe(false);
     });
 
     it('never touches a file that is not its own', async () => {
-      await write('.cave-notes/extra.yaml', 'rules: []\n');
+      await write('.cave-notes/plugins/extra.yaml', 'rules: []\n');
       await open({ 'N.md': '# N\n' }, INSTALL);
       const res = await svc.automationPlugin('setup', 'N.md', '', false, {});
       expect(res.status).toBe('failed');
       expect(res.detail).toMatch(/a file of yours/);
       expect(eventsOf('automation:rules')).toHaveLength(0);
-      expect(await read('.cave-notes/extra.yaml')).toBe('rules: []\n');
+      expect(await read('.cave-notes/plugins/extra.yaml')).toBe('rules: []\n');
     });
 
     it('another rule with the same owner can remove it, after asking', async () => {
@@ -363,7 +385,7 @@ rules:
       expect((b.payload as WorkerEvents['automation:rules']).remove).toBe(true);
       await svc.automationRulesResult((b.payload as WorkerEvents['automation:rules']).id, { allowed: true });
       expect((await gone).status).toBe('done');
-      expect(await exists('.cave-notes/extra.yaml')).toBe(false);
+      expect(await exists('.cave-notes/plugins/extra.yaml')).toBe(false);
     });
 
     it('a button asks its questions first, and the answers reach the rule', async () => {

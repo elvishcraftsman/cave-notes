@@ -288,3 +288,25 @@ suite('Tab and Shift-Tab in lists indented with tabs', () => {
     expect(ed.text()).toBe('- a\n  - b\n    - c');
   });
 });
+
+suite('a numbered list right under a paragraph', () => {
+  it('can start at any number, and keeps counting from it', () => {
+    const ed = make('Some intro text\n5. five\n6. six‸');
+    press(ed, 'Enter');
+    expect(ed.text()).toBe('Some intro text\n5. five\n6. six\n7. ');
+  });
+
+  it('is renumbered from its own first number when an item is removed', () => {
+    const ed = make('Intro\n5. a\n6. b\n7. c');
+    ed.view.dispatch({ changes: { from: ed.text().indexOf('6. b\n'), to: ed.text().indexOf('7. c') }, userEvent: 'delete.line' });
+    expect(ed.text()).toBe('Intro\n5. a\n6. c');
+  });
+});
+
+suite('Enter at the start of an item that has sub-items', () => {
+  it('keeps the sub-items under the item when the numbers get wider', () => {
+    const ed = make('I. ‸Problem\n   A. one\n   B. two\nII. Discussion\n    A. Scripture\n       1. text\nIII. Last');
+    press(ed, 'Enter');
+    expect(ed.text()).toBe('I. \nII. Problem\n    A. one\n    B. two\nIII. Discussion\n     A. Scripture\n        1. text\nIV. Last');
+  });
+});

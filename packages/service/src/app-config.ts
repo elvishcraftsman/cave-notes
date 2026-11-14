@@ -3,8 +3,10 @@
  *
  * The app ships a folder `defaults/` (in its resources, read-only: inside an AppImage nothing can be changed). On start the
  * files in it are copied into the app config folder, `<app data>/app-config/.cave-notes/` (the name makes it open as a
- * settings folder, like a workspace's), and every workspace then offers the plugins found in `plugins/` and the templates
- * found in `templates/`. Rules for the copying:
+ * settings folder, like a workspace's), and every workspace then offers the plugins found in `plugins/`, the export styles
+ * in `styles/` and the templates in `templates/`. The app's folder is stricter than a workspace's: it has only those three
+ * folders (no settings files beside them), and a workspace's own files win over what is found here. A plugin is a YAML file
+ * or, when it is bigger, a notes page with a folder of the same name. Rules for the copying:
  *   - a file that is not there yet is copied, unless it was copied before (the person deleted it: that is how a default
  *     plugin is uninstalled, and it stays gone);
  *   - a copy nobody changed is replaced by a newer shipped version when the app brings one;
@@ -16,7 +18,7 @@ import YAML from 'yaml';
 import { fs, path, sha1 } from '@cave-notes/platform';
 import { CONFIG_DIR_NAME } from './config-folder';
 
-const SUBFOLDERS = ['plugins', 'templates'] as const;
+const SUBFOLDERS = ['plugins', 'styles', 'templates'] as const;
 const MANIFEST = 'seeded.json';
 
 /** `<app data>/app-config/.cave-notes`: the folder that is opened to edit the app's own plugins and templates. */
@@ -44,15 +46,23 @@ async function readManifest(target: string): Promise<Record<string, string>> {
 
 async function listShipped(shipped: string): Promise<string[]> {
   const out: string[] = [];
-  for (const sub of SUBFOLDERS) {
-    let names: string[] = [];
+  // a plugin or a template set may keep its files in a folder of its own, so the folders are walked a few levels down
+  const walk = async (rel: string, depth: number): Promise<void> => {
+    let ents: Array<{ name: string; isDirectory(): boolean }> = [];
     try {
-      names = await fs.readdir(path.join(shipped, sub));
+      ents = (await fs.readdir(path.join(shipped, rel), { withFileTypes: true })) as typeof ents;
     } catch {
-      continue;
+      return;
     }
-    for (const n of names.sort()) if (!n.startsWith('.') && /\.(ya?ml|md|txt)$/i.test(n)) out.push(`${sub}/${n}`);
-  }
+    for (const e of [...ents].sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name.startsWith('.')) continue;
+      const r = `${rel}/${e.name}`;
+      if (e.isDirectory()) {
+        if (depth < 3) await walk(r, depth + 1);
+      } else if (/\.(ya?ml|md|txt|js|json)$/i.test(e.name)) out.push(r);
+    }
+  };
+  for (const sub of SUBFOLDERS) await walk(sub, 1);
   return out;
 }
 
@@ -76,6 +86,7 @@ export async function seedDefaults(shipped: string | null, target: string, opts:
     const there = await sha(to);
     if (there === null) {
       if (manifest[rel] !== undefined && !opts.restore) continue; // copied before and deleted since: the person removed it
+      await fs.mkdir(path.dirname(to), { recursive: true });
       await fs.copyFile(from, to);
       manifest[rel] = shippedSha;
       changed = true;
@@ -115,24 +126,35 @@ export interface DefaultPlugins {
 /** Read the plugin files of the app config folder. A file that is not valid YAML is skipped, with a note in `problems`. */
 export async function loadDefaultPlugins(target: string): Promise<DefaultPlugins> {
   const out: DefaultPlugins = { rules: [], fileOf: new Map(), problems: [] };
-  let names: string[] = [];
-  try {
-    names = (await fs.readdir(path.join(target, 'plugins'))).filter((n) => /\.ya?ml$/i.test(n) && !n.startsWith('.')).sort();
-  } catch {
-    return out;
-  }
+  // the YAML files of plugins/, and of a plugin's own folder (`plugins/Name.md` with `plugins/Name/`)
+  const names: string[] = [];
+  const walk = async (rel: string, depth: number): Promise<void> => {
+    let ents: Array<{ name: string; isDirectory(): boolean }> = [];
+    try {
+      ents = (await fs.readdir(path.join(target, rel), { withFileTypes: true })) as typeof ents;
+    } catch {
+      return;
+    }
+    for (const e of [...ents].sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name.startsWith('.')) continue;
+      if (e.isDirectory()) {
+        if (depth < 3) await walk(`${rel}/${e.name}`, depth + 1);
+      } else if (/\.ya?ml$/i.test(e.name)) names.push(`${rel}/${e.name}`);
+    }
+  };
+  await walk('plugins', 1);
   for (const n of names) {
     try {
-      const doc = YAML.parse(await fs.readFile(path.join(target, 'plugins', n), 'utf8')) as { rules?: unknown } | null;
+      const doc = YAML.parse(await fs.readFile(path.join(target, n), 'utf8')) as { rules?: unknown } | null;
       const list = doc && Array.isArray(doc.rules) ? doc.rules : [];
       for (const r of list) {
         const id = r && typeof r === 'object' ? (r as { id?: unknown }).id : undefined;
         if (typeof id !== 'string' || out.fileOf.has(id)) continue;
         out.rules.push(r);
-        out.fileOf.set(id, `plugins/${n}`);
+        out.fileOf.set(id, n);
       }
     } catch (e) {
-      out.problems.push(`plugins/${n}: ${(e as Error).message}`);
+      out.problems.push(`${n}: ${(e as Error).message}`);
     }
   }
   return out;

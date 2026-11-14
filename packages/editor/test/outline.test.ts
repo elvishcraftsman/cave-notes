@@ -88,10 +88,15 @@ describe('linkAt', () => {
 
 import { findFirstH1 } from '../src/editor';
 describe('findFirstH1', () => {
-  it('finds the first level-1 heading, skipping frontmatter and code', () => {
-    const lines = ['---', '# not me: frontmatter', '---', '```', '# nor me: code', '```', '## no, level 2', '# Title #', 'text'];
-    expect(findFirstH1(lines)).toEqual({ text: 'Title', line: 8 });
+  it('finds the title: a level-1 heading that is the first thing, after frontmatter and blank lines', () => {
+    expect(findFirstH1(['---', '# not me: frontmatter', '---', '', '# Title #', 'text'])).toEqual({ text: 'Title', line: 5 });
     expect(findFirstH1(['no heading here', '## only level two'])).toBeNull();
+  });
+
+  it('does not take a heading partway through the page for the title', () => {
+    expect(findFirstH1(['Some text first', '', '# A section'])).toBeNull();
+    expect(findFirstH1(['## Level two first', '# Later level one'])).toBeNull();
+    expect(findFirstH1(['```', '# in code', '```'])).toBeNull();
   });
 
   it('finds the headings at the end of a long document', () => {

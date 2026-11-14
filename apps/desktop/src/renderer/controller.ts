@@ -1,3 +1,4 @@
+import type { Annotation } from '@cave-notes/editor';
 import type { CanvasView } from '@cave-notes/ui-canvas';
 import { computed, effect, signal } from '@preact/signals';
 import type { EditorState } from '@codemirror/state';
@@ -9,7 +10,7 @@ import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-
 import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
 import YAML from 'yaml';
 import { BUILTIN_STYLES, countWords, imagesInLines, paginate, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
-import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus } from '../shared/api';
+import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, ImportRequest, ImportResult } from '../shared/api';
 import { type Deps, capabilitiesOf, explain } from './bridge';
 import { accentRoles, headerColorFor } from './color';
 import { drawerPane, narrow } from './layout';
@@ -27,6 +28,7 @@ export type DialogSpec =
   | { kind: 'globals'; offers: Array<{ source: string; name: string; hash: string; summary: string[] }>; workspaces: string[]; current: string }
   | { kind: 'help'; page?: HelpPage }
   | { kind: 'plugins' }
+  | { kind: 'import'; what: ImportKind }
   | { kind: 'prompt'; title: string; body?: string; label: string; value: string; confirm: string; /** an extra drop-down under the text box; its choice is the second argument of `submit` */ select?: { label: string; options: Array<{ label: string; value: string }>; value: string }; submit: (value: string, choice?: string) => Promise<string | null> }
   | { kind: 'confirm'; title: string; body: string; details?: string[]; confirm: string; destructive?: boolean; /** a tick box; `apply` runs when the dialog is confirmed with it ticked */ check?: { label: string; apply: () => void }; resolve: (ok: boolean) => void }
   | { kind: 'plugin-ask'; plugin: PluginInfo | null; title: string; fields: PluginAsk[]; confirm: string; submit: (answers: Record<string, unknown>) => Promise<string | null> }
@@ -188,6 +190,46 @@ export class Controller {
   /** the right-click menu of a page, wherever pages are listed (tree, sub-page bar, search, views) */
   /** the right-click menu of a file that is not a note (in the sub-page bar): the file and the page whose bar it is in */
   readonly fileMenu = signal<{ x: number; y: number; file: FileItem; page: string } | null>(null);
+  /** The popover of a page's indicator dot in the tree (`indicatorText:`): its text, with the ways to get rid of it. */
+  readonly indicatorPop = signal<{ x: number; y: number; path: string; text: string } | null>(null);
+  /** The CriticMarkup highlights and comments of the open page (the Annotations tab of the right sidebar). */
+  readonly annotations = signal<Annotation[]>([]);
+  /**
+   * Something that keeps the window from being used for a while (opening a big workspace, say): a small dialog with a progress
+   * circle says what is going on. It only shows once the wait has lasted a moment, so quick things do not make it flash.
+   */
+  readonly busy = signal<{ label: string; fraction: number | null } | null>(null);
+  private readonly busyStack: Array<{ label: string; fraction: number | null }> = [];
+
+  async withBusy<T>(label: string, fn: (set: (fraction: number | null, label?: string) => void) => Promise<T>, delayMs = 400): Promise<T> {
+    const token = { label, fraction: null as number | null };
+    let shown = false;
+    const publish = (): void => {
+      const top = this.busyStack[this.busyStack.length - 1];
+      this.busy.value = top ? { label: top.label, fraction: top.fraction } : null;
+    };
+    const timer = setTimeout(() => {
+      shown = true;
+      this.busyStack.push(token);
+      publish();
+    }, delayMs);
+    const set = (fraction: number | null, l?: string): void => {
+      token.fraction = fraction;
+      if (l) token.label = l;
+      if (shown) publish();
+    };
+    try {
+      return await fn(set);
+    } finally {
+      clearTimeout(timer);
+      if (shown) {
+        const i = this.busyStack.indexOf(token);
+        if (i >= 0) this.busyStack.splice(i, 1);
+        publish();
+      }
+    }
+  }
+
   readonly pageMenu = signal<{ x: number; y: number; path: string; workspace?: string; paths?: string[] } | null>(null);
   /** the pages ticked with Ctrl or Shift in the page tree or the sub-page bar (empty: just the one that is open or selected) */
   readonly multi = signal<string[]>([]);
@@ -235,7 +277,7 @@ export class Controller {
   /** which pane of the left sidebar each tab was showing (true: search), so a tab comes back to its own */
   private readonly tabSearchPane = new Map<string, boolean>();
   /** which right-sidebar pane (outline or links) each tab last had open */
-  private readonly tabRightPane = new Map<string, 'outline' | 'links'>();
+  private readonly tabRightPane = new Map<string, 'outline' | 'links' | 'annotations'>();
   /** which sidebars each tab had open, and how wide: a tab (and a window) keeps its own; a new tab starts like the one it came from */
   /** which branches of the page tree each tab had open: tabs of one workspace do not share them, and a new tab starts with its source's */
   private readonly tabExpanded = new Map<string, string[]>();
@@ -478,7 +520,7 @@ export class Controller {
   // ---------------------------------------------------------------- startup
 
   async init(): Promise<void> {
-    if (this.caps.windows) void this.main.updateStatus().then((st) => { this.update.value = st; }).catch(() => undefined);
+    if (this.caps.appUpdates) void this.main.updateStatus().then((st) => { this.update.value = st; }).catch(() => undefined);
     const s = await this.main.getSettings();
     this.settings.value = s;
     this.applyThemeToDom(s.theme);
@@ -516,7 +558,7 @@ export class Controller {
         const ed = this.editorRef;
         if (!ed) return;
         ed.setOutlineLists(on);
-        this.outline.value = ed.outline();
+        this.outline.value = ed.outline(); this.annotations.value = ed.annotations();
       }),
       on('settings:changed', (patch) => this.onSettingsChanged(patch)),
       on('window:adopt-tab', (t) => void this.adoptTab(t.root, t.path, t.single)),
@@ -680,7 +722,16 @@ export class Controller {
     }
     this.patchSettings({ showRight: !this.settings.value.showRight });
   }
-  setRightTab(rightTab: 'outline' | 'links'): void {
+  goToAnnotation(a: Annotation): void {
+    this.editor?.goToAnnotation(a);
+  }
+
+  removeAnnotation(a: Annotation): void {
+    this.editor?.removeAnnotationAt(a.from);
+    if (this.editor) this.annotations.value = this.editor.annotations();
+  }
+
+  setRightTab(rightTab: 'outline' | 'links' | 'annotations'): void {
     this.patchSettings({ rightTab });
   }
   setWidths(leftWidth: number, rightWidth: number): void {
@@ -856,7 +907,7 @@ export class Controller {
   // ---- export styles and fonts
 
   /** The YAML of the export style files: for all workspaces, and for this one. */
-  readonly exportYaml = signal<{ global: string; workspace: string; shared?: string }>({ global: '', workspace: '', shared: '' });
+  readonly exportYaml = signal<{ global: string; workspace: string; shared?: string; globalFiles?: string }>({ global: '', workspace: '', shared: '', globalFiles: '' });
   /** @font-face rules of the bundled fonts (for previews) */
   readonly fontCss = signal('');
   readonly bundledFamilies = signal<string[]>([]);
@@ -865,7 +916,8 @@ export class Controller {
     const global = await this.main.getGlobalExportStyles().catch(() => '');
     const workspace = this.active && !this.active.single ? await this.ws.getExportStyles().catch(() => '') : '';
     const shared = this.active && !this.active.single ? await this.ws.getInheritedExportStyles().catch(() => '') : '';
-    this.exportYaml.value = { global, workspace, shared };
+    const globalFiles = await this.main.getGlobalStyleFiles().catch(() => '');
+    this.exportYaml.value = { global, workspace, shared, globalFiles };
     this.exportYamlRoot = this.active?.root ?? '';
   }
 
@@ -893,6 +945,7 @@ export class Controller {
       const c = cleanStyleSet(legacy);
       out.set(c.name.toLowerCase(), { set: c, origin: 'all workspaces' });
     }
+    for (const x of parseStyleSetsYaml(y.globalFiles ?? '').sets) out.set(x.name.toLowerCase(), { set: x, origin: 'all workspaces' });
     const g = parseStyleSetsYaml(over?.global ?? y.global);
     for (const x of g.sets) out.set(x.name.toLowerCase(), { set: x, origin: 'all workspaces' });
     const sh = parseStyleSetsYaml(y.shared ?? '', [...BUILTIN_STYLES, ...g.sets]);
@@ -1101,18 +1154,23 @@ export class Controller {
     if (known) return Promise.resolve(known);
     let p = this.opening.get(rootArg);
     if (!p) {
-      p = this.startSession(rootArg).finally(() => this.opening.delete(rootArg));
+      const name = rootArg.split('/').filter(Boolean).pop() ?? rootArg;
+      p = this.withBusy(`Opening ${name}`, (set) => this.startSession(rootArg, set)).finally(() => this.opening.delete(rootArg));
       this.opening.set(rootArg, p);
     }
     return p;
   }
 
-  private async startSession(rootArg: string): Promise<Session> {
+  private async startSession(rootArg: string, progress: (fraction: number | null, label?: string) => void = () => {}): Promise<Session> {
     const { id } = await this.main.attachWorkspace(rootArg);
+    progress(0.1, 'Reading the folder');
     const ws = this.deps.wsFor(rootArg);
     let info: WorkspaceInfo;
     try {
+      // this is the long step on a big folder: its progress is not known, so the circle turns without filling
+      progress(null);
       info = await ws.openWorkspace(rootArg);
+      progress(0.85, 'Opening the pages');
     } catch (e) {
       await this.main.detachWorkspace(rootArg).catch(() => {});
       throw e;
@@ -1126,6 +1184,7 @@ export class Controller {
     void ws.setSyncOptions({ conflictMerge: this.settings.value.conflictMerge }).catch(() => {});
     const st = await ws.getState();
     await tree.init(st.expanded);
+    progress(0.97);
     this.sessions.set(info.root, sess);
     if (info.root !== rootArg) this.sessions.set(rootArg, sess);
     this.indexTick.value++;
@@ -1194,7 +1253,7 @@ export class Controller {
     this.saveState.value = 'saved';
     this.current.value = null;
     this.children.value = [];
-    this.outline.value = [];
+    this.outline.value = []; this.annotations.value = [];
     this.links.value = [];
     this.backlinks.value = [];
     this.treeTick.value++;
@@ -1315,12 +1374,22 @@ export class Controller {
   }
 
   /** Help > Documentation: the bundled docs as a read-only workspace in a tab, starting at the introduction. */
-  async openDocumentation(page = 'Introduction.md'): Promise<void> {
+  async openDocumentation(page = '01-introduction.md'): Promise<void> {
     try {
       const root = await this.main.docsFolder();
       const had = this.tabs.value.find((t) => t.root === root);
       await this.openWorkspace(root);
-      if (!had || page !== 'Introduction.md') await this.openPage(page, { reveal: true });
+      if (!had || page !== '01-introduction.md') await this.openPage(page, { reveal: true });
+    } catch (e) {
+      this.toast(explain(e));
+    }
+  }
+
+  /** Help > Documentation: save the documentation as one .zip, to upload to an AI chat for help. */
+  async saveDocsZip(): Promise<void> {
+    try {
+      const file = await this.main.saveDocsZip();
+      if (file) this.toast(`Documentation saved as ${file}.`);
     } catch (e) {
       this.toast(explain(e));
     }
@@ -1726,6 +1795,11 @@ export class Controller {
   private sweepIdleBranches(): void {
     const s = this.settings.value;
     if (!s.autoCollapse || this.dragging || this.dialog.value) return;
+    // on a phone the tree is a drawer: the seconds count only while it is closed, starting over each time it is put away
+    if (narrow.value && s.showLeft && drawerPane.value === 'pages') {
+      for (const sess of new Set(this.sessions.values())) sess.tree.resetIdle();
+      return;
+    }
     const now = Date.now();
     for (const sess of new Set(this.sessions.values())) {
       // the tree on show belongs to the active tab: it keeps the way to its own page, and other tabs' pages do not hold branches open
@@ -1872,7 +1946,7 @@ export class Controller {
     this.saveTimer = null;
     this.conflict.value = null;
     this.saveState.value = 'saved';
-    if (this.editor) this.outline.value = this.editor.outline();
+    if (this.editor) this.outline.value = this.editor.outline(); if (this.editor) this.annotations.value = this.editor.annotations();
     void this.loadLinks();
   }
 
@@ -1911,7 +1985,7 @@ export class Controller {
         this.saveState.value = 'saved';
         this.current.value = null;
         this.children.value = [];
-        this.outline.value = [];
+        this.outline.value = []; this.annotations.value = [];
         this.links.value = [];
         this.backlinks.value = [];
         this.updateActiveTab({ path: null });
@@ -2035,7 +2109,7 @@ export class Controller {
     const cur = this.current.value;
     if (cur?.exists) {
       editor.load(this.baseText, { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path) });
-      this.outline.value = editor.outline();
+      this.outline.value = editor.outline(); this.annotations.value = editor.annotations();
       requestAnimationFrame(() => this.updateActiveHeading());
     }
   }
@@ -2120,7 +2194,7 @@ export class Controller {
         if (line && line > 1) restore = () => ed.scrollToLine(line);
       }
       this.h1Baseline = data.exists ? (findFirstH1(data.text.split('\n'))?.text ?? null) : null;
-      this.outline.value = ed.outline();
+      this.outline.value = ed.outline(); this.annotations.value = ed.annotations();
       if (restore && !opts.fragment) {
         restore();
         // and again once the page has been laid out (the editor may not have been visible yet)
@@ -2176,7 +2250,7 @@ export class Controller {
     this.saveState.value = 'saved';
     this.current.value = { path: cur.path, exists: data.exists };
     this.editor?.load(data.exists ? data.text : '', { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path) });
-    if (this.editor) this.outline.value = this.editor.outline();
+    if (this.editor) this.outline.value = this.editor.outline(); if (this.editor) this.annotations.value = this.editor.annotations();
     void this.loadLinks();
   }
 
@@ -2591,6 +2665,30 @@ export class Controller {
 
   /** The rules of the Plugins menu in the open workspace. */
   readonly plugins = signal<PluginInfo[]>([]);
+
+  /** Add a plugin, export style or template from files: the window asks what and where. */
+  openImport(what: ImportKind): void {
+    this.dialog.value = { kind: 'import', what };
+  }
+
+  async pickImportFiles(mode: 'file' | 'folder'): Promise<string[]> {
+    return this.main.pickImportFiles(mode).catch(() => []);
+  }
+
+  /** The paths of files dropped on the window (what the system gave Electron). */
+  pathsOfDropped(files: FileList | File[]): string[] {
+    return [...files].map((f) => this.deps.pathForFile?.(f) ?? '').filter(Boolean);
+  }
+
+  async runImport(req: Omit<ImportRequest, 'workspaceRoot'>): Promise<ImportResult> {
+    const r = await this.main.importFromFile({ ...req, ...(this.active ? { workspaceRoot: this.active.root } : {}) }).catch((e) => ({ ok: false, message: explain(e), added: [] }));
+    if (r.ok) {
+      this.toast(r.message);
+      if (req.kind === 'plugin') await this.refreshPlugins();
+      else if (req.kind === 'style') await this.loadExportStyles();
+    }
+    return r;
+  }
 
   async refreshPlugins(): Promise<void> {
     try {
@@ -4076,7 +4174,7 @@ export class Controller {
     // templates on offer for a page made here (the drop-down is left out when there are none)
     const offer = await this.ws.templatesFor(target).catch(() => ({ templates: [], default: null as string | null }));
     const hasDefault = !!offer.default && offer.templates.some((t) => t.name.toLowerCase() === offer.default!.toLowerCase());
-    const select = offer.templates.length === 0 ? undefined : {
+    const select = offer.templates.length === 0 && !this.caps.windows ? undefined : {
       label: 'Start from',
       value: '',
       options: [
@@ -4084,6 +4182,7 @@ export class Controller {
         ...(hasDefault ? [{ label: 'Blank page', value: '__none__' }] : []),
         // with a default template the choice is the default or a blank page; otherwise any template on offer
         ...(hasDefault ? [] : offer.templates.map((t) => ({ label: `${t.name} (${t.where})`, value: t.name }))),
+        ...(this.caps.windows ? [{ label: 'Add a template from a file…', value: '__import__' }] : []),
       ],
     };
     this.dialog.value = {
@@ -4410,7 +4509,7 @@ export class Controller {
         this.saveState.value = 'saved'; // never save into a page that is being deleted
         this.current.value = null;
         this.children.value = [];
-        this.outline.value = [];
+        this.outline.value = []; this.annotations.value = [];
         this.links.value = [];
         this.backlinks.value = [];
       } else await this.flush();
@@ -4475,7 +4574,7 @@ export class Controller {
         this.saveState.value = 'saved';
         this.current.value = null;
         this.children.value = [];
-        this.outline.value = [];
+        this.outline.value = []; this.annotations.value = [];
         this.links.value = [];
         this.backlinks.value = [];
       } else await this.flush();
@@ -4677,6 +4776,36 @@ export class Controller {
     e.preventDefault();
     e.stopPropagation?.();
     this.pageMenu.value = { x: e.clientX, y: e.clientY, path, ...(workspace ? { workspace } : {}) };
+  }
+
+  openIndicator(e: { clientX: number; clientY: number; stopPropagation?(): void }, path: string, text: string): void {
+    e.stopPropagation?.();
+    this.indicatorPop.value = { x: e.clientX, y: e.clientY, path, text };
+  }
+
+  private async refreshParentOf(path: string): Promise<void> {
+    const i = path.lastIndexOf('/');
+    await this.tree.refresh([i < 0 ? null : path.slice(0, i) + (/\.[^./]+$/.exec(path)?.[0] ?? '.md')]);
+    this.viewTick.value++;
+  }
+
+  /** Dismiss the indicator of a page: its `indicatorText` property goes. */
+  async dismissIndicator(path: string): Promise<void> {
+    this.indicatorPop.value = null;
+    if (await this.setPageAttribute(path, 'indicatorText', null)) await this.refreshParentOf(path);
+  }
+
+  /** The page never shows an indicator again (`ignoreIndicators: true`); "Show Indicators Again" in its menu undoes this. */
+  async ignoreIndicators(path: string): Promise<void> {
+    this.indicatorPop.value = null;
+    if (await this.setPageAttribute(path, 'ignoreIndicators', true)) {
+      await this.refreshParentOf(path);
+      this.toast('That page will not show indicators. Its menu has “Show Indicators Again”.');
+    }
+  }
+
+  async unignoreIndicators(path: string): Promise<void> {
+    if (await this.setPageAttribute(path, 'ignoreIndicators', null)) await this.refreshParentOf(path);
   }
 
   /** Ask which icon a page should wear in the tree and the gallery (the `icon` attribute). */

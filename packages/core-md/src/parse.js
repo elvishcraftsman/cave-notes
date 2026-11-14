@@ -441,7 +441,11 @@ export function parse(source) {
     }
     result.links = links;
 
-    const h1 = result.headings.find((h) => h.level === 1);
+    // The title is the page's first heading, but only when it is the first thing on the page (after any frontmatter). A
+    // level-1 heading partway through the text is a section, not the title.
+    const firstBlock = tree.children?.find((n) => n.type !== 'yaml');
+    const topLine = firstBlock && firstBlock.type === 'heading' && firstBlock.depth === 1 ? (firstBlock.position?.start.line ?? -1) : -1;
+    const h1 = topLine < 0 ? undefined : result.headings.find((h) => h.level === 1 && h.line === topLine);
     const fmTitle = result.frontmatter.data?.title;
     result.title = h1 ? h1.text || null : typeof fmTitle === 'string' && fmTitle.trim() ? fmTitle.trim() : null;
     return result;

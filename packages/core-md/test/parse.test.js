@@ -60,8 +60,13 @@ test('links inside frontmatter are not extracted', () => {
 
 // ------------------------------------------------------------ title
 
-test('title: first H1, else frontmatter title, else null', () => {
-  assert.equal(parse('## Sub\n# Main\n# Second').title, 'Main');
+test('title: a top H1, else frontmatter title, else null', () => {
+  assert.equal(parse('# Main\n## Sub\n# Second').title, 'Main');
+  assert.equal(parse('\n\n# After blank lines').title, 'After blank lines');
+  // a level-1 heading partway through the page is a section, not the title
+  assert.equal(parse('## Sub\n# Main\n# Second').title, null);
+  assert.equal(parse('Intro text\n\n# A section').title, null);
+  assert.equal(parse('---\ntitle: FM\n---\nIntro\n\n# A section').title, 'FM');
   assert.equal(parse('---\ntitle: FM Title\n---\nno heading').title, 'FM Title');
   assert.equal(parse('---\ntitle: FM\n---\n# Heading Wins').title, 'Heading Wins');
   assert.equal(parse('just text').title, null);

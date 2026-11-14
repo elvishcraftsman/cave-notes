@@ -769,8 +769,11 @@ export function compileQuery(parsed, ctx, { limit = 100, offset = 0 } = {}) {
     return cond ? { sql: cond, params: condParams } : null;
   }
 
+  // the plain words of the search (not those limited to a column, not negated): what a page's name is compared with for ranking
+  const nameWords = [];
   parsed.terms.forEach((t, i) => {
     if (t.type === 'text') {
+      if (!t.column && !t.negated) nameWords.push(t.value.replace(/\*$/, '').toLowerCase());
       let expr = ftsQuote(t.value);
       if (!t.phrase && !t.negated && prefixLast) expr += '*'; // every plain word matches as a start ("theo iii" finds "Theology III"); quotes make a word exact
       else if (!t.phrase && t.value.endsWith('*') && t.value.length > 1) expr = `${ftsQuote(t.value.slice(0, -1))}*`;
@@ -843,14 +846,22 @@ export function compileQuery(parsed, ctx, { limit = 100, offset = 0 } = {}) {
   }
   orderParts.push('p.path');
 
+  // Ranking: bm25 (lower is better), then the name of the page: the more of its name the search covers, the better ("server"
+  // finds server.md before server-status.md; a name that is exactly the search comes first of all), and notes before files.
+  const wanted = nameWords.join(' ').trim();
+  const norm = "lower(replace(replace(p.name, '-', ' '), '_', ' '))";
+  const nameBoost = wanted
+    ? `- CASE WHEN ${norm} = ? THEN 60.0 WHEN instr(${norm}, ?) > 0 THEN 30.0 * length(?) / length(${norm}) ELSE 0 END `
+    : '';
+  const selectParams = wanted ? [wanted, wanted, wanted] : [];
   const select = hasText
     ? `SELECT p.id, p.path, p.title, p.is_virtual AS isVirtual, p.mtime_ms AS mtimeMs,
-              bm25(pages_fts, 10.0, 1.0) AS rank, NULL AS snippet`
+              (bm25(pages_fts, 10.0, 1.0) ${nameBoost}+ CASE WHEN p.is_virtual = 2 THEN 25.0 ELSE 0 END) AS rank, NULL AS snippet`
     : 'SELECT p.id, p.path, p.title, p.is_virtual AS isVirtual, p.mtime_ms AS mtimeMs, NULL AS rank, NULL AS snippet';
 
   return {
     sql: `${select} FROM ${from} ${joins.join(' ')} ${whereClause} ORDER BY ${orderParts.join(', ')} LIMIT ? OFFSET ?`,
-    params: [...joinParams, ...whereParams, limit, offset],
+    params: [...(hasText ? selectParams : []), ...joinParams, ...whereParams, limit, offset],
     countSql: `SELECT COUNT(*) AS n FROM ${from} ${whereClause}`,
     countParams: whereParams,
     from,

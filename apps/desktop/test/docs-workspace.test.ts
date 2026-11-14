@@ -26,12 +26,12 @@ afterEach(async () => {
 describe('the built-in documentation workspace', () => {
   it('opens the Introduction and resolves its links to the other pages', async () => {
     const s = await open();
-    const page = (await s.readPage('Introduction.md')) as { exists: boolean; text: string };
+    const page = (await s.readPage('01-introduction.md')) as { exists: boolean; text: string };
     expect(page.exists).toBe(true);
     const targets = [...page.text.matchAll(/\]\(([^)#]+\.md)\)/g)].map((m) => m[1]!);
     expect(targets.length).toBeGreaterThan(3);
     for (const t of targets) {
-      const r = await s.resolveLink({ syntax: 'md', target: t }, 'Introduction.md');
+      const r = await s.resolveLink({ syntax: 'md', target: t }, '01-introduction.md');
       expect(r, t).toMatchObject({ kind: 'page', status: 'ok', path: t });
     }
   });
@@ -44,8 +44,21 @@ describe('the built-in documentation workspace', () => {
 
   it('refuses every change', async () => {
     const s = await open();
-    for (const [method, args] of [['writePage', ['Introduction.md', 'x', null]], ['createPage', [null, 'New']], ['planMove', ['attributes.md', null, 'Other']]] as const) {
+    for (const [method, args] of [['writePage', ['01-introduction.md', 'x', null]], ['createPage', [null, 'New']], ['planMove', ['03-organizing/01-attributes.md', null, 'Other']]] as const) {
       await expect(s.call(method, [...args])).rejects.toMatchObject({ code: 'READ_ONLY' });
     }
+  });
+});
+
+describe('the documentation tree', () => {
+  it('lists pages in numbered order and shows their titles, not their file names', async () => {
+    const s = await open();
+    const top = (await s.listChildren(null)) as Array<{ path: string; name: string }>;
+    expect(top.map((i) => i.path).slice(0, 3)).toEqual(['01-introduction.md', '02-writing.md', '03-organizing.md']);
+    expect(top[0]!.name).toBe('Introduction to Cave Notes');
+    expect(top[1]!.name).toBe('Writing in Cave Notes');
+    const kids = (await s.listChildren('02-writing.md')) as Array<{ path: string; name: string }>;
+    expect(kids.length).toBeGreaterThan(4);
+    expect(kids.every((k) => !/^\d\d-/.test(k.name))).toBe(true);
   });
 });

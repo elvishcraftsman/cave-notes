@@ -15,6 +15,12 @@ declare module '@cave-notes/core-tree' {
     root: string;
     listChildren(parent: string | null, opts?: { withChildFlag?: boolean; workspaces?: boolean; bareFolders?: boolean }): Promise<TreeListItem[]>;
     isWorkspaceDir(rel: string): Promise<boolean>;
+    /** Whether a `.caveignore` hides this path (relative to the workspace root). */
+    isIgnored(rel: string, isDir?: boolean): Promise<boolean>;
+    /** Whether a walk can leave this folder out: ignored, and no `!` line could bring something in it back. */
+    skipDir(rel: string): Promise<boolean>;
+    /** A `.caveignore` changed: read them again. */
+    reloadIgnore(): void;
     allPages(parent?: string | null): AsyncGenerator<TreeListItem>;
     descendants(path: string): Promise<Array<{ path: string; exists: boolean }>>;
     status(path: string): Promise<'page' | 'virtual' | null>;
@@ -24,6 +30,18 @@ declare module '@cave-notes/core-tree' {
     movePage(from: string, newParent: string | null, newName?: string): Promise<unknown>;
   }
   export function openTree(root: string, options?: Record<string, unknown>): Tree;
+  export const IGNORE_FILE: string;
+  export interface IgnoreRule { line: string; number: number; negate: boolean; dirOnly: boolean; re: RegExp }
+  export function parseIgnore(text: string): IgnoreRule[];
+  export function decideIgnore(rulesFor: (dirRel: string) => IgnoreRule[] | null, rel: string, isDir: boolean, off?: Set<string>): { ignored: boolean; by: string | null; reinclude: boolean };
+  export function createIgnore(root: string, options?: { off?: Set<string>; fs?: Record<string, unknown> }): {
+    isIgnored(rel: string, isDir?: boolean): Promise<boolean>;
+    check(rel: string, isDir?: boolean): Promise<{ ignored: boolean; by: string | null; reinclude: boolean }>;
+    skipDir(rel: string): Promise<boolean>;
+    reset(): void;
+    lines(): Map<string, string>;
+  };
+  export function createIgnoreSync(root: string, readFileSync: (file: string, enc: 'utf8') => string, options?: { off?: Set<string> }): { isIgnored(rel: string, isDir?: boolean): boolean; skipDir(rel: string): boolean; reset(): void };
   export function configureNotes(o: { exts?: string[]; defaultExt?: string }): void;
   export function noteExtensions(): string[];
   export function defaultNoteExt(): string;
@@ -68,6 +86,7 @@ declare module '@cave-notes/core-index' {
   import type { Tree } from '@cave-notes/core-tree';
   export function setWeekStart(day: number): void;
   export function offered(config: { shared?: Record<string, unknown> }): Record<string, unknown>;
+  export function parseTagged(text: string): { value: unknown; globalKeys: string[]; globalItems: Record<string, unknown>; error?: string };
   export interface PageRow {
     id: number;
     path: string;
@@ -132,6 +151,8 @@ declare module '@cave-notes/core-index' {
     templatePaths(parent?: string | null): Set<string>;
     /** the icon pages ask for with `icon: name` (path -> icon name); with a parent only its direct children */
     iconPaths(parent?: string | null): Map<string, string>;
+    indicatorPaths(parent?: string | null): Map<string, string>;
+    indicatorIgnoringPaths(parent?: string | null): Set<string>;
     readonly savedQueries: Array<{ name: string; query: string; title?: string }>;
     readonly relations: Array<{ name: string; reverse?: string; from: string; to: string; attribute: string; multiple: boolean; backattribute?: string; backname?: string; backmultiple?: boolean }>;
     readonly globalsWarnings: string[];
@@ -239,6 +260,8 @@ declare module '@cave-notes/core-automation' {
     seen: number;
     version?: number;
     fired?: Record<string, number>;
+    /** tombstones: id of a page deleted on purpose on that computer -> when, where and what it was */
+    buried?: Record<string, { at: number; path: string; title: string }>;
   }
   export interface AutomationHost {
     root: string;
@@ -302,6 +325,8 @@ declare module '@cave-notes/core-automation' {
     runButton(ruleId: string, path: string | null, answers?: Record<string, unknown>): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }>;
     log(limit?: number): LogEntry[];
     rulesFor(path: string): Promise<Array<{ id: string; name: string; triggers: string[]; definition: string }>>;
+    beforeDelete(paths: string[]): Promise<number>;
+    afterDelete(paths: string[]): Promise<number>;
     status(): { rules: RuleSummary[]; problems: Array<{ level: string; message: string }>; pending: number; device: { id: string; name: string } };
     flush(): Promise<void>;
   }

@@ -9,6 +9,7 @@ import { promoteFolder, removeWorkspace, workspaceStatus } from '@cave-notes/ser
 import { DESKTOP_CAPABILITIES, type Capabilities, type EventMap, type MainApi, type WorkerApi } from '@cave-notes/service/api';
 import { capabilitiesOf, CaveError, partialMainApi, type Deps } from '../../desktop/src/renderer/bridge';
 import { AndroidSettings } from './androidSettings';
+import { AndroidUpdater } from './androidUpdate';
 import { CaveFs, pluginBusy } from './caveFs';
 import { withTimeout } from './timeout';
 import { chooseFolder } from './folderPicker';
@@ -20,6 +21,7 @@ import { createPluginFs } from './pluginFs';
 export const ANDROID_CAPABILITIES: Capabilities = {
   ...Object.fromEntries(Object.keys(DESKTOP_CAPABILITIES).map((k) => [k, false])),
   keyboardAndMouse: false,
+  appUpdates: true, // looks for a newer APK and opens its download (see androidUpdate.ts)
 } as unknown as Capabilities;
 
 const hash = (s: string): string => {
@@ -167,7 +169,30 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
 
   /** false until the saved tabs have been reopened; see setWindowTabs */
   let sessionRestored = settings.get().tabs.length === 0;
+  const updater = new AndroidUpdater({
+    current: typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0',
+    setting: () => settings.get().updateUrl,
+    fetchJson: async (url) => {
+      const r = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+      if (!r.ok) throw new Error(`the server answered ${r.status}`);
+      return r.json();
+    },
+    open: (url) => void window.open(url, '_system'),
+    remember: (when) => settings.set({ lastUpdateCheck: when }),
+    lastCheck: () => settings.get().lastUpdateCheck,
+  });
+  // about once a day, a little after the app starts (so that starting stays quick)
+  setTimeout(() => void updater.maybeCheck(settings.get().updateMode).catch(() => undefined), 20000);
   const base: Partial<MainApi> = {
+    async updateStatus() {
+      return updater.status();
+    },
+    async checkForUpdate() {
+      return updater.check();
+    },
+    async installUpdate() {
+      return updater.install();
+    },
     async chooseWorkspace() {
       const picked = await chooseFolder(settings.get().lastWorkspace, 'Open a folder as a workspace');
       plog.line('INFO', 'open', picked ? `folder chosen: ${picked}` : 'folder picker closed without a choice');

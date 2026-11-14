@@ -45,7 +45,7 @@ describe('the Help window', () => {
     const links = [...root.querySelectorAll('.help-topics .about-link')] as HTMLElement[];
     expect(links.length).toBeGreaterThan(10);
     links.find((l) => l.textContent === 'Export styles')!.click();
-    expect(opened).toEqual(['export-styles.md']);
+    expect(opened).toEqual(['05-exporting/01-export-styles.md']);
     expect(ctl.dialog.value).toBeNull();
     render(null, root);
   });

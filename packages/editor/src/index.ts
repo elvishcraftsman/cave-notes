@@ -31,3 +31,5 @@ export { AUTOMATION_LINK } from './livePreview';
 export { divs, divLines, divClasses, type DivLine } from './divs';
 export { conflicts, findConflicts, resolveConflict, CONFLICT_OPEN, CONFLICT_MID, CONFLICT_CLOSE, type Conflict, type Keep } from './conflicts';
 export { canvasMode, canvasViewOf, textDiff, type CanvasEditorHost } from './canvas';
+
+export { type Annotation, annotationsOf, annotationAt, insertComment, removeAnnotation, toggleComment } from './critic';

@@ -23,6 +23,10 @@ export interface TreeNodeData {
   unlisted?: boolean;
   /** an icon name the page asks for (`icon:` attribute) */
   icon?: string;
+  /** the text of the indicator dot (`indicatorText:` attribute) */
+  indicator?: string;
+  /** the page ignores indicators (`ignoreIndicators: true`) */
+  indicatorsIgnored?: boolean;
 }
 
 export interface TreeRow extends TreeNodeData {
@@ -129,6 +133,11 @@ export class TreeModel {
   /** The branches that are open now, to give back later with setExpanded (each tab keeps its own). */
   expandedPaths(): string[] {
     return [...this.expanded];
+  }
+
+  /** Forget how long branches have been idle: counting starts again from the next sweep (the tree has just been put away, say). */
+  resetIdle(): void {
+    this.idleSince.clear();
   }
 
   /** Open exactly these branches (paths that no longer lead anywhere are skipped), keeping what is loaded. */

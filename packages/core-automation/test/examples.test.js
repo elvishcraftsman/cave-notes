@@ -8,7 +8,7 @@ const doc = automationDocs();
 const blocks = [...doc.matchAll(/(`{3,})yaml\n([\s\S]*?)\n\1/g)].map((m) => m[2]);
 /** The rules file of the documentation example holding this rule. */
 const example = (id) => {
-  const b = blocks.find((x) => new RegExp(`id: ${id}\\b`).test(x));
+  const b = blocks.find((x) => new RegExp(`id: ${id}\\s*$`, 'm').test(x));
   assert.ok(b, `no example with id ${id}`);
   return b;
 };

@@ -26,7 +26,7 @@ export async function renderOdt(blocks: Block[], style: StyleSet, opts: { title?
   const spans = new Map<string, string>();
   const spanDefs: string[] = [];
   const spanName = (i: Inline): string | null => {
-    const key = [i.bold ? 'b' : '', i.italic ? 'i' : '', i.strike ? 's' : '', i.code ? 'c' : '', i.link ? 'l' : ''].join('');
+    const key = [i.bold ? 'b' : '', i.italic ? 'i' : '', i.strike ? 's' : '', i.code ? 'c' : '', i.link ? 'l' : '', i.hl !== undefined ? 'h' : ''].join('');
     if (!key) return null;
     let n = spans.get(key);
     if (!n) {
@@ -36,6 +36,7 @@ export async function renderOdt(blocks: Block[], style: StyleSet, opts: { title?
         i.bold ? 'fo:font-weight="bold"' : '',
         i.italic ? 'fo:font-style="italic"' : '',
         i.strike ? 'style:text-line-through-style="solid"' : '',
+        i.hl !== undefined ? 'fo:background-color="#ffff00"' : '',
         i.code ? `style:font-name="${esc(style.code.font)}" fo:font-size="${pt(style.code.sizePt)}" fo:background-color="${style.code.background}"` : '',
         i.link ? `fo:color="${style.link.color}" ${style.link.underline ? 'style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"' : ''}` : '',
       ].filter(Boolean).join(' ');
@@ -45,9 +46,43 @@ export async function renderOdt(blocks: Block[], style: StyleSet, opts: { title?
   };
   // a note referred to twice is written twice, as its own numbered note
   let noteSeq = 0;
-  const inl = (items: Inline[]): string =>
-    items
-      .map((i) => {
+  // CriticMarkup comments are the document's own annotations: a range that starts at the highlight and ends at the comment
+  let annSeq = 0;
+  const annNames = new Map<number, string>();
+  const annName = (a: number): string => {
+    let n = annNames.get(a);
+    if (!n) {
+      n = `cn${++annSeq}`;
+      annNames.set(a, n);
+    }
+    return n;
+  };
+  const stamp = new Date().toISOString().replace(/\.\d+Z$/, '');
+  const annotation = (name: string, text: string): string => `<office:annotation office:name=\"${name}\"><dc:creator>Comment</dc:creator><dc:date>${stamp}</dc:date><text:p>${esc(text)}</text:p></office:annotation>`;
+  const inl = (items: Inline[]): string => {
+    const withComment = new Set(items.filter((x) => x.cmt).map((x) => x.cmt!.id));
+    const started = new Set<number>();
+    const text: string[] = [];
+    const lead = (i: Inline): string => {
+      if (i.hl !== undefined && withComment.has(i.hl) && !started.has(i.hl)) {
+        started.add(i.hl);
+        // the annotation's text is written where its marker is, so it is found in `commentText`
+        return `\u0001${annName(i.hl)}\u0001`;
+      }
+      return '';
+    };
+    for (const i of items) {
+      if (i.cmt) {
+        const name = annName(i.cmt.id);
+        commentText.set(name, i.cmt.text);
+        text.push(started.has(i.cmt.id) ? `<office:annotation-end office:name=\"${name}\"/>` : `\u0001${name}\u0001<office:annotation-end office:name=\"${name}\"/>`);
+      } else text.push(lead(i) + one(i));
+    }
+    // each annotation's start holds its text, which is only known now
+    return text.join('').replace(/\u0001(cn\d+)\u0001/g, (_m, name: string) => annotation(name, commentText.get(name) ?? ''));
+  };
+  const commentText = new Map<string, string>();
+  const one = (i: Inline): string => {
         if (i.br) return '<text:line-break/>';
         if (i.note !== undefined) {
           const kind = style.footnotes.endnotes ? 'endnote' : 'footnote';
@@ -59,8 +94,7 @@ export async function renderOdt(blocks: Block[], style: StyleSet, opts: { title?
         if (n) x = `<text:span text:style-name="${n}">${x}</text:span>`;
         if (i.link && /^(https?:|mailto:)/i.test(i.link)) x = `<text:a xlink:type="simple" xlink:href="${esc(i.link)}">${x}</text:a>`;
         return x;
-      })
-      .join('');
+  };
 
   const noteItems = (blocks.find((x): x is Extract<Block, { t: 'notes' }> => x.t === 'notes'))?.items ?? [];
   const listStyles: string[] = [listStyle('LBullet', 'bullet', style.listIndentCm)];

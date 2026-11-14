@@ -104,9 +104,6 @@ export function MainMenuItems({ ctl, run }: { ctl: Controller; run: (fn: () => v
       {ws && ctl.caps.exportDocuments && ctl.current.value?.exists && <MenuItem icon="page" label="Export Page…" shortcut="Ctrl+Shift+E" onClick={run(() => ctl.openExport())} />}
       <div class="menu-separator" />
       <MenuItem icon="menu" label="Preferences…" shortcut="Ctrl+," onClick={run(() => ctl.openPreferences())} />
-      {ws && ctl.current.value?.exists && ctl.saved.value.queries.slice(0, 8).map((x) => (
-        <MenuItem key={`saved-${x.name}`} icon="table" label={`Insert “${x.title ?? x.name}”`} onClick={run(() => ctl.insertSavedQuery(x.name))} />
-      ))}
       <div class="menu-separator" />
       <MenuItem icon="help" label="Help" shortcut="F1" onClick={run(() => ctl.openHelp('docs'))} />
     </>

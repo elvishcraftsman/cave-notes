@@ -32,7 +32,7 @@ export function PluginsMenu({ ctl, close }: { ctl: Controller; close: () => void
     close();
     void ctl.runPlugin(p);
   };
-  const item = (p: PluginInfo): JSX.Element => <MenuItem key={p.id} icon={ctl.isPluginOff(p) ? 'zap-off' : 'zap'} label={pluginLabel(ctl, p)} onClick={() => run(p)} />;
+  const item = (p: PluginInfo): JSX.Element => <MenuItem key={p.id} icon={ctl.isPluginOff(p) ? 'zap-off' : 'zap'} workspaceIcon={ctl.isPluginOff(p) ? null : (p.icon ?? null)} label={pluginLabel(ctl, p)} onClick={() => run(p)} />;
   return (
     <div class="plugins-menu">
       <input

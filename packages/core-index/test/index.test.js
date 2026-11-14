@@ -408,3 +408,22 @@ test('findLinkers matches page links, folder attachments and wikilinks by last p
   assert.deepEqual(idx.findLinkers({ folderPrefix: 'Foo/' }), ['Attach.md']);
   assert.deepEqual(idx.findLinkers({}), []);
 });
+
+test('search ranks a name that is more fully matched higher, and notes above files', async (t) => {
+  const root = await tmpRoot(t);
+  await ws(root).writeAll({
+    'server-status.md': '# Server status\nserver server server',
+    'server.md': '# Server\nserver',
+    'Other.md': '# Other\nthe server is mentioned here',
+    'server-backup-schedule-2026.md': '# Backups\nserver',
+    'server.pdf': 'binary',
+  });
+  const idx = await openIndex(root);
+  t.after(() => idx.close());
+  await idx.reconcile();
+  const order = idx.search('server').results.map((r) => r.path);
+  assert.equal(order[0], 'server.md', 'the page named exactly like the search is first');
+  assert.ok(order.indexOf('server-status.md') < order.indexOf('server-backup-schedule-2026.md'), 'the shorter name covers more of the search');
+  assert.equal(order.at(-1), 'server.pdf', 'files come after notes');
+  assert.ok(order.indexOf('server-status.md') > order.indexOf('server.md'));
+});

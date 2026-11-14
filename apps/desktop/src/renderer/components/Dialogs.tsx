@@ -147,7 +147,7 @@ function PromptDialog({ ctl, d }: { ctl: Controller; d: Extract<DialogSpec, { ki
       {d.select && (
         <label class="field">
           <span>{d.select.label}</span>
-          <select value={choice} onChange={(e) => setChoice((e.currentTarget as HTMLSelectElement).value)}>
+          <select value={choice} onChange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v === '__import__') ctl.openImport('template'); else setChoice(v); }}>
             {d.select.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
@@ -743,7 +743,7 @@ function PreferencesDialog({ ctl, first, page }: { ctl: Controller; first: 'app'
         <>
         <section>
           <h3>Screens</h3>
-          <p class="pref-hint">A page with <code>presentationTheme:</code> can be presented full screen. See docs <code>presentations.md</code>.</p>
+          <p class="pref-hint">A page with <code>presentationTheme:</code> can be presented full screen. See the documentation page “Presentations”.</p>
           <label class="pref-field">
             <span class="pref-label">Show the slides on</span>
             <select value={s.presentScreen} onChange={(e) => ctl.setPreferences({ presentScreen: (e.currentTarget as HTMLSelectElement).value })}>
@@ -1738,7 +1738,7 @@ function ExportDialog({ ctl, markdown, title, path }: { ctl: Controller; markdow
 
 /** The export style files as text, with a sample page that follows every change, and a form for one set at a time. */
 function ExportStylesDialog({ ctl }: { ctl: Controller }): JSX.Element {
-  const [scope, setScope] = useState<'workspace' | 'global'>(ctl.workspace.value && !ctl.activeSingle.value ? 'workspace' : 'global');
+  const [scope, setScope] = useState<'workspace' | 'global'>('global'); // new styles are kept in the app's folder unless the workspace is chosen
   const [texts, setTexts] = useState(ctl.exportYaml.value);
   const [saved, setSaved] = useState(ctl.exportYaml.value);
   const [form, setForm] = useState<string | null>(null);
@@ -1790,7 +1790,7 @@ function ExportStylesDialog({ ctl }: { ctl: Controller }): JSX.Element {
               <option value="global">All workspaces</option>
             </select>
           </label>
-          <p class="pref-hint">Written as YAML, one entry per style set. {scope === 'workspace' ? 'Saved as the export-style: section of a settings file in this workspace’s .cave-notes folder, so it travels with the notes.' : 'Saved with the app’s settings, for every workspace; a workspace’s own set of the same name wins.'} See docs/export-styles.md.</p>
+          <p class="pref-hint">Written as YAML, one entry per style set. {scope === 'workspace' ? 'Saved as the export-style: section of a settings file in this workspace’s .cave-notes folder, so it travels with the notes.' : 'Saved in styles/export-styles.yaml of the app’s settings folder, for every workspace (the styles that come with the app are written there the first time, so you can edit them); a workspace’s own set of the same name wins.'} See docs/export-styles.md.</p>
           <textarea class="yaml-box tall" spellcheck={false} aria-label="Export styles (YAML)" value={text} placeholder={'My Report:\n  base: Report\n  units: in\n  page: { size: Letter, margin: 1in }\n  body: { font: Libre Baskerville, size: 11pt }\n  footnotes: { placement: endnotes }'} onInput={(e) => setText((e.currentTarget as HTMLTextAreaElement).value)} />
           {(parsed.errors[0] ?? error) && <p class="pref-error" role="alert">{parsed.errors[0] ?? error}</p>}
           <label class="pref-field">
@@ -1801,6 +1801,7 @@ function ExportStylesDialog({ ctl }: { ctl: Controller }): JSX.Element {
           </label>
           <div class="dialog-actions start">
             <button class="pill-button" onClick={addFrom}>New From “{chosen.name}”</button>
+            {ctl.caps.windows && <button class="pill-button" title="Add the export styles of a YAML file or a zip" onClick={() => ctl.openImport('style')}>Add From a File…</button>}
             {parsed.sets.some((x) => x.name === chosen.name) && <button class="pill-button" onClick={() => setForm(form === chosen.name ? null : chosen.name)}>{form === chosen.name ? 'Hide the Form' : 'Edit With a Form'}</button>}
           </div>
           {editing && <StyleEditor set={editing} onChange={onForm} />}
@@ -1931,6 +1932,8 @@ export function DialogHost({ ctl }: { ctl: Controller }): JSX.Element | null {
       return <HelpDialog key={d.page ?? 'docs'} ctl={ctl} page={d.page ?? 'docs'} />;
     case 'plugins':
       return <PluginsDialog ctl={ctl} />;
+    case 'import':
+      return <ImportDialog ctl={ctl} what={d.what} />;
     case 'exported':
       return <ExportedDialog ctl={ctl} file={d.path} />;
     case 'globals':
@@ -2087,6 +2090,105 @@ function ExportedDialog({ ctl, file }: { ctl: Controller; file: string }): JSX.E
 }
 
 /** Every plugin in one place: switch each on or off (on this computer), uninstall, restore the ones that come with the app. */
+const IMPORT_TEXT: Record<'plugin' | 'style' | 'template', { title: string; what: string; hint: string }> = {
+  plugin: { title: 'Add a Plugin from a File', what: 'plugin', hint: 'A YAML file with rules (and schema, attributes, queries or relations), a folder with a plugin page and its files, or a zip of either.' },
+  style: { title: 'Add Export Styles from a File', what: 'export styles', hint: 'A YAML file of export styles (either the styles themselves, or an export-style: section), or a zip of them.' },
+  template: { title: 'Add a Template from a File', what: 'template', hint: 'A note file (.md), a folder with a template page and the pages of its set, or a zip of either.' },
+};
+
+/** Browse for, or drop, files to add as a plugin, export style or template; then say where they go. */
+function ImportDialog({ ctl, what }: { ctl: Controller; what: 'plugin' | 'style' | 'template' }): JSX.Element {
+  const t = IMPORT_TEXT[what];
+  const hasWs = !!ctl.workspace.value && !ctl.activeSingle.value;
+  const [sources, setSources] = useState<string[]>([]);
+  const [where, setWhere] = useState<'app' | 'workspace' | 'global'>('app');
+  const [over, setOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const add = (paths: string[]): void => {
+    setSources([...new Set([...sources, ...paths])]);
+    setError(null);
+  };
+  const browse = async (mode: 'file' | 'folder'): Promise<void> => add(await ctl.pickImportFiles(mode));
+  const submit = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    const r = await ctl.runImport({ kind: what, where, sources });
+    setBusy(false);
+    if (r.ok) ctl.closeDialog();
+    else setError(r.message);
+  };
+  const place = (value: 'app' | 'workspace' | 'global', title: string, detail: string, disabled = false): JSX.Element => (
+    <label class={`import-place ${disabled ? 'disabled' : ''}`}>
+      <input type="radio" name="import-where" value={value} checked={where === value} disabled={disabled} onChange={() => setWhere(value)} />
+      <span class="import-place-text">
+        <span class="pref-label">{title}</span>
+        <span class="pref-hint">{detail}</span>
+      </span>
+    </label>
+  );
+  return (
+    <Modal title={t.title} wide onClose={() => ctl.closeDialog()}>
+      <p class="pref-hint">{t.hint}</p>
+      <div
+        class={`import-drop ${over ? 'over' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          add(ctl.pathsOfDropped(e.dataTransfer?.files ?? []));
+        }}
+      >
+        <p>Drag a file, a folder or a zip here</p>
+        <p>
+          <button type="button" class="pill-button" onClick={() => void browse('file')}>Browse for files…</button>{' '}
+          <button type="button" class="pill-button" onClick={() => void browse('folder')}>Browse for a folder…</button>
+        </p>
+      </div>
+      {sources.length > 0 && (
+        <ul class="import-list" aria-label="What will be added">
+          {sources.map((p) => (
+            <li key={p}>
+              <span class="import-path" title={p}>{p.split('/').pop()}</span>
+              <button type="button" class="pill-button" aria-label={`Leave out ${p.split('/').pop()}`} onClick={() => setSources(sources.filter((x) => x !== p))}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <fieldset class="import-where">
+        <legend class="look-h">Put the {t.what} in</legend>
+        {place('app', 'The app folder', 'All workspaces, on this computer only.')}
+        {place('workspace', 'This workspace’s folder', hasWs ? `Only ${ctl.workspace.value!.name}, on every computer that has it (it syncs with the notes).` : 'Open a workspace to use this.', !hasWs)}
+        {what !== 'template' && place('global', 'This workspace’s folder, shared (!global)', hasWs ? 'Every workspace, on every computer that has this workspace: the other workspaces ask before they take it.' : 'Open a workspace to use this.', !hasWs)}
+      </fieldset>
+      {error && <p class="pref-error" role="alert">{error}</p>}
+      <div class="dialog-actions">
+        <button type="button" class="pill-button" onClick={() => ctl.closeDialog()}>Cancel</button>
+        <button type="button" class="pill-button suggested" disabled={busy || sources.length === 0} onClick={() => void submit()}>Add</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** A plugin's own text: the first lines, and Read more for the rest. */
+function PluginDescription({ text }: { text: string }): JSX.Element {
+  const [more, setMore] = useState(false);
+  const lines = text.split('\n');
+  const long = lines.length > 3 || text.length > 240;
+  const short = lines.slice(0, 3).join('\n').slice(0, 240);
+  return (
+    <span class="plugin-desc">
+      <span class="plugin-desc-text">{more || !long ? text : `${short}${short.length < text.length ? '…' : ''}`}</span>
+      {long && (
+        <button type="button" class="about-link plugin-desc-more" aria-expanded={more} onClick={() => setMore(!more)}>
+          {more ? 'Show less' : 'Read more'}
+        </button>
+      )}
+    </span>
+  );
+}
+
 function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
   const [q, setQ] = useState('');
   const all = ctl.plugins.value;
@@ -2102,7 +2204,13 @@ function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
           <span class="pref-hint">Offered by “{p.pending.name}”. Running it asks first.</span>
         </span>
       ) : (
-        <Switch label={p.label} hint={p.origin === 'default' ? `${p.file ?? ''}` : p.id} checked={!ctl.isPluginOff(p)} onChange={(on) => ctl.setPluginOff(p, !on)} />
+        <span class="plugin-main">
+          {isIconName(p.icon) && <WorkspaceIcon name={p.icon} size={20} class="plugin-icon" />}
+          <span class="plugin-body">
+            <Switch label={p.label} hint={p.origin === 'default' ? `${p.file ?? ''}` : p.id} checked={!ctl.isPluginOff(p)} onChange={(on) => ctl.setPluginOff(p, !on)} />
+            {p.description && <PluginDescription text={p.description} />}
+          </span>
+        </span>
       )}
       {!p.pending && <button type="button" class="pill-button" onClick={() => void ctl.uninstallPlugin(p)}>Uninstall</button>}
     </li>
@@ -2126,6 +2234,7 @@ function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
         {own.length + offered.length + shipped.length === 0 && <p class="pref-hint">{all.length === 0 ? 'There are no plugins.' : 'No plugin matches.'}</p>}
       </div>
       <div class="dialog-actions">
+        {ctl.caps.windows && <button type="button" class="pill-button" onClick={() => ctl.openImport('plugin')}>Add from file…</button>}
         <button type="button" class="pill-button" onClick={() => void ctl.restoreDefaultPlugins()}>Restore default plugins</button>
         {ctl.caps.windows && <button type="button" class="pill-button" onClick={() => { ctl.dialog.value = null; void ctl.openAppConfigFolder(); }}>Open app config folder</button>}
         <button type="button" class="pill-button suggested" onClick={() => { ctl.dialog.value = null; }}>Close</button>
@@ -2166,7 +2275,7 @@ function AboutBody({ ctl }: { ctl: Controller }): JSX.Element {
       <img class="about-icon" src="../icons/128.png" alt="" width="72" height="72" />
       <p class="about-name">About Cave Notes</p>
       <p class="about-version-line">Version <strong class="about-version-number">{version || 'unknown'}</strong></p>
-      {ctl.caps.windows && <UpdateRow ctl={ctl} />}
+      {ctl.caps.appUpdates && <UpdateRow ctl={ctl} />}
       <p class="dialog-body">Hierarchical notes in Markdown: every page is a plain file, pages nest inside pages, and the outline, links and search follow the structure you build. Your notes stay on your computer, in folders you can open with any other program.</p>
       <h3 class="look-h">Synonyms</h3>
       <p class="pref-hint">Right-click a single word in the editor for other words to put in its place. The suggestions come from these two word lists, with WordNet’s most common meanings first.</p>
@@ -2186,7 +2295,8 @@ function DocsBody({ ctl }: { ctl: Controller }): JSX.Element {
   return (
     <div class="help-docs">
       <p class="dialog-body">The documentation is a set of pages in a workspace of its own, read-only, that opens in a tab. Search it, follow its links, copy examples from it.</p>
-      <p><button type="button" class="pill-button suggested" onClick={() => { ctl.dialog.value = null; void ctl.openDocumentation(); }}>Open the documentation</button></p>
+      <p><button type="button" class="pill-button suggested" onClick={() => { ctl.dialog.value = null; void ctl.openDocumentation(); }}>Open the documentation</button> <button type="button" class="pill-button" title="Save every page of the documentation in one .zip, to upload to an AI chat when you want help" onClick={() => void ctl.saveDocsZip()}>Download as .zip…</button></p>
+      <p class="pref-hint">The .zip holds the same pages as plain Markdown files, in order. Upload it to an AI chat and ask your question about Cave Notes.</p>
       <h3 class="look-h">Pages</h3>
       <ul class="help-topics">
         {HELP_TOPICS.map(([file, title, what]) => (

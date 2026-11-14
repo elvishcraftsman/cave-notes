@@ -23,10 +23,13 @@ export const FILE_CHANGING = new Set(['set_property', 'remove_property', 'add_da
 export const DEFAULT_SETTINGS = {
   devices: [],
   syncDelayMs: 60_000,
+  wakeDelayMs: 120_000,
   liveWindowMs: 12 * 60_000,
   heartbeatMs: 5 * 60_000,
   maxDepth: 3,
   maxRunsPerMinute: 120,
+  /** null, or { where: query | null, property: 'id', cameBack: 'notify' | 'ignore' | a folder to move it to } */
+  tombstones: null,
 };
 
 const isMap = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -212,6 +215,9 @@ function normalizeRule(raw, index, seen) {
     let: lets,
     triggers,
     ask: normalizeAsk(raw.ask),
+    // for a plugin: the icon shown beside it in the Plugins menu and window (a name of the bundled icon set), and a longer text for the window
+    icon: typeof raw.icon === 'string' && /^[a-z0-9-]{1,64}$/.test(raw.icon.trim()) ? raw.icon.trim() : null,
+    description: typeof raw.description === 'string' && raw.description.trim() !== '' ? raw.description.replace(/\r\n?/g, '\n').trim().slice(0, 4000) : null,
     actions,
     runs,
     device,
@@ -269,6 +275,19 @@ export function parseAutomations(text) {
   };
   if (Array.isArray(root.devices)) s.devices = root.devices.map((d) => String(d).trim().toLowerCase()).filter(Boolean);
   if (root.sync_delay !== undefined) s.syncDelayMs = dur('sync_delay', 'sync_delay') ?? s.syncDelayMs;
+  if (root.wake_delay !== undefined) s.wakeDelayMs = dur('wake_delay', 'wake_delay') ?? s.wakeDelayMs;
+  if (root.tombstones !== undefined && root.tombstones !== null && root.tombstones !== false) {
+    const t = root.tombstones === true ? {} : root.tombstones;
+    if (!isMap(t)) out.warnings.push('tombstones: write "tombstones: true" or a mapping with where / property / came_back (tombstones are off)');
+    else {
+      const property = t.property === undefined ? 'id' : String(t.property).trim().toLowerCase();
+      const cameBack = t.came_back === undefined || t.came_back === null ? 'notify' : String(t.came_back).trim();
+      if (!/^[a-z_][\w-]*$/.test(property)) out.warnings.push(`tombstones: property "${property}" is not a property name (tombstones are off)`);
+      else if (t.where !== undefined && t.where !== null && typeof t.where !== 'string') out.warnings.push('tombstones: where must be a query (tombstones are off)');
+      else if (!['notify', 'ignore'].includes(cameBack) && !cameBack.endsWith('/')) out.warnings.push('tombstones: came_back is notify, ignore, or a folder ending in "/" (tombstones are off)');
+      else s.tombstones = { where: t.where ? String(t.where) : null, property, cameBack };
+    }
+  }
   if (root.live_window !== undefined) s.liveWindowMs = dur('live_window', 'live_window') ?? s.liveWindowMs;
   if (root.heartbeat !== undefined) s.heartbeatMs = dur('heartbeat', 'heartbeat') ?? s.heartbeatMs;
   if (Number.isInteger(root.max_depth) && root.max_depth >= 1 && root.max_depth <= 10) s.maxDepth = root.max_depth;

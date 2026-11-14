@@ -56,6 +56,13 @@ export function divLines(state: EditorState): DivLine[] {
       if (stack.length) out.push({ line: n, kind: 'body', classes: stack.flatMap((s) => s.classes), cont: false });
       continue;
     }
+    // `::: :::` closes two blocks on one line (the inner one, then the one around it)
+    const many = /^ {0,3}(:{3,}(?:[ \t]+:{3,})+)[ \t]*$/.exec(text);
+    if (many && stack.length) {
+      out.push({ line: n, kind: 'close', classes: [], cont: false });
+      stack.length = Math.max(0, stack.length - many[1]!.split(/[ \t]+/).length);
+      continue;
+    }
     const f = FENCE.exec(text);
     if (f) {
       const len = f[1]!.length;

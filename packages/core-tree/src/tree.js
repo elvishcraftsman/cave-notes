@@ -1,5 +1,6 @@
 import { fs as fsp, path } from '@cave-notes/platform';
 import { TreeError } from './errors.js';
+import { createIgnore } from './ignore.js';
 import {
   noteExtensions,
   noteExtOf,
@@ -44,6 +45,9 @@ export function openTree(rootDir, options = {}) {
   const isConflictCopy = (name) => /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]{7}(\.[^./]+)?$/.test(name);
 
   const abs = (rel) => (rel === '' ? root : path.join(root, ...rel.split('/')));
+  // `.caveignore` files: what they list is not here (not in the tree, not indexed). Not used in single-file mode.
+  const ignoreRules = only || options.caveIgnore === false ? null : createIgnore(root, { fs: options.fs });
+  const isIgnored = async (rel, isDir) => (ignoreRules ? ignoreRules.isIgnored(rel, isDir) : false);
   const isHiddenStem = (stem) => stem.startsWith('.') || ignore.has(stem.normalize('NFC'));
 
   // Mutating operations run one at a time so they can't interleave.
@@ -86,7 +90,9 @@ export function openTree(rootDir, options = {}) {
   async function isWorkspaceDir(rel) {
     if (!workspaceDir) return false;
     try {
-      return (await fs.lstat(path.join(abs(rel), workspaceDir))).isDirectory();
+      if (!(await fs.lstat(path.join(abs(rel), workspaceDir))).isDirectory()) return false;
+      // a `.caveignore` line can say that this `.cave-notes` does not make a workspace
+      return !(await isIgnored(rel === '' ? workspaceDir : `${rel}/${workspaceDir}`, true));
     } catch (e) {
       if (isMissing(e)) return false;
       throw e;
@@ -128,13 +134,25 @@ export function openTree(rootDir, options = {}) {
         continue;
       }
       if (!stem || isHiddenStem(stem)) continue;
+      // Ignored by a `.caveignore`: gone, except a folder that a later `!` line may bring something back from. That one is
+      // looked into (and left out below if nothing in it is wanted).
+      let ghost = false;
+      if (ignoreRules) {
+        const info = await ignoreRules.check(dirRel === '' ? d.name : `${dirRel}/${d.name}`, d.isDirectory());
+        if (info.ignored) {
+          if (!d.isDirectory() || !info.reinclude) continue;
+          ghost = true;
+        }
+      }
       const rec = out.get(stem) ?? { name: stem, hasMd: false, hasDir: false, ext: null, workspace: false };
+      if (ghost) rec.ghost = true;
       if (kind === 'md') {
         // two files with one stem (Foo.md, Foo.txt): the extension listed first wins
         if (!rec.hasMd || order.indexOf(ext.toLowerCase()) < order.indexOf(rec.ext.toLowerCase())) rec.ext = ext;
         rec.hasMd = true;
       } else {
         rec.hasDir = true;
+        if (!ghost) rec.ghost = false;
         if (!only && (await isWorkspaceDir(dirRel === '' ? stem : `${dirRel}/${stem}`))) rec.workspace = true;
       }
       out.set(stem, rec);
@@ -144,6 +162,12 @@ export function openTree(rootDir, options = {}) {
         rec.hasDir = false; // its contents belong to the other workspace
         if (!rec.hasMd && !workspaces) out.delete(stem);
       }
+    }
+    // a folder that is only here because a `.caveignore` line brings something back from it: only if it holds something
+    for (const [stem, rec] of [...out]) {
+      if (!rec.ghost) continue;
+      const inner = await readEntries(dirRel === '' ? stem : `${dirRel}/${stem}`, workspaces, false);
+      if (inner.size === 0) out.delete(stem);
     }
     // A folder with no page file of its own is a (virtual) page. Without `bare`, only those that hold pages or folders of
     // pages count: a folder of attachments alone (images, PDFs) is then left out.
@@ -447,6 +471,12 @@ export function openTree(rootDir, options = {}) {
     root,
     listChildren,
     isWorkspaceDir,
+    /** Whether a `.caveignore` hides this path (relative to the workspace root; `isDir` for a folder). */
+    isIgnored,
+    /** Whether a walk can leave this folder out: it is ignored and no `!` line could bring something in it back. */
+    skipDir: async (rel) => (ignoreRules ? ignoreRules.skipDir(rel) : false),
+    /** A `.caveignore` changed: read them again. */
+    reloadIgnore: () => ignoreRules?.reset(),
     allPages,
     descendants,
     status,

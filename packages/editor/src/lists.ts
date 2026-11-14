@@ -537,10 +537,21 @@ function widthFixes(tr: Transaction): ChangeSpec[] {
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
     const line = old.doc.lineAt(fromA);
     const m = /^([ \t]*)(\d{1,9}|[A-Za-z]{1,8})[.)]/.exec(line.text);
-    if (!m || inserted.lines > 1) return;
+    if (!m) return;
     const d0 = line.from + m[1]!.length;
-    if (fromA < d0 || toA > d0 + m[2]!.length) return; // not a change of the number itself
-    const delta = inserted.length - (toA - fromA);
+    let delta: number;
+    if (inserted.lines > 1) {
+      // Enter at the start of an item's text: its text moves to a new line under a new marker, which may be wider (\"I.\" to \"II.\"),
+      // and what is under the item has to move with the text
+      const prefix = /^[ \t]*(?:\d{1,9}|[A-Za-z]{1,8})[.)][ \t]*/.exec(line.text)![0].length;
+      if (fromA !== toA || fromA - line.from > prefix || fromA - line.from < m[0].length) return;
+      const text0 = tr.changes.mapPos(line.from + prefix, 1);
+      const nowLine = doc.lineAt(text0);
+      delta = text0 - nowLine.from - prefix;
+    } else {
+      if (fromA < d0 || toA > d0 + m[2]!.length) return; // not a change of the number itself
+      delta = inserted.length - (toA - fromA);
+    }
     if (delta === 0) return;
     let item: SyntaxNode | null = oldTree.resolveInner(d0, 1);
     while (item && item.name !== 'ListItem') item = item.parent;

@@ -1,5 +1,5 @@
 import {
-  AlignmentType, BorderStyle, Document, ExternalHyperlink, Footer, FootnoteReferenceRun, Header, LevelFormat, PageNumber, Packer, Paragraph, ShadingType, Tab, TabStopType, Table, TableCell, TableRow, TextRun, WidthType,
+  AlignmentType, BorderStyle, CommentRangeEnd, CommentRangeStart, CommentReference, Document, ExternalHyperlink, Footer, FootnoteReferenceRun, Header, LevelFormat, PageNumber, Packer, Paragraph, ShadingType, Tab, TabStopType, Table, TableCell, TableRow, TextRun, WidthType,
   type ILevelsOptions, type ParagraphChild,
 } from 'docx';
 import type { Block, Inline, ListKind } from './doc';
@@ -42,28 +42,56 @@ export async function renderDocx(blocks: Block[], style: StyleSet, opts: { title
 
   // a note referred to twice is written twice, as its own numbered note: Word and LibreOffice number notes by reference
   const occurrences: number[] = [];
-  const runs = (items: Inline[], extra: { size?: number; font?: string; color?: string; bold?: boolean; italics?: boolean } = {}): ParagraphChild[] =>
-    items.map((i) => {
-      if (i.note !== undefined) {
-        occurrences.push(i.note);
-        return style.footnotes.endnotes ? new TextRun({ text: String(occurrences.length), superScript: true }) : new FootnoteReferenceRun(occurrences.length);
+  // Word comments: the highlighted text (or the point of a lone comment) is the range, and the comment goes in comments.xml
+  const wordIds = new Map<number, number>(); // annotation number -> Word's comment id
+  const commentTexts: string[] = []; // by Word's comment id
+  const wordId = (a: number): number => {
+    let w = wordIds.get(a);
+    if (w === undefined) {
+      w = wordIds.size;
+      wordIds.set(a, w);
+    }
+    return w;
+  };
+  type Extra = { size?: number; font?: string; color?: string; bold?: boolean; italics?: boolean };
+  const runOf = (i: Inline, extra: Extra): ParagraphChild => {
+    if (i.note !== undefined) {
+      occurrences.push(i.note);
+      return style.footnotes.endnotes ? new TextRun({ text: String(occurrences.length), superScript: true }) : new FootnoteReferenceRun(occurrences.length);
+    }
+    const common = {
+      children: withTabs(i.text),
+      style: i.code ? 'VerbatimChar' : undefined,
+      bold: i.bold || extra.bold,
+      italics: i.italic || extra.italics,
+      strike: i.strike,
+      break: i.br ? 1 : undefined,
+      size: extra.size,
+      font: i.code ? font(style.code.font) : extra.font ? font(extra.font) : undefined,
+      color: i.link ? hex(style.link.color) : extra.color,
+      underline: i.link && style.link.underline ? {} : undefined,
+      shading: i.code ? { type: ShadingType.CLEAR, fill: hex(style.code.background), color: 'auto' } : undefined,
+      highlight: i.hl !== undefined ? ('yellow' as const) : undefined,
+    };
+    const run = new TextRun(common);
+    return i.link && /^(https?:|mailto:)/i.test(i.link) ? new ExternalHyperlink({ link: i.link, children: [run] }) : run;
+  };
+  const runs = (items: Inline[], extra: Extra = {}): ParagraphChild[] => {
+    const withComment = new Set(items.filter((x) => x.cmt).map((x) => x.cmt!.id));
+    const started = new Set<number>();
+    return items.flatMap((i): ParagraphChild[] => {
+      if (i.cmt) {
+        const w = wordId(i.cmt.id);
+        commentTexts[w] = i.cmt.text;
+        return [...(started.has(i.cmt.id) ? [] : [new CommentRangeStart(w)]), new CommentRangeEnd(w), new TextRun({ children: [new CommentReference(w)] })];
       }
-      const common = {
-        children: withTabs(i.text),
-        style: i.code ? 'VerbatimChar' : undefined,
-        bold: i.bold || extra.bold,
-        italics: i.italic || extra.italics,
-        strike: i.strike,
-        break: i.br ? 1 : undefined,
-        size: extra.size,
-        font: i.code ? font(style.code.font) : extra.font ? font(extra.font) : undefined,
-        color: i.link ? hex(style.link.color) : extra.color,
-        underline: i.link && style.link.underline ? {} : undefined,
-        shading: i.code ? { type: ShadingType.CLEAR, fill: hex(style.code.background), color: 'auto' } : undefined,
-      };
-      const run = new TextRun(common);
-      return i.link && /^(https?:|mailto:)/i.test(i.link) ? new ExternalHyperlink({ link: i.link, children: [run] }) : run;
+      if (i.hl !== undefined && withComment.has(i.hl) && !started.has(i.hl)) {
+        started.add(i.hl);
+        return [new CommentRangeStart(wordId(i.hl)), runOf(i, extra)];
+      }
+      return [runOf(i, extra)];
     });
+  };
 
   const spacing = (after = body.paragraphAfter) => ({ after: Math.round(after * 20), line: Math.round(body.lineHeight * 240) });
 
@@ -218,6 +246,7 @@ export async function renderDocx(blocks: Block[], style: StyleSet, opts: { title
     creator: 'Cave Notes',
     numbering: { config: configs },
     footnotes,
+    ...(commentTexts.length > 0 ? { comments: { children: commentTexts.map((text, id) => ({ id, author: 'Comment', initials: 'C', date: new Date(), children: [new Paragraph({ children: [new TextRun({ text: text ?? '' })] })] })) } } : {}),
     styles: {
       default: { document: { run: { font: font(body.font), size: Math.round(body.sizePt * 2), color: hex(body.color) } } },
       // named styles, so that other programs (and pandoc) can tell code from text
