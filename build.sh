@@ -31,7 +31,7 @@ cd apps/desktop
 npm run package:appimage:uruntime
 
 echo "Building the Android APK..."
-(cd apps/mobile/scripts && bash ./build-apk.sh)
+(cd ../mobile/scripts && bash ./build-apk.sh)
 APK_BUILT="apps/mobile/dist/cave-notes-debug.apk"
 if [ ! -f "$APK_BUILT" ]; then
   echo "Error: Built APK not found at $APK_BUILT"
