@@ -43,7 +43,7 @@ cp "$APK_BUILT" "$APK_PATH"
 
 # 5. Define target artifact path relative to project root
 # (Navigating back to root directory to locate output binary)
-cd ../..
+cd ../../..
 ARTIFACT_PATH="apps/desktop/release/Cave_Notes-${NEW_VERSION}-x86_64-uruntime.AppImage"
 
 if [ ! -f "$ARTIFACT_PATH" ]; then
