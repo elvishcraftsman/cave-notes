@@ -109,3 +109,44 @@ export const scanRoots = (chosen: string[]): string[] => {
   const list = chosen.filter((p) => path.isAbsolute(p));
   return list.length > 0 ? list : [host.homedir()];
 };
+
+/**
+ * Which of these workspaces would a scan of the chosen folders not offer, because a `.caveignore` hides a folder on the
+ * way to it, hides its `.cave-notes`, or because it lies in a folder the scan is told to leave out? The same rules as
+ * the scan itself. Used to filter the list of workspaces opened before, so that one a `.caveignore` hides is not offered
+ * any more; opening it by its path still works, and the list is not changed on disk (take the line out of the
+ * `.caveignore` and the workspace is offered again).
+ *
+ * A workspace outside every scanned folder is not covered by any of those files and is always kept. As in the scan, a
+ * set of lines that would hide every workspace the scan could reach is ignored.
+ */
+export async function ignoredWorkspaces(candidates: string[], scanFolders: string[], ignore: string[] = []): Promise<string[]> {
+  const roots = scanRoots(scanFolders).map((r) => path.resolve(r));
+  const skip = ignore.map((p) => path.resolve(p));
+  const igs = new Map<string, ReturnType<typeof createIgnore>>();
+  const hidden = new Set<string>();
+  let covered = 0;
+  for (const raw of candidates) {
+    const dir = path.resolve(raw);
+    const root = roots.filter((r) => dir === r || dir.startsWith(r + path.sep)).sort((a, b) => b.length - a.length)[0];
+    if (!root) continue; // outside what is scanned: nothing in the scan applies
+    covered++;
+    if (skip.some((s) => dir === s || dir.startsWith(s + path.sep))) {
+      hidden.add(raw);
+      continue;
+    }
+    let ig = igs.get(root);
+    if (!ig) igs.set(root, (ig = createIgnore(root)));
+    const parts = path.relative(root, dir).split(path.sep).filter(Boolean);
+    let off = false;
+    for (let i = 1; i <= parts.length && !off; i++) {
+      const res = await ig.check(parts.slice(0, i).join('/'), true);
+      if (res.ignored && !res.reinclude) off = true; // the scan does not enter this folder
+    }
+    if (!off) off = (await ig.check([...parts, INFO_DIR].join('/'), true)).ignored; // its .cave-notes does not count
+    if (off) hidden.add(raw);
+  }
+  // never hide everything (the scan drops the lines that would)
+  if (covered > 0 && hidden.size >= candidates.length) return [];
+  return [...hidden];
+}

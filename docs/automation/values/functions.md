@@ -42,6 +42,14 @@ A missing property is `null`, not an error. These functions pick a value or fall
 | `default(value, fallback)` | The value, or the fallback when it is empty. |
 | `is_empty(value)` | True for null, empty text and empty lists. |
 
+## Ids
+
+| Function | What it gives |
+|---|---|
+| `new_id()` | A new id that no other page has: 16 lowercase letters and digits, starting with a letter, like `k3f9q2xw7m1t0hbz`. It is random, so it is different every time the rule runs. Write it into a property once and it stays with the page through renames and moves. `new_id("task")` puts a word in front: `task-k3f9q2xw7m1t0hbz`. |
+
+An id is only stable once it is stored, so give it once and never again: a rule with `where: type:task -has:id`, `on: { match: true, existing: true }` and `set_property: { id: "${new_id()}" }` gives every task one, and `create_page` can set `id: "${new_id()}"` among its properties. Two computers that both give the same page an id before they have seen each other's work can each write a different one, and the last write wins; this does no harm unless something already used the first id. [Tombstones](../computers.md#pages-deleted-on-purpose-tombstones) use these ids.
+
 ## Text
 
 Text compares without regard to capitals, as in queries; `replace` and `trimword` work on the text as written.
@@ -94,7 +102,7 @@ These work on a list or on text.
 
 ## Totals, averages, largest and smallest
 
-These work on a list, on several values, or on the pages a query finds (see [Expressions and formulas](../../expressions.md), which explains the query forms). Empty values and text that is no number are skipped, as in a spreadsheet.
+These work on a list, on several values, or on the pages a query finds (see [Expressions and formulas](../../organizing/expressions.md), which explains the query forms). Empty values and text that is no number are skipped, as in a spreadsheet.
 
 | Function | What it gives |
 |---|---|

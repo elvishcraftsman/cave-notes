@@ -1,8 +1,12 @@
+---
+order: 4
+---
+
 # Automations
 
 Automations make Cave Notes do things for you when something happens: a task is finished, a date arrives, a note has sat untouched for a month. You write rules in plain YAML. A rule says **when** (a trigger), **which pages** (a query) and **what to do** (a list of actions).
 
-All rules live in the workspace's settings files, as a `rules:` list (and, if you want, a `settings:` section): usually `.cave-notes/automations.yaml`, but any YAML file in `.cave-notes` will do, including one that holds all your other settings too (see [workspace-files.md](workspace-files.md)). They are never read from a note's frontmatter, so a note that arrives from another person or computer can't carry a rule with it. Edit the file and the rules reload at once. A workspace with no `rules:` has no automations and costs nothing.
+All rules live in the workspace's settings files, as a `rules:` list (and, if you want, a `settings:` section): new ones made by the app go into `.cave-notes/plugins/` (usually `plugins/automations.yaml`, or a file of their own for a plugin), but any YAML file in `.cave-notes` or its `plugins/` folder will do, including one that holds all your other settings too (see [Workspace settings files](workspaces/workspace-files.md)). They are never read from a note's frontmatter, so a note that arrives from another person or computer can't carry a rule with it. Edit the file and the rules reload at once. A workspace with no `rules:` has no automations and costs nothing.
 
 ## A first rule
 
@@ -46,7 +50,7 @@ Read them in this order the first time; later, jump to the one you need.
 | [JavaScript in rules](automation/javascript.md) | `run_js`: a short script for what the built-in actions cannot do. How to turn it on, what a script can use and return, helpers for headings and cursor, and two worked plugins. |
 | [Examples](automation/examples.md) | Fifteen complete rules files for real jobs. |
 | [Shell commands](automation/shell.md) | Running programs, and the guards around it. |
-| [Several computers](automation/computers.md) | How synced computers take turns, and the `settings:` section. |
+| [Several computers](automation/computers.md) | How synced computers take turns, the wait after waking up, tombstones for deleted pages, and the `settings:` section. |
 | [Safety nets and the background](automation/safety.md) | Loop limits, checked saves, and rules that keep running with the window closed. |
 
 ## Where to look something up
@@ -55,4 +59,4 @@ Read them in this order the first time; later, jump to the one you need.
 - *Writing a script:* [JavaScript in rules](automation/javascript.md) lists everything a script can use and every helper.
 - *Something inside `${ }`:* a variable is in [Values and expressions](automation/values.md), a function in [Functions](automation/values/functions.md).
 - *A `CAVE_…` name:* [Shell commands](automation/shell.md).
-- *A `settings:` key* (`sync_delay`, `max_depth` …): [Several computers](automation/computers.md).
+- *A `settings:` key* (`sync_delay`, `wake_delay`, `tombstones`, `max_depth` …): [Several computers](automation/computers.md).

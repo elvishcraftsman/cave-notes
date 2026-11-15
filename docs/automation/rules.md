@@ -54,7 +54,7 @@ rules: !global
       - set_property: { completed_at: "${today}" }
 ```
 
-To share just some rules, put `- !global` on those rules instead of tagging the whole section; the others stay private. It works like the other shared sections (see *Settings shared with every workspace* in [attributes.md](../attributes.md)): a workspace is asked first, and what it answers is kept on this computer only. Things to know:
+To share just some rules, put `- !global` on those rules instead of tagging the whole section; the others stay private. It works like the other shared sections (see *Settings shared with every workspace* in [Attributes and inheritance](../organizing/attributes.md)): a workspace is asked first, and what it answers is kept on this computer only. Things to know:
 
 - A shared rule is **added to the workspace's own rules**. If both have a rule with the same `id`, the workspace's own wins. A `rules:` section that is present but empty switches the shared rules off for that workspace.
 - The rules apply in each workspace that took them, to that workspace's pages. The rule stays in the workspace that offers it; edit it there.
@@ -63,7 +63,7 @@ To share just some rules, put `- !global` on those rules instead of tagging the 
 
 ## Queries in rules
 
-Rules use the search language (see [queries.md](../queries.md)). Two parts matter most for rules: `$this` (the page the rule is looking at, in `require`, `unless` and `update_pages`) and `mtime:` for when a file was last changed: `mtime:<$now.day-30` is "not touched for 30 days".
+Rules use the search language (see [Queries, saved queries and views](../organizing/queries.md)). Two parts matter most for rules: `$this` (the page the rule is looking at, in `require`, `unless` and `update_pages`) and `mtime:` for when a file was last changed: `mtime:<$now.day-30` is "not touched for 30 days".
 
 ---
 

@@ -40,10 +40,10 @@ export class AndroidSettings {
     return this.value;
   }
 
-  /** Remember a workspace at the top of the recent list. */
-  remember(root: string): void {
+  /** Remember a workspace at the top of the recent list. `explicit`: the person asked to open it (it comes back to the lists if they had taken it off). */
+  remember(root: string, explicit = false): void {
     const recent = [root, ...this.value.recent.filter((r) => r !== root)].slice(0, 8);
-    this.set({ recent, lastWorkspace: root });
+    this.set({ recent, lastWorkspace: root, ...(explicit && this.value.unlistedWorkspaces.includes(root) ? { unlistedWorkspaces: this.value.unlistedWorkspaces.filter((r) => r !== root) } : {}) });
   }
 
   flush(): Promise<void> {

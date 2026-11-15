@@ -677,6 +677,8 @@ export interface Settings {
   openExternal: ExternalOpen;
   /** workspaces found by looking through the folders below (on top of the ones opened before) */
   found: string[];
+  /** workspaces taken off the lists by hand (“Remove from list”); opening one by its folder puts it back */
+  unlistedWorkspaces: string[];
   /** folders to look through for workspaces; none: the home folder */
   scanFolders: string[];
   /** folders (and everything in them) to leave out of that search */
@@ -710,7 +712,7 @@ export interface Settings {
   disabledPlugins: string[];
   /** AppImage updates: `install` downloads a newer one and puts it in place of this one, `notify` only says there is one, `off` never looks */
   updateMode: 'install' | 'notify' | 'off';
-  /** where to look for updates instead of the project's GitHub releases: a GitHub repository address, or the address of a small JSON file (see docs/07-the-app/01-updates.md); empty: the default */
+  /** where to look for updates instead of the project's GitHub releases: a GitHub repository address, or the address of a small JSON file (see docs/the-app/updates.md); empty: the default */
   updateUrl: string;
   /** when the last look for an update was made (milliseconds since 1970); this computer only */
   lastUpdateCheck: number;
@@ -795,6 +797,8 @@ export interface MainApi {
   removeWorkspace(root: string): Promise<void>;
   /** Look for workspaces now; returns the list found. */
   scanWorkspaces(): Promise<string[]>;
+  /** Of these workspaces, the ones a `.caveignore` (or the scan's ignored folders) hides: they are not offered in lists, but still open by path. */
+  ignoredWorkspaces(roots: string[]): Promise<string[]>;
   trash(absPaths: string[]): Promise<void>;
   setTitle(title: string): Promise<void>;
   setTheme(theme: 'dark' | 'light'): Promise<void>;
@@ -944,6 +948,8 @@ export interface Capabilities {
   fileWatching: boolean;
   /** a hardware keyboard and mouse are expected (shortcuts, hover, right-click) */
   keyboardAndMouse: boolean;
+  /** an on-screen keyboard that comes and goes (a phone): the editor is either being typed in (keyboard up, format bar shown) or being read (keyboard down, sub-page bar shown) */
+  softKeyboard: boolean;
   /** the app can look for a newer version of itself and offer it (the AppImage updates itself; Android opens the new APK) */
   appUpdates: boolean;
 }
@@ -957,6 +963,7 @@ export const DESKTOP_CAPABILITIES: Capabilities = {
   multiWorkspace: true,
   fileWatching: true,
   keyboardAndMouse: true,
+  softKeyboard: false,
   appUpdates: true,
 };
 
@@ -975,7 +982,7 @@ export interface RawBridge {
 
 export const MAIN_METHODS = [
   'chooseWorkspace', 'getSettings', 'setSettings', 'attachWorkspace', 'detachWorkspace', 'openPath', 'appConfigFolder', 'showInFolder', 'openExternal', 'updateStatus', 'checkForUpdate', 'installUpdate', 'restartApp',
-  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
+  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [

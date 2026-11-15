@@ -15,21 +15,26 @@ export interface FsTiming {
  */
 const BACKGROUND = new Set(['stat', 'lstat', 'readdir', 'access', 'realpath', 'primeTree']);
 
-export function limitFs<T extends object>(fs: T, { max = 3, breathe = 12, onDone }: { max?: number; breathe?: number; onDone?: FsTiming } = {}): T {
+export function limitFs<T extends object>(fs: T, { max = 3, breathe = 12, onDone, pauseBackground }: { max?: number; breathe?: number; onDone?: FsTiming; pauseBackground?: () => boolean } = {}): T {
   let running = 0;
   let sinceTurn = 0;
   const urgent: Array<() => void> = [];
   const background: Array<() => void> = [];
   const queued = (): number => urgent.length + background.length;
+  // While the app is out of sight Android slows the page down, and a looking-around call can then take a minute (seen: an
+  // `lstat` of 49 s and one of 229 s). Three of those fill every place and the save of the index waits behind them until
+  // the system freezes the page. So no new looking-around is started while the app is hidden; it goes on when it is back.
   const next = (): void => {
-    while (running < max && queued()) {
+    while (running < max && (urgent.length || (background.length && !pauseBackground?.()))) {
       running++;
       (urgent.length ? urgent : background).shift()!();
     }
   };
+  if (pauseBackground && typeof document !== 'undefined') document.addEventListener('visibilitychange', () => next());
   const run = async <R>(job: () => Promise<R>, label?: { op: string; target: string }): Promise<R> => {
     const asked = Date.now();
-    if (running >= max) await new Promise<void>((resolve) => (BACKGROUND.has(label?.op ?? '') ? background : urgent).push(resolve));
+    const looking = BACKGROUND.has(label?.op ?? '');
+    if (running >= max || (looking && pauseBackground?.())) await new Promise<void>((resolve) => (looking ? background : urgent).push(resolve));
     else running++;
     const started = Date.now();
     let bytes = 0;

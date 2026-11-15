@@ -103,12 +103,25 @@ export function Popover({ open, onClose, children, align = 'right' }: { open: bo
   );
 }
 
-export function MenuItem({ icon, workspaceIcon, label, shortcut, onClick, disabled, destructive }: { icon?: Parameters<typeof Icon>[0]['name']; /** the icon a workspace chose: shown instead of `icon` when it is a known one */ workspaceIcon?: string | null; label: string; shortcut?: string; onClick: () => void; disabled?: boolean; destructive?: boolean }): JSX.Element {
+export function MenuItem({ icon, workspaceIcon, label, shortcut, onClick, disabled, destructive, trailing }: { /** a small button at the right end of the row (not a nested button: a span with the button role) */ trailing?: { label: string; icon: Parameters<typeof Icon>[0]['name']; onClick: () => void }; icon?: Parameters<typeof Icon>[0]['name']; /** the icon a workspace chose: shown instead of `icon` when it is a known one */ workspaceIcon?: string | null; label: string; shortcut?: string; onClick: () => void; disabled?: boolean; destructive?: boolean }): JSX.Element {
   return (
     <button class={`menu-item ${destructive ? 'destructive' : ''}`} role="menuitem" disabled={disabled} onClick={onClick}>
       <span class="menu-icon">{workspaceIcon && isIconName(workspaceIcon) ? <WorkspaceIcon name={workspaceIcon} /> : icon && <Icon name={icon} />}</span>
       <span class="menu-label">{label}</span>
       {shortcut && <span class="menu-shortcut">{shortcut}</span>}
+      {trailing && (
+        <span
+          class="menu-trailing"
+          role="button"
+          tabIndex={0}
+          title={trailing.label}
+          aria-label={trailing.label}
+          onClick={(e) => { e.stopPropagation(); trailing.onClick(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); trailing.onClick(); } }}
+        >
+          <Icon name={trailing.icon} size={13} />
+        </span>
+      )}
     </button>
   );
 }

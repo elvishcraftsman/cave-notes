@@ -63,9 +63,35 @@ Every plugin dialog, a question or a message, has a **Turn off this plugin** but
 
 ## The Plugins menu
 
-Its first line is a **search box** (type, and Enter runs the first plugin that matches). Below it come the plugins **you wrote** (the workspace's own, and those other workspaces share with it), then a line, then the plugins **that come with the app**, by name. **All plugins…** at the bottom opens a window listing every plugin with a switch to turn it on or off (for this computer and this workspace, like *Turn off this plugin* above) and an **Uninstall** button: for your own plugin the rule is removed from its settings file, for one that comes with the app its file is removed from the [app config folder](../workspace-files.md#the-app-config-folder). **Restore default plugins** there brings back the ones that came with the app and were uninstalled.
+Its first line is a **search box** (type, and Enter runs the first plugin that matches). Below it come the plugins **you wrote** (the workspace's own, and those other workspaces share with it), then a line, then the plugins **that come with the app**, by name. **All plugins…** at the bottom opens a window listing every plugin with a switch to turn it on or off (for this computer and this workspace, like *Turn off this plugin* above) and an **Uninstall** button: for your own plugin the rule is removed from its settings file, for one that comes with the app its file is removed from the [app config folder](../../workspaces/workspace-files.md#the-app-config-folder). **Restore default plugins** there brings back the ones that came with the app and were uninstalled.
 
 The plugins that come with the app are ordinary rules in files you can read and edit (**Open App Config Folder**, or the button in that window). They are: *Number headings at this level*, *Convert a numbered list to headings*, *Estimate page count* and *Remove trailing spaces*. A rule of your own with the same `id` replaces the one that comes with the app.
+
+## An icon and a description
+
+A plugin can have its own **icon** and a longer **description**, written on the rule beside `name`:
+
+```yaml
+rules:
+  - id: tidy-lines
+    name: Tidy lines
+    icon: wand-sparkles
+    description: |
+      Removes the spaces at the end of every line.
+
+      Works on the selected text, or on the whole page when
+      nothing is selected. Nothing else is changed.
+    on: { plugin: "Tidy lines" }
+    do:
+      - transform_text: { steps: [ trim_lines ] }
+```
+
+- `icon` is the name of an icon of the bundled set, the same names the **Set Icon…** window offers for a page. It appears beside the plugin in the Plugins menu and in the **All plugins** window. A name that is not one of those, or a plugin without an icon, shows the usual lightning bolt in the menu and no icon in the window.
+- `description` can be as long as you like and can have several lines and paragraphs. The **All plugins** window shows its first few lines, with **Read more** to open the rest (and **Show less** to fold it again).
+
+## Adding a plugin from a file
+
+**All plugins…** has an **Add from file…** button: drag in a YAML file, a folder or a zip, and choose whether it goes in the app folder, this workspace, or this workspace shared with every workspace. See [Workspace settings files](../../workspaces/workspace-files.md#adding-a-plugin-export-styles-or-a-template-from-a-file).
 
 ## Plugins and the cursor
 

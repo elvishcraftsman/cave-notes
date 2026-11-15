@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkspaceService } from '@cave-notes/service/service';
-import { scanForWorkspaces } from '../src/main/scan';
+import { ignoredWorkspaces, scanForWorkspaces } from '../src/main/scan';
 import { noLongerWorkspaces, promoteFolder, removeWorkspace, workspaceStatus } from '../src/main/workspaces';
 import { cleanNoteTypes } from '../src/main/settings';
 import { parseNoteTypes } from '../src/renderer/paths';
@@ -186,6 +186,33 @@ describe('looking for workspaces', () => {
     await write('.caveignore', '.cave-notes\n');
     const found = await scanForWorkspaces([root]);
     expect(found.map((p) => path.relative(root, p))).toEqual(['One', 'Two']);
+  });
+});
+
+describe('the list of workspaces opened before', () => {
+  it('leaves out what a .caveignore hides, as the scan does, and keeps what is outside the scanned folders', async () => {
+    for (const d of ['One', 'Two/docs', 'Big/Ws', 'Skip/Me']) await write(`${d}/.cave-notes/workspace.yaml`, '');
+    await write('.caveignore', '*/docs/.cave-notes\nBig/\n');
+    const all = ['One', 'Two/docs', 'Big/Ws', 'Skip/Me'].map((d) => path.join(root, d));
+    const outside = path.join(os.tmpdir(), 'somewhere-else-ws');
+    const hidden = await ignoredWorkspaces([...all, outside], [root], [path.join(root, 'Skip')]);
+    expect(hidden.map((p) => path.relative(root, p)).sort()).toEqual(['Big/Ws', 'Skip/Me', 'Two/docs']);
+  });
+
+  it('hides nothing when the lines would hide every workspace', async () => {
+    for (const d of ['One', 'Two']) await write(`${d}/.cave-notes/workspace.yaml`, '');
+    await write('.caveignore', '.cave-notes\n');
+    expect(await ignoredWorkspaces([path.join(root, 'One'), path.join(root, 'Two')], [root])).toEqual([]);
+  });
+
+  it('can bring a workspace back by taking the line out', async () => {
+    await write('One/.cave-notes/workspace.yaml', '');
+    await write('Two/.cave-notes/workspace.yaml', '');
+    await write('.caveignore', 'Two/\n');
+    const both = [path.join(root, 'One'), path.join(root, 'Two')];
+    expect(await ignoredWorkspaces(both, [root])).toEqual([path.join(root, 'Two')]);
+    await write('.caveignore', '');
+    expect(await ignoredWorkspaces(both, [root])).toEqual([]);
   });
 });
 

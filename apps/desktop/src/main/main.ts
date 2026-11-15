@@ -8,7 +8,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nati
 import { type Envelope, EVENT_NAMES, MAIN_METHODS, type MainApi, type Settings, WORKER_METHODS, type WindowState, type WireError, type WorkerEvents, type WorkspaceInfo } from '../shared/api';
 import { cleanStyleSet, exportPage, parseDoc, parseStyleSetsYaml, renderHtml } from '@cave-notes/core-export';
 import { cleanDictionary, cleanNoteTypes, portableSettings, SettingsStore } from './settings';
-import { scanForWorkspaces, scanRoots } from './scan';
+import { ignoredWorkspaces, scanForWorkspaces, scanRoots } from './scan';
 import { noLongerWorkspaces, promoteFolder, removeWorkspace, workspaceStatus } from './workspaces';
 import { CONFIG_NOTES, isConfigRoot } from '@cave-notes/service/config-folder';
 import { WorkerClient } from './worker-client';
@@ -1051,6 +1051,10 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
     async scanWorkspaces() {
       return scanNow();
     },
+    async ignoredWorkspaces(roots) {
+      const s = settings.get();
+      return ignoredWorkspaces(roots, s.scanFolders, s.scanIgnore);
+    },
     async trash(absPaths) {
       for (const p of absPaths) {
         const abs = path.resolve(p);
@@ -1635,7 +1639,7 @@ app.on('second-instance', (_e, argv, cwd) => {
   // ...or into new tabs of the window in front
   if (folders.length > 0) {
     for (const d of folders) {
-      settings.remember(d);
+      settings.remember(d, true);
       sendTo(current, 'window:adopt-tab', { root: d, path: null });
     }
     if (current) {
@@ -1789,7 +1793,7 @@ app.whenReady().then(() => {
     const first = states[0]!;
     let tabs = first.tabs;
     for (const root of requested) {
-      settings.remember(root);
+      settings.remember(root, true);
       tabs = tabs.filter((t) => t.root !== root);
       tabs = [...tabs, { root, path: null }];
     }

@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { setFs } from '@cave-notes/platform';
 import { createWebWorkerHost, type WebWorkerHost } from '@cave-notes/service/web-host';
-import { scanForWorkspaces, scanRoots } from '@cave-notes/service/scan';
+import { ignoredWorkspaces, scanForWorkspaces, scanRoots } from '@cave-notes/service/scan';
 import { promoteFolder, removeWorkspace, workspaceStatus } from '@cave-notes/service/workspaces';
 import { DESKTOP_CAPABILITIES, type Capabilities, type EventMap, type MainApi, type WorkerApi } from '@cave-notes/service/api';
 import { capabilitiesOf, CaveError, partialMainApi, type Deps } from '../../desktop/src/renderer/bridge';
@@ -21,6 +21,7 @@ import { createPluginFs } from './pluginFs';
 export const ANDROID_CAPABILITIES: Capabilities = {
   ...Object.fromEntries(Object.keys(DESKTOP_CAPABILITIES).map((k) => [k, false])),
   keyboardAndMouse: false,
+  softKeyboard: true,
   appUpdates: true, // looks for a newer APK and opens its download (see androidUpdate.ts)
 } as unknown as Capabilities;
 
@@ -93,7 +94,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
   let wasm: Uint8Array | null = null;
   const attached = new Map<string, Attached>();
   // what a worker asks of the files goes through the page's main thread: a few operations at a time, so the page stays usable
-  const workerFs = limitFs(fs, { onDone: (op, target, wait, run, bytes, state) => plog.fsDone(op, target, wait, run, bytes, state) });
+  const workerFs = limitFs(fs, { pauseBackground: () => document.hidden, onDone: (op, target, wait, run, bytes, state) => plog.fsDone(op, target, wait, run, bytes, state) });
   const startHost = async (root: string): Promise<WebWorkerHost> => {
     wasm ??= await step('load sqlite3.wasm', async () => {
       const r = await fetch('sqlite3.wasm');
@@ -125,6 +126,26 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
     }
   };
 
+  /** The documentation: written out from the app's bundle as a folder of its own, shown as a read-only workspace. */
+  const docsDir = `${paths.files}/docs`;
+  let docsWritten: Promise<void> | null = null;
+  const writeDocs = (): Promise<void> =>
+    (docsWritten ??= (async () => {
+      const r = await fetch('docs.json');
+      if (!r.ok) throw new Error(`HTTP ${r.status} for docs.json`);
+      const files = (await r.json()) as Record<string, string>;
+      await fs.rm(docsDir, { recursive: true, force: true }).catch(() => undefined);
+      for (const [rel, text] of Object.entries(files)) {
+        const dest = `${docsDir}/${rel}`;
+        await fs.mkdir(dest.replace(/\/[^/]*$/, ''), { recursive: true });
+        await fs.writeFile(dest, text);
+      }
+      plog.line('INFO', 'open', `documentation written: ${Object.keys(files).length} files`);
+    })().catch((e) => {
+      docsWritten = null;
+      throw e;
+    }));
+
   const wsFor = (root: string): WorkerApi => {
     const a = attached.get(root);
     if (!a) throw new CaveError('This workspace is not open', 'NOT_ATTACHED');
@@ -133,7 +154,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
         if (method === 'openWorkspace') {
           return (given: string) => {
             a.opened ??= step(`open the workspace ${root.split('/').pop()}`, () => prime(root, 'open')
-              .then(() => target.openWorkspace(given, {
+              .then(() => target.openWorkspace(given, root === docsDir ? ({ docs: true, dataDir: `${paths.files}/index/${hash(root)}`, notes: { exts: ['.md'], create: '.md' }, firstDay: settings.get().firstDayOfWeek } as never) : {
                 dataDir: `${paths.files}/index/${hash(root)}`,
                 notes: { exts: settings.get().noteExts, create: settings.get().noteCreate },
                 deviceName: settings.get().deviceName,
@@ -210,7 +231,7 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
         plog.line('INFO', 'open', `attach ${root}`);
         a = { id: hash(root), host: await startHost(root), opened: null };
         attached.set(root, a);
-        settings.remember(root);
+        if (root !== docsDir) settings.remember(root);
       }
       return { id: a.id };
     },
@@ -244,6 +265,14 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
       const found = await scanForWorkspaces(scanRoots(s.scanFolders), s.scanIgnore);
       settings.set({ found });
       return found;
+    },
+    async docsFolder() {
+      await writeDocs();
+      return docsDir;
+    },
+    async ignoredWorkspaces(roots) {
+      const s = settings.get();
+      return ignoredWorkspaces(roots, s.scanFolders, s.scanIgnore);
     },
     async trash(absPaths) {
       // the system has no trash for these folders, so keep what is deleted in the app's own folder for a while

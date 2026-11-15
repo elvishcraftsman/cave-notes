@@ -100,6 +100,7 @@ export function MainMenuItems({ ctl, run }: { ctl: Controller; run: (fn: () => v
   return (
     <>
       <MenuToolbar ctl={ctl} run={run} />
+      {ctl.caps.softKeyboard && <MenuItem icon="cave" label="Workspaces and tabs…" onClick={run(() => { ctl.tabSwitcherOpen.value = true; })} />}
       <MenuItem icon="folder" label="Open Folder…" shortcut="Ctrl+O" onClick={run(() => void ctl.chooseWorkspace())} />
       {ws && ctl.caps.exportDocuments && ctl.current.value?.exists && <MenuItem icon="page" label="Export Page…" shortcut="Ctrl+Shift+E" onClick={run(() => ctl.openExport())} />}
       <div class="menu-separator" />

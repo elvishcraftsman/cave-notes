@@ -1,3 +1,7 @@
+---
+order: 10
+---
+
 # A rule that installs rules
 
 *Part of [Actions](actions.md).*
@@ -27,11 +31,11 @@ A rule that changes the automations changes what the workspace will do from then
 
 ## What it can and cannot touch
 
-- The file goes into the workspace's `.cave-notes` folder, with a name like `chess-game.yaml` (letters, digits, `.`, `_` and `-`).
+- The file goes into the workspace's `.cave-notes/plugins/` folder, with a name like `chess-game.yaml` (letters, digits, `.`, `_` and `-`).
 - The app puts a first line in it, `# installed by "chess"`, naming the **owner** (`owner: chess` in the action; the rule's own `id` when you leave it out). Only a file with this line, and the same owner, is ever replaced or removed. Giving two rules the same owner lets one install a file and another remove it. **A file you wrote yourself is never touched**, and neither is one installed under another owner: the action fails and says so.
 - The content must be valid automations: a file with mistakes is refused before you are asked.
 - Only the desktop app can ask the question; where nothing can ask, the action does nothing.
 
 ## Taking it away
 
-Delete the file (it is an ordinary file in `.cave-notes`) or run a rule with `remove: true`. The rules are gone the moment the file is.
+Delete the file (it is an ordinary file in `.cave-notes/plugins/`) or run a rule with `remove: true`. (An earlier version put the file straight into `.cave-notes`; such a file is found there and moved the next time the rule installs or removes it.) The rules are gone the moment the file is.

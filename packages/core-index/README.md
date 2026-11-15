@@ -53,7 +53,7 @@ A schema coerces values (`"7"` becomes the number 7), normalizes enum casing, an
 
 ## Inheritance and hidden pages
 
-Rules and syntax: [docs/attributes.md](../../docs/attributes.md). In short: a page has no attributes unless the workspace (`attributes` in `.cave-notes/workspace.yaml`), a `children:` block above it, or its own frontmatter gives it some. The index stores each page's own frontmatter (`fm_json`) and an inheritance state (`eff_json`: its attributes, what reaches its sub-pages, and its `children:` blocks), and builds the attribute rows from the attributes. A page's own values never travel down on their own, so a page's sub-pages are worked out from the page's state alone. When a page's state changes, its sub-pages are recomputed in the same transaction. Editing the global attributes (`reloadSchema()` re-reads them along with `schema.yaml`) recomputes every page. The `children` key is configuration and is not an attribute. Mistakes in a block are `diagnostics` of kind `inheritance`.
+Rules and syntax: [docs/organizing/attributes.md](../../docs/organizing/attributes.md). In short: a page has no attributes unless the workspace (`attributes` in `.cave-notes/workspace.yaml`), a `children:` block above it, or its own frontmatter gives it some. The index stores each page's own frontmatter (`fm_json`) and an inheritance state (`eff_json`: its attributes, what reaches its sub-pages, and its `children:` blocks), and builds the attribute rows from the attributes. A page's own values never travel down on their own, so a page's sub-pages are worked out from the page's state alone. When a page's state changes, its sub-pages are recomputed in the same transaction. Editing the global attributes (`reloadSchema()` re-reads them along with `schema.yaml`) recomputes every page. The `children` key is configuration and is not an attribute. Mistakes in a block are `diagnostics` of kind `inheritance`.
 
 ```js
 import { resolveInheritance, rootState, parseChildren } from '@cave-notes/core-index'; // pure helpers
@@ -90,7 +90,7 @@ Snippets mark matches with `HIGHLIGHT_START` / `HIGHLIGHT_END` control character
 
 ## Saved queries and relations
 
-`queries` and `relations` in `.cave-notes/workspace.yaml` (see [docs/queries.md](../../docs/queries.md)). `saved:name` terms are replaced by the saved text before parsing, in `search()` and `attributeValues()`. `index.savedQueries`, `index.relations` and `index.relatedFor(paths)` (`{ path: { column: [{ path, title }] } }`) serve views. They are kept in memory and read again by `reloadSchema()`; changing them never rebuilds the index.
+`queries` and `relations` in `.cave-notes/workspace.yaml` (see [docs/organizing/queries.md](../../docs/organizing/queries.md)). `saved:name` terms are replaced by the saved text before parsing, in `search()` and `attributeValues()`. `index.savedQueries`, `index.relations` and `index.relatedFor(paths)` (`{ path: { column: [{ path, title }] } }`) serve views. They are kept in memory and read again by `reloadSchema()`; changing them never rebuilds the index.
 
 ## Performance
 

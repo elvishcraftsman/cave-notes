@@ -7,6 +7,17 @@ def cnParts = cnVersion.split('[.-]').take(3).collect { it.isInteger() ? it.toIn
 while (cnParts.size() < 3) { cnParts << 0 }
 def cnCode = Math.max(1, cnParts[0] * 10000 + cnParts[1] * 100 + cnParts[2])
 
+// Signing: the same key on every machine, so an APK built anywhere installs over (updates) one built anywhere else.
+// The key comes from environment variables or from a git-ignored android/keystore.properties; with neither, Gradle falls
+// back to this machine's own debug key (such an APK cannot update one signed by another machine's key).
+//   CAVE_KEYSTORE_FILE, CAVE_KEYSTORE_PASSWORD, CAVE_KEY_ALIAS, CAVE_KEY_PASSWORD
+//   (keystore.properties: storeFile=, storePassword=, keyAlias=, keyPassword=; see docs/the-app/android.md)
+def cnKeyProps = new Properties()
+def cnKeyFile = rootProject.file('keystore.properties')
+if (cnKeyFile.exists()) cnKeyFile.withInputStream { cnKeyProps.load(it) }
+def cnKey = { String env, String prop -> System.getenv(env) ?: cnKeyProps.getProperty(prop) }
+def cnStore = cnKey('CAVE_KEYSTORE_FILE', 'storeFile')
+
 android {
     namespace = "com.lynnmichaelmartin.cavenotes"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -23,8 +34,22 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        cave {
+            if (cnStore) {
+                storeFile rootProject.file(cnStore).exists() ? rootProject.file(cnStore) : file(cnStore)
+                storePassword cnKey('CAVE_KEYSTORE_PASSWORD', 'storePassword')
+                keyAlias cnKey('CAVE_KEY_ALIAS', 'keyAlias')
+                keyPassword cnKey('CAVE_KEY_PASSWORD', 'keyPassword')
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (cnStore) signingConfig signingConfigs.cave
+        }
         release {
+            if (cnStore) signingConfig signingConfigs.cave
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

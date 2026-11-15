@@ -158,7 +158,7 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
           <MenuItem icon="page" label="Duplicate This Tab" shortcut="Ctrl+T" onClick={() => { setPlus(null); void ctl.newTab(); }} />
           <MenuItem icon="folder" label="Open Folder in New Tab…" onClick={() => { setPlus(null); void ctl.chooseWorkspace(); }} />
           {recent.filter((r) => !tabs.some((t) => t.root === r)).slice(0, 8).map((r) => (
-            <MenuItem key={r} icon="cave" workspaceIcon={ctl.iconOf(r)} label={r.split('/').pop() || r} onClick={() => { setPlus(null); void ctl.openWorkspace(r); }} />
+            <MenuItem key={r} icon="cave" workspaceIcon={ctl.iconOf(r)} label={r.split('/').pop() || r} onClick={() => { setPlus(null); void ctl.openWorkspace(r); }} trailing={{ label: 'Remove from list', icon: 'close', onClick: () => { setPlus(null); ctl.removeFromList(r); } }} />
           ))}
         </FloatingMenu>
       )}
@@ -185,7 +185,8 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
 function PhoneTabs({ ctl, title }: { ctl: Controller; title: (t: Tab) => string }): JSX.Element {
   const tabs = ctl.tabs.value;
   const activeId = ctl.activeTabId.value;
-  const [open, setOpen] = useState(false);
+  const open = ctl.tabSwitcherOpen.value;
+  const setOpen = (v: boolean): void => { ctl.tabSwitcherOpen.value = v; };
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0];
   return (
     <div class="tabbar phone-tabs">
@@ -202,7 +203,7 @@ function TabSwitcher({ ctl, title, onClose }: { ctl: Controller; title: (t: Tab)
   const tabs = ctl.tabs.value;
   const activeId = ctl.activeTabId.value;
   const looks = ctl.looks.value;
-  const recent = ctl.workspaceChoices().filter((r) => !tabs.some((t) => t.root === r)).slice(0, 6);
+  const workspaces = [...new Set([...tabs.map((t) => t.root), ...ctl.workspaceChoices()])];
   return (
     <div class="tab-switcher" role="dialog" aria-label="Open tabs">
       <div class="tab-switcher-head">
@@ -243,12 +244,28 @@ function TabSwitcher({ ctl, title, onClose }: { ctl: Controller; title: (t: Tab)
           );
         })}
       </div>
-      {recent.length > 0 && (
-        <div class="tab-switcher-more">
-          <span class="pref-hint">Open another workspace</span>
-          {recent.map((r) => <button key={r} class="pill-button" onClick={() => { onClose(); void ctl.openWorkspace(r); }}>{r.split('/').pop() || r}</button>)}
+      <div class="tab-switcher-more workspace-list">
+        <div class="workspace-list-head">
+          <strong>Workspaces</strong>
+          <button class="pill-button" onClick={() => { onClose(); void ctl.chooseWorkspace(); }}>Add workspace…</button>
         </div>
-      )}
+        {workspaces.map((r) => {
+          const tab = tabs.find((t) => t.root === r);
+          const icon = ctl.looks.value[r]?.icon;
+          return (
+            <div key={r} class={`workspace-row ${tab ? 'is-open' : ''}`}>
+              <button class="workspace-row-main" onClick={() => { onClose(); if (tab) void ctl.activateTab(tab.id); else void ctl.openWorkspace(r); }}>
+                {icon && isIconName(icon) && <WorkspaceIcon name={icon} size={15} class="tab-icon" />}
+                <span class="workspace-row-name">{r.split('/').pop() || r}</span>
+                <span class="workspace-row-state">{tab ? 'open' : ''}</span>
+              </button>
+              <button class="icon-button small" title="Remove from list" aria-label={`Remove ${r.split('/').pop() || r} from the list`} onClick={() => ctl.removeFromList(r)}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // Bundles the spike page into www/: one script, one stylesheet (the desktop theme, which also styles the editor).
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
-import { cp, mkdir, rm } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { webWorkerBuildOptions } from '@cave-notes/service/build/worker-options';
 
@@ -28,4 +28,15 @@ await build({
 await build({ ...webWorkerBuildOptions(), outfile: 'www/service-worker.js', sourcemap: true, logLevel: 'warning' });
 await cp(require.resolve('@sqlite.org/sqlite-wasm/sqlite3.wasm'), 'www/sqlite3.wasm');
 await cp('src/index.html', 'www/index.html');
+// the documentation, as one file (the app writes it out as a folder when it is asked to show it)
+const docs = {};
+const walk = async (dir, rel = '') => {
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) await walk(`${dir}/${e.name}`, r);
+    else if (/\.(md|yaml)$/.test(e.name)) docs[r] = await readFile(`${dir}/${e.name}`, 'utf8');
+  }
+};
+await walk(new URL('../../docs', import.meta.url).pathname);
+await writeFile('www/docs.json', JSON.stringify(docs));
 console.log('built www/');

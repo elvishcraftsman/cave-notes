@@ -1,5 +1,5 @@
 ---
-order: 6
+order: 7
 ---
 # Shell commands
 
@@ -49,7 +49,7 @@ rules:
           on_failure: { notify: "Backup failed (code ${shell.code}): ${shell.stderr}" }
 ```
 
-To run a command by hand from a note instead, use a *Run* button on a shell [code block](../code-blocks.md).
+To run a command by hand from a note instead, use a *Run* button on a shell [code block](../writing/code-blocks.md).
 
 ## Environment variables for commands
 

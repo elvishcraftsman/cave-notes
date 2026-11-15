@@ -5,6 +5,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark', // dark is the default
   recent: [],
   found: [],
+  unlistedWorkspaces: [],
   scanFolders: [],
   scanIgnore: [],
   scanAuto: true,
@@ -260,6 +261,7 @@ export function normalizeSettings(raw: Partial<Settings>): Settings {
   v.tabs = goodTabs(v.tabs);
   const strs = (x: unknown): string[] => (Array.isArray(x) ? x.filter((p): p is string => typeof p === 'string' && p.startsWith('/')) : []);
   v.found = strs(v.found);
+  v.unlistedWorkspaces = strs(v.unlistedWorkspaces);
   v.scanFolders = strs(v.scanFolders);
   v.scanIgnore = strs(v.scanIgnore);
   for (const k of ['scanAuto', 'showNestedWorkspaces', 'hideBareFolders', 'nestedInNewTab'] as const) if (typeof v[k] !== 'boolean') v[k] = DEFAULT_SETTINGS[k];

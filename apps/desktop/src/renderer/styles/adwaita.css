@@ -416,6 +416,9 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
 /* ---- sub-page bar under the editor ---- */
 .editor-pane { --bar-h: 44px; --bar-h-open: 200px; --child-row: 31px; --child-gap: 6px; }
 .editor-pane.has-children .editor-host { margin-bottom: var(--bar-h); }
+.editor-pane.typing .children-bar { display: none; }
+.editor-pane.typing.has-children .editor-host, .editor-pane.typing.has-children.bar-docked .editor-host { margin-bottom: 0; }
+.editor-pane.typing.has-children .cm-content { padding-bottom: 24px; }
 .editor-pane.has-children.bar-docked .editor-host { margin-bottom: var(--bar-h-open); }
 .editor-pane.no-page .status-page { margin-bottom: var(--bar-h-open); }
 .children-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; min-height: 44px; display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px 6px 14px; box-sizing: border-box; background: var(--window-bg); border-top: 1px solid var(--border); transition: height 0.18s ease, box-shadow 0.18s ease; overflow: hidden; }
@@ -704,6 +707,8 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
 .recent-item { display: flex; align-items: center; gap: 2px; }
 .recent-item .recent-row { flex: 1; min-width: 0; }
 .recent-remove { opacity: 0; flex: none; }
+.menu-trailing { margin-left: auto; display: inline-flex; align-items: center; padding: 3px; border-radius: 4px; opacity: 0.55; }
+.menu-trailing:hover, .menu-trailing:focus-visible { opacity: 1; background: var(--hover-bg); }
 .recent-item:hover .recent-remove, .recent-remove:focus-visible { opacity: 1; }
 .tree-row.workspace .row-label { font-weight: 600; }
 .children-filter { display: inline-flex; margin: 0 0 0 10px; padding: 2px; }
@@ -1149,6 +1154,13 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 .tab-card-body { padding: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; opacity: .8; overflow: hidden; }
 .tab-card-ws { font-weight: 600; }
 .tab-card-path { overflow: hidden; text-overflow: ellipsis; word-break: break-word; }
+.workspace-list { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 2px; }
+.workspace-list-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 6px; }
+.workspace-row { display: flex; align-items: center; gap: 4px; }
+.workspace-row-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 10px 8px; background: none; border: 0; border-radius: 8px; color: inherit; text-align: left; font: inherit; }
+.workspace-row.is-open .workspace-row-main { font-weight: 600; }
+.workspace-row-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-row-state { font-size: 12px; opacity: 0.6; }
 .tab-switcher-more { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px 14px; border-top: 1px solid var(--border); }
 
 /* search and replace in the search pane */

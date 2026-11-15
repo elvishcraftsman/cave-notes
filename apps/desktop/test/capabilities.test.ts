@@ -5,7 +5,9 @@ import type { RawBridge } from '../src/shared/api';
 
 describe('capabilities', () => {
   it('desktop has every capability', () => {
-    expect(Object.values(DESKTOP_CAPABILITIES).every((v) => v === true)).toBe(true);
+    // softKeyboard is the one flag that is true only on a phone
+    expect(Object.entries(DESKTOP_CAPABILITIES).filter(([k]) => k !== 'softKeyboard').every(([, v]) => v === true)).toBe(true);
+    expect(DESKTOP_CAPABILITIES.softKeyboard).toBe(false);
   });
 
   it('deps made from the desktop bridge carry them, and deps without any mean everything', () => {

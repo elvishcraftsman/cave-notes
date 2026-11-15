@@ -60,6 +60,20 @@ say "Building the web bundle"
 npm run build
 npx cap sync android
 
+# The signing key (see scripts/make-keystore.sh). On a new machine, either put keystore.properties in android/, or set
+# CAVE_KEYSTORE_B64 (the keystore, base64) with CAVE_KEYSTORE_PASSWORD, CAVE_KEY_ALIAS and CAVE_KEY_PASSWORD, from your password manager.
+if [[ -n "${CAVE_KEYSTORE_B64:-}" ]]; then
+  KS_TMP="$(mktemp -d)"
+  trap 'rm -rf "$KS_TMP"' EXIT
+  printf '%s' "$CAVE_KEYSTORE_B64" | base64 -d > "$KS_TMP/cave-notes.jks"
+  export CAVE_KEYSTORE_FILE="$KS_TMP/cave-notes.jks"
+  echo "Signing with the key from CAVE_KEYSTORE_B64"
+elif [[ -f android/keystore.properties || -n "${CAVE_KEYSTORE_FILE:-}" ]]; then
+  echo "Signing with the key from keystore.properties / CAVE_KEYSTORE_FILE"
+else
+  echo "WARNING: no signing key set: using this machine's debug key. An APK from another machine will not install over this one." >&2
+fi
+
 say "Building the APK"
 echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 # Gradle must use exactly this JDK: with auto-detection it may pick another Java on the machine (for example a JRE with no compiler)

@@ -74,6 +74,9 @@ function Welcome({ ctl }: { ctl: Controller }): JSX.Element {
                     <span class="recent-name">{r.split('/').pop() || r}</span>
                     <span class="recent-path">{r}</span>
                   </button>
+                  <button class="icon-button small recent-remove" title="Remove from list" aria-label={`Remove ${r.split('/').pop() || r} from the list`} onClick={() => ctl.removeFromList(r)}>
+                    <Icon name="close" size={14} />
+                  </button>
                   <button class="icon-button small recent-remove" title="Stop using this folder as a workspace…" aria-label={`Stop using ${r.split('/').pop() || r} as a workspace`} onClick={() => void ctl.removeWorkspace(r)}>
                     <Icon name="trash" size={14} />
                   </button>

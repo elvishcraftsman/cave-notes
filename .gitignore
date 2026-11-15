@@ -5,3 +5,40 @@ release/
 .appimage-tools/
 apps/mobile/www/
 apps/mobile/dist/
+
+# build output (rebuilt by `npm run build` in apps/desktop and apps/mobile)
+apps/desktop/dist/
+apps/mobile/dist/
+*.tsbuildinfo
+
+# Android: Gradle, Android Studio and Capacitor output
+# (apps/mobile/android/.gitignore has most of these; they are repeated so the root file alone is enough)
+.gradle/
+.cxx/
+.externalNativeBuild/
+local.properties
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/capacitor-cordova-android-plugins/
+apps/mobile/android/app/src/main/assets/public/
+apps/mobile/android/app/src/main/assets/capacitor.config.json
+apps/mobile/android/app/src/main/assets/capacitor.plugins.json
+apps/mobile/android/app/src/main/res/xml/config.xml
+*.apk
+*.aab
+*.ap_
+*.dex
+*.hprof
+
+# signing keys and their passwords: never in git (see docs/the-app/android.md)
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# editors and the system
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db

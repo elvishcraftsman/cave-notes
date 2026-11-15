@@ -128,7 +128,7 @@ export interface RelationMemory {
 export class Controller {
   // ---- UI state
   readonly settings = signal<Settings>({
-    theme: 'dark', recent: [], found: [], scanFolders: [], scanIgnore: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
+    theme: 'dark', recent: [], found: [], unlistedWorkspaces: [], scanFolders: [], scanIgnore: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
     lastWorkspace: null, showLeft: true, showRight: true, leftWidth: 280, rightWidth: 300, rightTab: 'outline', childrenDocked: false, bounds: null, maximized: false,
     autoCollapse: true, autoCollapseSeconds: 10, newPageDefault: 'nested', fontStyle: 'sans', fontSizes: { sans: null, serif: null, mono: null }, outlineOrderedLists: true, orderedListStyles: ['I.', 'A.', '1.', 'a.', 'i.', '1)', 'a)', 'i)'], bulletGlyphs: ['\u2022', '\u25E6', '\u25AA'], hierarchicalLists: true, wrapCode: false, dropAction: 'move', dropActionOtherDrive: 'same', exportStyles: [], exportStyle: 'Clean', exportFormat: 'docx', defaultAccent: null, conflictMerge: 'ask', automationShell: false, automationJs: false, automationJsAsk: true, automationBackground: false, deviceName: '', openExternal: 'tab', tabs: [], activeTab: 0, windows: [],
   });
@@ -525,6 +525,12 @@ export class Controller {
     this.settings.value = s;
     this.applyThemeToDom(s.theme);
     void this.loadFonts();
+    void this.refreshIgnoredWorkspaces();
+    // a .caveignore may have changed while the app was somewhere else
+    const refocus = (): void => void this.refreshIgnoredWorkspaces();
+    window.addEventListener('focus', refocus);
+    this.disposers.push(() => window.removeEventListener('focus', refocus));
+    this.watchKeyboard();
 
     const on = this.deps.on;
     this.disposers.push(
@@ -696,6 +702,7 @@ export class Controller {
     this.settings.value = { ...this.settings.value, ...patch };
     if (patch.theme) this.applyThemeToDom(patch.theme);
     if (patch.conflictMerge) this.pushSyncOptions();
+    if (patch.recent || patch.found) void this.refreshIgnoredWorkspaces();
   }
 
   /** What to do with sync conflict copies; passed on to every open workspace. */
@@ -740,10 +747,121 @@ export class Controller {
 
   // ---------------------------------------------------------------- workspaces
 
-  /** Workspaces to offer when opening one: the one holding the file shown on its own first, then recent ones, then those found on disk. */
+  /** The phone's list of tabs and workspaces is open. */
+  readonly tabSwitcherOpen = signal(false);
+  /** The editor has the focus (on a phone: the person is typing). */
+  readonly editorFocused = signal(false);
+  /** The on-screen keyboard is up (seen as the window getting much shorter). */
+  readonly keyboardUp = signal(false);
+
+  /**
+   * On a phone the editor is in one of two modes and nothing in between: typing (editor focused, keyboard up, format bar
+   * shown, sub-page bar hidden) or reading (keyboard down, editor not focused, sub-page bar shown, format bar hidden).
+   * While the keyboard is up for some other field (search, a dialog) the sub-page bar stays out of the way too.
+   */
+  typingMode(): boolean {
+    return this.caps.softKeyboard && (this.editorFocused.value || this.keyboardUp.value);
+  }
+
+  /**
+   * Follows the editor's focus and the keyboard. When the keyboard goes DOWN (it was seen up, the window grew back) while
+   * the editor is still focused, the editor is un-focused, which leaves the typing mode. Nothing is done merely because the
+   * editor is focused with no keyboard: with a hardware keyboard Android shows no on-screen one, so the window never shrinks
+   * and the editor stays focused for as long as the person wants to type.
+   */
+  private watchKeyboard(): void {
+    if (!this.caps.softKeyboard) return;
+    const inEditor = (el: Element | null): boolean => !!el?.closest('.cm-editor, .cm-format-dock, .cm-format-sub, .cm-dock-panel');
+    let settle = 0;
+    const focus = (): void => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(() => {
+        const now = inEditor(document.activeElement);
+        if (this.editorFocused.value !== now) this.editorFocused.value = now;
+      }, 120);
+    };
+    document.addEventListener('focusin', focus);
+    document.addEventListener('focusout', focus);
+    const vv = window.visualViewport;
+    const height = (): number => Math.min(window.innerHeight, vv?.height ?? window.innerHeight);
+    let base = Math.max(window.innerHeight, vv?.height ?? 0);
+    let width = window.innerWidth;
+    let timer = 0;
+    const measure = (): void => {
+      if (window.innerWidth !== width) { // rotated or resized: start again
+        width = window.innerWidth;
+        base = height();
+        if (this.keyboardUp.value) this.keyboardUp.value = false;
+        return;
+      }
+      const h = height();
+      const up = h < base - Math.max(120, base * 0.15);
+      if (!up) base = Math.max(base, h);
+      if (up === this.keyboardUp.value) return;
+      this.keyboardUp.value = up;
+      if (!up && this.editorFocused.value) {
+        const el = document.activeElement as HTMLElement | null;
+        if (inEditor(el)) el?.blur();
+        this.editorFocused.value = false;
+      }
+    };
+    const later = (): void => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(measure, 80);
+    };
+    window.addEventListener('resize', later);
+    vv?.addEventListener('resize', later);
+    this.disposers.push(() => {
+      document.removeEventListener('focusin', focus);
+      document.removeEventListener('focusout', focus);
+      window.removeEventListener('resize', later);
+      vv?.removeEventListener('resize', later);
+    });
+  }
+
+  /** Workspaces that a `.caveignore` (or the scan's ignored folders) hides: still known, but not offered in lists. */
+  readonly ignoredRoots = signal<string[]>([]);
+  private ignoredCheck = 0;
+
+  /** Ask which of the known workspaces a `.caveignore` hides now (they come back to the lists when the line is taken out). */
+  async refreshIgnoredWorkspaces(): Promise<void> {
+    const n = ++this.ignoredCheck;
+    const s = this.settings.value;
+    try {
+      const hidden = await this.main.ignoredWorkspaces([...new Set([...s.recent, ...s.found])]);
+      if (n === this.ignoredCheck) this.ignoredRoots.value = hidden;
+    } catch {
+      /* the list stays as it was */
+    }
+  }
+
+  /** Recent and found workspaces without those a `.caveignore` hides and those taken off the list by hand. */
+  listedWorkspaces(): string[] {
+    const s = this.settings.value;
+    const off = new Set([...this.ignoredRoots.value, ...s.unlistedWorkspaces]);
+    return [...new Set([...s.recent, ...s.found])].filter((r) => !off.has(r));
+  }
+
+  /** The “Remove from list” of a workspace: it stops being offered (nothing on disk changes). Opening its folder again lists it again. */
+  removeFromList(root: string): void {
+    const s = this.settings.value;
+    if (s.unlistedWorkspaces.includes(root)) return;
+    this.patchSettings({ unlistedWorkspaces: [...s.unlistedWorkspaces, root] });
+    const name = root.split('/').pop() || root;
+    this.toast(`“${name}” is no longer in the list. Open its folder to bring it back.`, { label: 'Undo', run: () => this.patchSettings({ unlistedWorkspaces: this.settings.value.unlistedWorkspaces.filter((r) => r !== root) }) });
+  }
+
+  /** The person opened this folder themselves: it is listed again, if they had taken it off the list. */
+  private relist(root: string): void {
+    const s = this.settings.value;
+    if (s.unlistedWorkspaces.includes(root)) this.patchSettings({ unlistedWorkspaces: s.unlistedWorkspaces.filter((r) => r !== root) });
+  }
+
+  /** Workspaces to offer when opening one: the one holding the file shown on its own first, then recent ones, then those found on disk. A workspace a `.caveignore` hides, or that was removed from the list, is left out (opening it by its path still works). */
   workspaceChoices(): string[] {
     const s = this.settings.value;
-    const all = [...s.recent, ...s.found.filter((f) => !s.recent.includes(f))];
+    const listed = this.listedWorkspaces();
+    const all = [...s.recent.filter((r) => listed.includes(r)), ...s.found.filter((f) => !s.recent.includes(f) && listed.includes(f))];
     const fw = this.fileWorkspace.value;
     const rest = all.filter((r) => r !== fw);
     return fw && !this.tabs.value.some((t) => t.root === fw) ? [fw, ...rest] : rest;
@@ -843,7 +961,9 @@ export class Controller {
   /** Look for workspaces on disk now. */
   async scanNow(): Promise<number> {
     try {
-      return (await this.main.scanWorkspaces()).length;
+      const n = (await this.main.scanWorkspaces()).length;
+      void this.refreshIgnoredWorkspaces();
+      return n;
     } catch (e) {
       this.toast(explain(e));
       return 0;
@@ -1321,7 +1441,10 @@ export class Controller {
 
   async chooseWorkspace(): Promise<void> {
     const root = await this.main.chooseWorkspace();
-    if (root) await this.openFolder(root);
+    if (root) {
+      this.relist(root);
+      await this.openFolder(root);
+    }
   }
 
   /** Open a folder as a workspace in a tab of its own (or go to its tab when it is already open). */
@@ -1374,12 +1497,12 @@ export class Controller {
   }
 
   /** Help > Documentation: the bundled docs as a read-only workspace in a tab, starting at the introduction. */
-  async openDocumentation(page = '01-introduction.md'): Promise<void> {
+  async openDocumentation(page = 'introduction.md'): Promise<void> {
     try {
       const root = await this.main.docsFolder();
       const had = this.tabs.value.find((t) => t.root === root);
       await this.openWorkspace(root);
-      if (!had || page !== '01-introduction.md') await this.openPage(page, { reveal: true });
+      if (!had || page !== 'introduction.md') await this.openPage(page, { reveal: true });
     } catch (e) {
       this.toast(explain(e));
     }
@@ -1595,7 +1718,7 @@ export class Controller {
     const offers = await this.ws.globalsPending().catch(() => []);
     if (offers.length === 0) return;
     const s = this.settings.value;
-    const workspaces = [...new Set([root, ...s.recent, ...s.found])];
+    const workspaces = [...new Set([root, ...this.listedWorkspaces()])];
     this.dialog.value = { kind: 'globals', offers, workspaces, current: root };
   }
 
@@ -2054,11 +2177,31 @@ export class Controller {
     if (e.status === 'failed') {
       // a script or command that was not allowed: the link goes to where the permission is, not to the page
       const blocked = /switched off in Preferences|you refused this|Preferences can forget/.test(e.detail);
-      this.toast(`Automation “${e.rule}” failed${where}: ${e.detail || 'see the automation log'}`, blocked ? { label: 'Permissions', run: () => this.openPreferences('sync') } : e.path ? { label: 'Show', run: () => void this.openPage(e.path!) } : undefined);
+      this.toast(`Automation “${e.rule}” failed${where}: ${e.detail || 'see the automation log'}`, blocked ? { label: 'Permissions', run: () => this.openPreferences('sync') } : e.path ? { label: 'Show', run: () => void this.showAutomationPage(e.path!, root) } : undefined);
       return;
     }
     const did = e.steps.filter((s) => s.status === 'done').map((s) => (s.detail && s.detail !== 'ran' ? s.detail : s.action.replace(/_/g, ' ')));
-    this.toast(`Automation “${e.rule}” ran${where}${did.length > 0 ? `: ${did.join('; ')}` : ''}`, e.path ? { label: 'Show', run: () => void this.openPage(e.path!) } : undefined);
+    this.toast(`Automation “${e.rule}” ran${where}${did.length > 0 ? `: ${did.join('; ')}` : ''}`, e.path ? { label: 'Show', run: () => void this.showAutomationPage(e.path!, root) } : undefined);
+  }
+
+  /**
+   * The “Show” of an automation's toast: go to the page the rule worked on. It may be in another workspace than the one in
+   * front (that workspace's tab is brought forward, or opened), and it may be the page already shown (the usual case: the
+   * rule ran because of an edit here), in which case what the rule wrote is read in from disk and the editor gets the focus.
+   */
+  private async showAutomationPage(path: string, root: string | undefined): Promise<void> {
+    const sess = this.sessionOf(root);
+    if (sess && this.active?.root !== sess.root) {
+      const tab = this.tabs.value.find((t) => t.root === sess.root);
+      if (tab) await this.activateTab(tab.id);
+      else await this.openWorkspace(sess.root);
+    }
+    if (this.current.value?.path === path) {
+      await this.checkDiskNow();
+      this.editor?.focus();
+      return;
+    }
+    await this.openPage(path, { focus: true, reveal: true });
   }
 
   private onCopyMerged(path: string, conflicts: number, root: string | undefined): void {
@@ -2775,7 +2918,7 @@ export class Controller {
       if (!offer || !root) return;
       const s = this.settings.value;
       this.pluginAfterGlobals = plugin.id;
-      this.dialog.value = { kind: 'globals', offers: [offer], workspaces: [...new Set([root, ...s.recent, ...s.found])], current: root };
+      this.dialog.value = { kind: 'globals', offers: [offer], workspaces: [...new Set([root, ...this.listedWorkspaces()])], current: root };
       return;
     }
     if (this.isPluginOff(plugin)) {

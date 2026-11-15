@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { limitFs } from '../src/limitFs';
 
 describe('limitFs', () => {
@@ -47,5 +47,23 @@ describe('limitFs', () => {
     release();
     await Promise.all([first, ...rest]);
     expect(order).toEqual(['readdir hold', 'writeFile page', 'readFile other', 'lstat a', 'lstat b']);
+  });
+});
+
+describe('limitFs while the app is out of sight', () => {
+  it('starts no looking-around calls until it is back, but still runs the ones a person waits for', async () => {
+    const doc = new EventTarget();
+    vi.stubGlobal('document', doc);
+    let hidden = true;
+    const fs = limitFs({ lstat: async () => 'stat', writeFile: async () => 'saved' }, { pauseBackground: () => hidden });
+    let looked = false;
+    const look = fs.lstat().then((v: string) => { looked = true; return v; });
+    await expect(fs.writeFile()).resolves.toBe('saved');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(looked).toBe(false);
+    hidden = false;
+    doc.dispatchEvent(new Event('visibilitychange'));
+    await expect(look).resolves.toBe('stat');
+    vi.unstubAllGlobals();
   });
 });
