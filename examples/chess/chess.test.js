@@ -1,21 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CORE = process.env.CAVE_CORE ?? path.join(HERE, '../../packages/core-automation');
-const { World, FakeWorkspace, makeEngine, splitFront } = await import(path.join(CORE, 'test/helpers.js'));
+const { World, FakeWorkspace, makeEngine, splitFront, changed } = await import(path.join(CORE, 'test/helpers.js'));
 
 const RULES = fs.readFileSync(path.join(HERE, 'chess-game.yaml'), 'utf8');
 const PLUGIN = fs.readFileSync(path.join(HERE, 'chess.yaml'), 'utf8');
 const PAGE = fs.readFileSync(path.join(HERE, 'Chess.md'), 'utf8');
 
-async function game(page = PAGE) {
+async function game(page = PAGE, shell = undefined) {
   const world = new World();
   const ws = new FakeWorkspace(world, { 'Chess.md': page });
-  const { engine } = await makeEngine(world, ws, RULES);
+  const { engine, host } = await makeEngine(world, ws, RULES, shell ? { host: { shell } } : {});
+  world.advance(15_000);
   const attr = (k) => {
     const m = new RegExp('^' + k + ': ?(.*)$', 'm').exec(ws.text('Chess.md').split('\n---')[0]);
     if (!m) return undefined;
@@ -30,7 +32,7 @@ async function game(page = PAGE) {
   const play = async (...moves) => {
     for (const m of moves) await press('chess-play', { move: m });
   };
-  return { ws, engine, attr, press, play, body: () => ws.text('Chess.md') };
+  return { world, ws, engine, host, attr, press, play, body: () => ws.text('Chess.md') };
 }
 
 test('New game sets the board up, with the buttons and the page notes kept', async () => {
@@ -254,4 +256,115 @@ test('the other plugin takes the rules away, with the same owner', async () => {
   assert.equal(installed.size, 0);
   assert.equal(asked.at(-1).remove, true);
   assert.equal(asked.at(-1).owner, 'chess');
+});
+
+// ---------------------------------------------------------------- the computer player
+// A chess engine is a program (Stockfish) the rules run with run_shell; here the program is a stand-in that answers with a move.
+const withEngine = (extra) => PAGE.replace('engine: none', extra);
+
+test('Engine move asks the engine for a move and plays it on the board', async () => {
+  const g = await game(PAGE, async () => ({ code: 0, stdout: 'e2e4\n', stderr: '' }));
+  await g.press('chess-new');
+  await g.press('chess-engine');
+  assert.equal(g.attr('history'), 'e4');
+  assert.match(g.attr('message'), /The engine played e4 \(level 5\)\./);
+  const spec = g.host.shells.at(-1);
+  assert.equal(spec.env.CN_FEN, 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 'the position goes to the engine');
+  assert.equal(spec.env.CN_LEVEL, '5');
+  assert.match(spec.command, /^engine=stockfish$/m);
+  assert.doesNotMatch(spec.command, /\$\{(this|ask|let|new|old|shell)/, 'no value of the rule is put into the command text: they arrive as environment variables');
+});
+
+test('the level and an Elo rating are passed on', async () => {
+  const g = await game(PAGE.replace('level: 5', 'level: 8').replace('fen: ""', 'elo: 1600\nfen: ""'), async () => ({ code: 0, stdout: 'e2e4', stderr: '' }));
+  await g.press('chess-new');
+  await g.press('chess-engine');
+  assert.equal(g.host.shells.at(-1).env.CN_LEVEL, '8');
+  assert.equal(g.host.shells.at(-1).env.CN_ELO, '1600');
+});
+
+test('a promotion by the engine (e7e8q) is understood', async () => {
+  const g = await game(PAGE.replace('fen: ""', 'fen: "8/4P2k/8/8/8/8/8/K7 w - - 0 1"'), async () => ({ code: 0, stdout: 'e7e8q\n', stderr: '' }));
+  await g.press('chess-engine');
+  assert.equal(g.attr('history'), 'e8=Q');
+});
+
+test('a move the engine suggests that is not legal changes nothing and says so', async () => {
+  const g = await game(PAGE, async () => ({ code: 0, stdout: 'e2e5\n', stderr: '' }));
+  await g.press('chess-new');
+  await g.press('chess-engine');
+  assert.equal(g.attr('history'), '');
+  assert.match(g.attr('message'), /engine suggested "e2e5", which is not a legal move/);
+});
+
+test('without the engine installed the player is told, and the game goes on', async () => {
+  const g = await game(PAGE, async () => ({ code: 127, stdout: '', stderr: 'The chess engine "stockfish" is not installed (or not on the PATH).' }));
+  await g.press('chess-new');
+  await g.press('chess-engine');
+  assert.equal(g.attr('history'), '');
+  assert.match(g.body().replace(/\n  /g, ' '), /engine gave no move.*not installed/);
+  await g.play('e4');
+  assert.equal(g.attr('history'), 'e4');
+});
+
+test('with engine: black the engine answers each move by itself', async () => {
+  const answers = ['e7e5', 'b8c6'];
+  const g = await game(withEngine('engine: black'), async () => ({ code: 0, stdout: `${answers.shift()}\n`, stderr: '' }));
+  await g.press('chess-new');
+  assert.equal(g.attr('engine_turn'), false, 'White is to move: it is the person\'s turn');
+  await g.play('e4');
+  assert.equal(g.attr('engine_turn'), true);
+  await changed(g.engine, 'Chess.md');
+  assert.equal(g.attr('history'), 'e4 e5');
+  assert.equal(g.attr('engine_turn'), false);
+  g.world.advance(3_000);
+  await changed(g.engine, 'Chess.md'); // the watcher reports the engine's own write too
+  g.world.advance(3_000);
+  await g.play('Nf3');
+  await changed(g.engine, 'Chess.md');
+  assert.equal(g.attr('history'), 'e4 e5 Nf3 Nc6');
+});
+
+test('engine: none, white or black decides when the engine moves; the game ends it', async () => {
+  const g = await game(withEngine('engine: white'), async () => ({ code: 0, stdout: 'e2e4\n', stderr: '' }));
+  await g.press('chess-new');
+  assert.equal(g.attr('engine_turn'), true, 'White is the engine and White is to move');
+  const h = await game(PAGE, async () => ({ code: 0, stdout: 'e2e4\n', stderr: '' }));
+  await h.press('chess-new');
+  assert.equal(h.attr('engine_turn'), false);
+});
+
+test('the plugin has an icon, a description, the engine and level questions, and a check for the engine', async () => {
+  const { engine } = await installer({ allow: true });
+  const list = engine.plugins();
+  const byName = Object.fromEntries(list.map((p) => [p.label, p]));
+  assert.equal(byName['New chess game'].icon, 'chess-knight');
+  assert.match(byName['New chess game'].description, /Play a friend by taking turns/);
+  assert.ok(byName['New chess game'].ask.some((q) => q.name === 'engine'));
+  assert.ok(byName['New chess game'].ask.some((q) => q.name === 'level'));
+  assert.equal(byName['Check the chess engine'].icon, 'cpu');
+  assert.equal(byName['Remove chess automations'].icon, 'eraser');
+});
+
+// With a real engine on this computer (Stockfish), the rules are run with the real command, as the app would run it.
+const haveEngine = spawnSync('sh', ['-c', 'command -v stockfish'], { encoding: 'utf8' }).status === 0;
+
+test('with Stockfish installed, the engine plays real, legal moves at different levels', { skip: !haveEngine && 'stockfish is not installed here' }, async () => {
+  const realShell = async (spec) => {
+    const r = spawnSync('sh', ['-c', spec.command], { encoding: 'utf8', env: { ...process.env, ...spec.env }, timeout: 60_000 });
+    return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  };
+  for (const level of [1, 8]) {
+    const g = await game(PAGE.replace('level: 5', `level: ${level}`).replace('engine: none', 'engine: both'), realShell);
+    await g.press('chess-new');
+    for (let i = 0; i < 4; i++) await g.press('chess-engine');
+    const moves = g.attr('history').split(' ');
+    assert.equal(moves.length, 4, `level ${level}: ${g.attr('history')} / ${g.attr('message')}`);
+    assert.equal(g.attr('ply'), '4');
+  }
+  // a position with one obvious move: the full-strength engine finds the mate in one
+  const mate = await game(PAGE.replace('level: 5', 'level: 8').replace('fen: ""', 'fen: "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"'), realShell);
+  await mate.press('chess-engine');
+  assert.equal(mate.attr('history'), 'Qxf7#');
+  assert.equal(mate.attr('result'), '1-0');
 });

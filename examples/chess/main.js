@@ -1,5 +1,6 @@
 // ---------------------------------------------------------------- the rule: one button press
-// `vars.let.cmd` says which button it was: play, new, undo, flip, resign or draw.
+// `vars.let.cmd` says which button it was: play, engine, new, undo, flip, resign or draw.
+// "engine" is the computer's move: the rule has asked a chess engine (engine.sh) and the answer is in `vars.shell.stdout`.
 const cmd = String((vars.let && vars.let.cmd) || 'play');
 const str = (v) => (v === undefined || v === null ? '' : String(v));
 const GLYPH = { K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙', k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟\uFE0E' };
@@ -44,6 +45,10 @@ if (typedFen && cmd !== 'new') {
   }
 }
 
+// the computer player: `engine` is none, white, black or both; `level` is 1 (gentle) to 8 (full strength)
+const engineSide = str(props.engine).trim().toLowerCase();
+const levelNow = Math.max(1, Math.min(8, Math.round(Number(props.level) || 5)));
+
 const derived = () => ending(g);
 const finished = () => derived() !== null || result !== '';
 const sideName = (c) => (c === 'w' ? 'White' : 'Black');
@@ -78,20 +83,25 @@ if (cmd === 'flip') {
     why = side + ' resigned';
   }
 } else {
-  // play
-  const typed = str(ask.move).trim();
+  // play: a move typed by a person, or the one the engine gave
+  const byEngine = cmd === 'engine';
+  const typed = byEngine ? str(vars.shell && vars.shell.stdout).trim().split(/\s+/)[0] : str(ask.move).trim();
   if (finished()) message = 'The game is over. Press New game to play again.';
+  else if (typed === '' && byEngine) message = '⚠ The chess engine gave no move. Is it installed? Plugins ▸ Check the chess engine says. (' + str(vars.shell && vars.shell.stderr).trim().split('\n')[0] + ')';
   else if (typed === '') message = 'No move was typed. Press Play move and type it (for example e4, Nf3, exd5 or O-O).';
   else {
     const found = findMoves(g.s, g.legal, typed);
-    if (found.length === 0) {
+    if (found.length === 0 && byEngine) message = '⚠ The engine suggested "' + typed + '", which is not a legal move here.';
+    else if (found.length === 0) {
       const all = g.legal.map((m) => sanOf(g.s, m, g.legal));
       message = '⚠ "' + typed + '" is not a legal move for ' + side + '. Moves you can make: ' + all.join(' ') + '.';
     } else if (found.length > 1) {
       message = '⚠ "' + typed + '" could mean several moves: ' + found.map((m) => sanOf(g.s, m, g.legal)).join(', ') + '. Say which piece, for example by its file (Nbd2).';
     } else {
-      tokens.push(sanOf(g.s, found[0], g.legal));
+      const san = sanOf(g.s, found[0], g.legal);
+      tokens.push(san);
       g = replay(startFen, tokens);
+      if (byEngine) message = 'The engine played ' + san + (levelNow ? ' (level ' + levelNow + ').' : '.');
     }
   }
 }
@@ -150,9 +160,11 @@ const body = [
   '',
   table.join('\n'),
   '',
-  'Press **Play move** and type the move (`e4`, `Nf3`, `exd5`, `O-O`, `e7e8=Q`).',
+  engineSide === 'white' || engineSide === 'black' || engineSide === 'both'
+    ? 'The computer plays ' + engineSide + ' (level ' + levelNow + ' of 8). Press **Play move** for yours' + (engineSide === 'both' ? '; **Engine move** plays one move for the side to move.' : '; it answers by itself. **Engine move** asks it for a move for the side to move.')
+    : 'Press **Play move** and type the move (`e4`, `Nf3`, `exd5`, `O-O`, `e7e8=Q`). **Engine move** asks the computer for one.',
   '',
-  '[=Play move](automation:chess-play) · [=Take back](automation:chess-undo) · [=Flip board](automation:chess-flip) · [=Resign](automation:chess-resign) · [=Draw](automation:chess-draw) · [=New game](automation:chess-new)',
+  '[=Play move](automation:chess-play) · [=Engine move](automation:chess-engine) · [=Take back](automation:chess-undo) · [=Flip board](automation:chess-flip) · [=Resign](automation:chess-resign) · [=Draw](automation:chess-draw) · [=New game](automation:chess-new)',
   '',
   '**Moves:** ' + (list || '—'),
   '',
@@ -177,5 +189,7 @@ return {
     message,
     flip,
     start_fen: startFen === START ? null : startFen,
+    // it is the engine's turn, and it plays that side by itself: the rule "chess-engine-reply" starts when this becomes true
+    engine_turn: !end && result === '' && (engineSide === 'white' || engineSide === 'black') && engineSide === (turnNow === 'w' ? 'white' : 'black'),
   },
 };
