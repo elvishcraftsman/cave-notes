@@ -153,14 +153,26 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
       get(target, method: string) {
         if (method === 'openWorkspace') {
           return (given: string) => {
-            a.opened ??= step(`open the workspace ${root.split('/').pop()}`, () => prime(root, 'open')
-              .then(() => target.openWorkspace(given, root === docsDir ? ({ docs: true, dataDir: `${paths.files}/index/${hash(root)}`, notes: { exts: ['.md'], create: '.md' }, firstDay: settings.get().firstDayOfWeek } as never) : {
-                dataDir: `${paths.files}/index/${hash(root)}`,
+            a.opened ??= step(`open the workspace ${root.split('/').pop()}`, async () => {
+              const dataDir = `${paths.files}/index/${hash(root)}`;
+              // An index saved earlier: open from it at once. Listing the whole folder (17 s for 18,000 entries) and looking for
+              // what changed since then happen afterwards, in the background; the first opening of a folder still waits for them.
+              const saved = root !== docsDir && (await own.stat(`${dataDir}/index.db`).then((st) => st.isFile() && st.size > 0, () => false));
+              if (!saved) await prime(root, 'open');
+              const info = await target.openWorkspace(given, root === docsDir ? ({ docs: true, dataDir, notes: { exts: ['.md'], create: '.md' }, firstDay: settings.get().firstDayOfWeek } as never) : ({
+                dataDir,
                 notes: { exts: settings.get().noteExts, create: settings.get().noteCreate },
                 deviceName: settings.get().deviceName,
                 firstDay: settings.get().firstDayOfWeek,
                 globalsEnabled: false,
-              } as never)))
+                deferIndexing: saved,
+              } as never));
+              if (saved) {
+                plog.line('INFO', 'open', `opened from the saved index; looking for changes in the background`);
+                setTimeout(() => void prime(root, 'background').then(() => target.refreshIndex()).catch((e: unknown) => plog.line('WARN', 'open', `background refresh failed: ${(e as Error)?.message ?? e}`)), 2500);
+              }
+              return info;
+            })
               .catch((err: unknown) => {
                 a.opened = null;
                 throw err;

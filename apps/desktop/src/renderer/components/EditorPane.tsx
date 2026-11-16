@@ -255,6 +255,14 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
 
   return (
     <div class={`editor-pane ${showEditor && cur?.exists ? 'has-attributes' : ''} ${showEditor && ctl.automationHits.value.hits.length > 0 && ctl.automationHits.value.path === cur?.path ? 'has-automation' : ''} ${showEditor && ctl.children.value.length > 0 ? 'has-children' : ''} ${ctl.settings.value.childrenDocked ? 'bar-docked' : ''} ${ctl.typingMode() ? 'typing' : ''} ${cur && !cur.exists ? 'no-page' : ''}`}>
+      {ctl.pagesLoading.value > 0 && (
+        <div class="page-spinner" role="status" aria-label="Opening the page">
+          <svg class="busy-ring indeterminate" width="36" height="36" viewBox="0 0 56 56" aria-hidden="true">
+            <circle class="busy-track" cx="28" cy="28" r="22" fill="none" stroke-width="5" />
+            <circle class="busy-arc" cx="28" cy="28" r="22" fill="none" stroke-width="5" stroke-linecap="round" stroke-dasharray="38.7 138.2" transform="rotate(-90 28 28)" />
+          </svg>
+        </div>
+      )}
       {conflict && (
         <div class="banner" role="alert">
           <span>{conflict.diskHash === null ? 'This page was removed from disk, but you have unsaved changes.' : 'This page changed on disk while you were editing it.'}</span>

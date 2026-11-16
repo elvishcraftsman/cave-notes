@@ -1,0 +1,439 @@
+From 0bd6594de62cbd2bae50d4f970516179c2d90643 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 16 Nov 2026 05:13:13 +0000
+Subject: [PATCH] Indicator dot in text colour; fast reopen from saved index;
+ page spinner; toolbar room; header order; panes only with content; native
+ select-all
+
+---
+ .../src/renderer/components/EditorPane.tsx    |  8 +++++++
+ .../src/renderer/components/HeaderBar.tsx     | 16 +++++++++----
+ .../src/renderer/components/MobileDrawer.tsx  |  8 +++++--
+ .../src/renderer/components/TabBar.tsx        | 15 ++++++++----
+ apps/desktop/src/renderer/controller.ts       | 18 ++++++++++++++
+ apps/desktop/src/renderer/styles/adwaita.css  | 13 +++++++---
+ apps/desktop/test/workspaces.test.ts          | 20 ++++++++++++++++
+ apps/mobile/src/androidApp.ts                 | 20 ++++++++++++----
+ docs/the-app/android.md                       |  6 ++++-
+ packages/editor/src/formatMenu.ts             | 24 ++++++++++++++++---
+ packages/service/src/api.ts                   |  2 +-
+ packages/service/src/service.ts               | 22 +++++++++++++++--
+ 12 files changed, 148 insertions(+), 24 deletions(-)
+
+diff --git a/apps/desktop/src/renderer/components/EditorPane.tsx b/apps/desktop/src/renderer/components/EditorPane.tsx
+index 65c8989..edcd39d 100644
+--- a/apps/desktop/src/renderer/components/EditorPane.tsx
++++ b/apps/desktop/src/renderer/components/EditorPane.tsx
+@@ -255,6 +255,14 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
+ 
+   return (
+     <div class={`editor-pane ${showEditor && cur?.exists ? 'has-attributes' : ''} ${showEditor && ctl.automationHits.value.hits.length > 0 && ctl.automationHits.value.path === cur?.path ? 'has-automation' : ''} ${showEditor && ctl.children.value.length > 0 ? 'has-children' : ''} ${ctl.settings.value.childrenDocked ? 'bar-docked' : ''} ${ctl.typingMode() ? 'typing' : ''} ${cur && !cur.exists ? 'no-page' : ''}`}>
++      {ctl.pagesLoading.value > 0 && (
++        <div class="page-spinner" role="status" aria-label="Opening the page">
++          <svg class="busy-ring indeterminate" width="36" height="36" viewBox="0 0 56 56" aria-hidden="true">
++            <circle class="busy-track" cx="28" cy="28" r="22" fill="none" stroke-width="5" />
++            <circle class="busy-arc" cx="28" cy="28" r="22" fill="none" stroke-width="5" stroke-linecap="round" stroke-dasharray="38.7 138.2" transform="rotate(-90 28 28)" />
++          </svg>
++        </div>
++      )}
+       {conflict && (
+         <div class="banner" role="alert">
+           <span>{conflict.diskHash === null ? 'This page was removed from disk, but you have unsaved changes.' : 'This page changed on disk while you were editing it.'}</span>
+diff --git a/apps/desktop/src/renderer/components/HeaderBar.tsx b/apps/desktop/src/renderer/components/HeaderBar.tsx
+index d1f4f60..549071e 100644
+--- a/apps/desktop/src/renderer/components/HeaderBar.tsx
++++ b/apps/desktop/src/renderer/components/HeaderBar.tsx
+@@ -5,7 +5,7 @@ import type { Controller } from '../controller';
+ import { Icon } from './icons';
+ import { narrow, drawerPane } from '../layout';
+ import { MenuItem, Popover } from './Overlays';
+-import { TabBar } from './TabBar';
++import { PhoneTabCount, TabBar } from './TabBar';
+ 
+ const ws0 = (ctl: Controller): string => ctl.workspace.value?.root ?? '';
+ 
+@@ -45,9 +45,11 @@ export function HeaderBar({ ctl }: { ctl: Controller }): JSX.Element {
+           )}
+           {ws && !single && (
+             <>
+-              <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title={drawer ? 'Pages, outline, links and menu' : 'Pages (F9)'} aria-label={drawer ? 'Open the menu' : 'Toggle page sidebar'} aria-pressed={s.showLeft} onClick={() => { if (drawer && !s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
+-                <Icon name={drawer ? 'menu' : 'sidebar-left'} />
+-              </button>
++              {!drawer && (
++                <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title={drawer ? 'Pages, outline, links and menu' : 'Pages (F9)'} aria-label={drawer ? 'Open the menu' : 'Toggle page sidebar'} aria-pressed={s.showLeft} onClick={() => { if (drawer && !s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
++                  <Icon name={drawer ? 'menu' : 'sidebar-left'} />
++                </button>
++              )}
+             </>
+           )}
+         </div>
+@@ -79,6 +81,12 @@ export function HeaderBar({ ctl }: { ctl: Controller }): JSX.Element {
+               <PluginsMenu ctl={ctl} close={() => setPlug(false)} />
+             </Popover>
+           </div>}
++          {narrow.value && <PhoneTabCount ctl={ctl} />}
++          {drawer && (
++            <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title="Pages, outline, links and menu" aria-label="Open the menu" aria-pressed={s.showLeft} onClick={() => { if (!s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
++              <Icon name="menu" />
++            </button>
++          )}
+           {!drawer && <div class="menu-anchor">
+             <button class={`icon-button ${menu ? 'active' : ''}`} title="Main menu" aria-label="Main menu" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+               <Icon name="menu" />
+diff --git a/apps/desktop/src/renderer/components/MobileDrawer.tsx b/apps/desktop/src/renderer/components/MobileDrawer.tsx
+index ae40959..5670663 100644
+--- a/apps/desktop/src/renderer/components/MobileDrawer.tsx
++++ b/apps/desktop/src/renderer/components/MobileDrawer.tsx
+@@ -21,10 +21,14 @@ const PANES: Array<{ id: DrawerPane; label: string; icon: IconName }> = [
+  * and search), the outline and links of the open page, and the main menu. Choosing something that leads to the page closes it.
+  */
+ export function MobileDrawer({ ctl, rootKey }: { ctl: Controller; rootKey: string }): JSX.Element {
+-  const pane = drawerPane.value;
+   const config = ctl.activeConfig.value;
+   // a canvas has no headings: its tab lists the objects on it
+   const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? '');
++  // the outline and the links are tabs only while the page has something to show in them (the pages and the menu always are)
++  const hasOutline = onCanvas || ctl.outline.value.length > 0;
++  const hasLinks = !config && ctl.links.value.filter((l) => !(l.kind === 'page' && l.target === '')).length + ctl.backlinks.value.length > 0;
++  const panes = PANES.filter((p) => (p.id === 'outline' ? hasOutline : p.id === 'links' ? hasLinks : true));
++  const pane = panes.some((p) => p.id === drawerPane.value) ? drawerPane.value : 'pages';
+   const close = (): void => {
+     if (ctl.settings.value.showLeft) ctl.toggleLeft();
+   };
+@@ -43,7 +47,7 @@ export function MobileDrawer({ ctl, rootKey }: { ctl: Controller; rootKey: strin
+   return (
+     <div class="mobile-drawer">
+       <div class="drawer-tabs segmented" role="tablist" aria-label="Menu section">
+-        {PANES.filter((p) => !(config && p.id === 'links')).map((p) => (
++        {panes.map((p) => (
+           <button key={p.id} role="tab" aria-selected={pane === p.id} class={pane === p.id ? 'on' : ''} onClick={() => pick(p.id)}>
+             <Icon name={p.icon} size={16} />
+             <span class="drawer-tab-label">{p.id === 'outline' && onCanvas ? 'Objects' : p.label}</span>
+diff --git a/apps/desktop/src/renderer/components/TabBar.tsx b/apps/desktop/src/renderer/components/TabBar.tsx
+index 2198a20..6ca43b9 100644
+--- a/apps/desktop/src/renderer/components/TabBar.tsx
++++ b/apps/desktop/src/renderer/components/TabBar.tsx
+@@ -182,6 +182,16 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
+  * Tabs on a narrow screen, as on Chrome for Android: the bar shows the page that is open and a button with the number of tabs,
+  * and that button opens all the tabs as cards to choose from, close or add to.
+  */
++/** The button with the number of tabs, in the header bar of a narrow window (it opens the tabs as cards). */
++export function PhoneTabCount({ ctl }: { ctl: Controller }): JSX.Element {
++  const n = ctl.tabs.value.length;
++  return (
++    <button class="phone-tab-count" aria-label={`${n} open tabs. Show all`} title="All tabs" onClick={() => { ctl.tabSwitcherOpen.value = true; }}>
++      <span>{n > 99 ? ':D' : n}</span>
++    </button>
++  );
++}
++
+ function PhoneTabs({ ctl, title }: { ctl: Controller; title: (t: Tab) => string }): JSX.Element {
+   const tabs = ctl.tabs.value;
+   const activeId = ctl.activeTabId.value;
+@@ -191,9 +201,6 @@ function PhoneTabs({ ctl, title }: { ctl: Controller; title: (t: Tab) => string
+   return (
+     <div class="tabbar phone-tabs">
+       <span class="phone-tab-title">{active ? title(active) : 'Cave Notes'}</span>
+-      <button class="phone-tab-count" aria-label={`${tabs.length} open tabs. Show all`} title="All tabs" onClick={() => setOpen(true)}>
+-        <span>{tabs.length > 99 ? ':D' : tabs.length}</span>
+-      </button>
+       {open && <TabSwitcher ctl={ctl} title={title} onClose={() => setOpen(false)} />}
+     </div>
+   );
+@@ -207,11 +214,11 @@ function TabSwitcher({ ctl, title, onClose }: { ctl: Controller; title: (t: Tab)
+   return (
+     <div class="tab-switcher" role="dialog" aria-label="Open tabs">
+       <div class="tab-switcher-head">
+-        <button class="icon-button" aria-label="Back to the page" onClick={onClose}><Icon name="close" size={18} /></button>
+         <strong>{tabs.length === 1 ? '1 tab' : `${tabs.length} tabs`}</strong>
+         <span class="tab-switcher-actions">
+           <button class="pill-button suggested" onClick={() => { onClose(); void ctl.newTab(); }}>New tab</button>
+         </span>
++        <button class="icon-button" aria-label="Back to the page" onClick={onClose}><Icon name="close" size={18} /></button>
+       </div>
+       <div class="tab-cards">
+         {tabs.map((t) => {
+diff --git a/apps/desktop/src/renderer/controller.ts b/apps/desktop/src/renderer/controller.ts
+index a62c8c2..e696cab 100644
+--- a/apps/desktop/src/renderer/controller.ts
++++ b/apps/desktop/src/renderer/controller.ts
+@@ -2280,7 +2280,25 @@ export class Controller {
+    * hidden page, its nearest visible ancestor), unless `reveal: false` says the tree is where this came from.
+    * `cursor: 'end'` puts the cursor under the last line (a page that was just created).
+    */
++  /** How many pages are taking long to open (a spinner shows while it is more than none). */
++  readonly pagesLoading = signal(0);
++
+   async openPage(path: string, opts: { fragment?: string | null; focus?: boolean; reveal?: boolean; force?: boolean; cursor?: 'end'; nav?: 'push' | 'soft' | 'skip' } = {}): Promise<void> {
++    // a page that is slow to come (a busy phone, a big workspace) shows a spinner after a moment, so it does not look stuck
++    let counted = false;
++    const timer = window.setTimeout(() => {
++      counted = true;
++      this.pagesLoading.value++;
++    }, 250);
++    try {
++      await this.openPageNow(path, opts);
++    } finally {
++      window.clearTimeout(timer);
++      if (counted) this.pagesLoading.value--;
++    }
++  }
++
++  private async openPageNow(path: string, opts: { fragment?: string | null; focus?: boolean; reveal?: boolean; force?: boolean; cursor?: 'end'; nav?: 'push' | 'soft' | 'skip' } = {}): Promise<void> {
+     if (this.navTimer) {
+       clearTimeout(this.navTimer);
+       this.navTimer = null;
+diff --git a/apps/desktop/src/renderer/styles/adwaita.css b/apps/desktop/src/renderer/styles/adwaita.css
+index 00aa796..d314bae 100644
+--- a/apps/desktop/src/renderer/styles/adwaita.css
++++ b/apps/desktop/src/renderer/styles/adwaita.css
+@@ -418,7 +418,7 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
+ .editor-pane.has-children .editor-host { margin-bottom: var(--bar-h); }
+ .editor-pane.typing .children-bar { display: none; }
+ .editor-pane.typing.has-children .editor-host, .editor-pane.typing.has-children.bar-docked .editor-host { margin-bottom: 0; }
+-.editor-pane.typing.has-children .cm-content { padding-bottom: 24px; }
++
+ .editor-pane.has-children.bar-docked .editor-host { margin-bottom: var(--bar-h-open); }
+ .editor-pane.no-page .status-page { margin-bottom: var(--bar-h-open); }
+ .children-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; min-height: 44px; display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px 6px 14px; box-sizing: border-box; background: var(--window-bg); border-top: 1px solid var(--border); transition: height 0.18s ease, box-shadow 0.18s ease; overflow: hidden; }
+@@ -1254,8 +1254,9 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+ /* the indicator of a page (indicatorText:): a dot at the right edge of its row */
+ .tree-row .row-label { flex: 1 1 auto; min-width: 0; }
+ .row-indicator { flex: none; margin-left: auto; margin-right: 6px; width: 18px; height: 18px; padding: 0; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 9px; }
+-.row-indicator:hover { background: color-mix(in srgb, var(--accent-bg) 25%, transparent); }
+-.row-indicator-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-bg, var(--accent-color)); }
++.row-indicator { color: inherit; }
++.row-indicator:hover { background: color-mix(in srgb, currentColor 18%, transparent); }
++.row-indicator-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+ .indicator-text { max-width: 22rem; padding: 6px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+ 
+ /* plugins with their own icon and description */
+@@ -1300,3 +1301,9 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+ .busy-label { font-weight: 600; overflow-wrap: anywhere; }
+ .busy-pct { color: var(--dim-fg); font-variant-numeric: tabular-nums; }
+ @media (prefers-reduced-motion: reduce) { .busy-ring.indeterminate { animation-duration: 3s; } }
++
++/* a page that is slow to open */
++.page-spinner { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex; padding: 8px; border-radius: 999px; background: var(--popover-bg, var(--view-bg)); color: var(--view-fg); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); pointer-events: none; }
++
++/* the docked toolbar lies over the bottom of the window: room below the last line, so it never covers text */
++.editor-pane.typing .cm-content, .editor-pane.typing.has-children .cm-content { padding-bottom: calc(var(--dock-h, 0px) + 24px); }
+diff --git a/apps/desktop/test/workspaces.test.ts b/apps/desktop/test/workspaces.test.ts
+index 87c1e89..75cf272 100644
+--- a/apps/desktop/test/workspaces.test.ts
++++ b/apps/desktop/test/workspaces.test.ts
+@@ -189,6 +189,26 @@ describe('looking for workspaces', () => {
+   });
+ });
+ 
++describe('opening again from a saved index', () => {
++  it('is usable at once, and looks for changes only when asked', async () => {
++    await write('A.md', '# A\n');
++    const dataDir = path.join(root, '..', `cave-data-${path.basename(root)}`);
++    await svc.openWorkspace(root, { dataDir });
++    await waitReady();
++    await svc.closeWorkspace();
++    events.length = 0;
++    await write('B.md', '# B\n'); // made while the app was closed
++    const info = await svc.openWorkspace(root, { dataDir, deferIndexing: true });
++    expect(info.name).toBe(path.basename(root));
++    // the tree reads the disk, so both pages are there; the index has not looked yet
++    expect((await svc.listChildren(null)).map((c) => c.path).sort()).toEqual(['A.md', 'B.md']);
++    expect(events.filter((e) => e.event === 'index:status').some((e) => (e.payload as { state?: string }).state === 'indexing')).toBe(false);
++    await svc.refreshIndex();
++    expect((await svc.search('B', {})).results.some((r) => r.path === 'B.md')).toBe(true);
++    await fs.rm(dataDir, { recursive: true, force: true });
++  });
++});
++
+ describe('the list of workspaces opened before', () => {
+   it('leaves out what a .caveignore hides, as the scan does, and keeps what is outside the scanned folders', async () => {
+     for (const d of ['One', 'Two/docs', 'Big/Ws', 'Skip/Me']) await write(`${d}/.cave-notes/workspace.yaml`, '');
+diff --git a/apps/mobile/src/androidApp.ts b/apps/mobile/src/androidApp.ts
+index 450d022..8a3e0ae 100644
+--- a/apps/mobile/src/androidApp.ts
++++ b/apps/mobile/src/androidApp.ts
+@@ -153,14 +153,26 @@ export async function createAndroidDeps(): Promise<{ deps: Deps; settings: Andro
+       get(target, method: string) {
+         if (method === 'openWorkspace') {
+           return (given: string) => {
+-            a.opened ??= step(`open the workspace ${root.split('/').pop()}`, () => prime(root, 'open')
+-              .then(() => target.openWorkspace(given, root === docsDir ? ({ docs: true, dataDir: `${paths.files}/index/${hash(root)}`, notes: { exts: ['.md'], create: '.md' }, firstDay: settings.get().firstDayOfWeek } as never) : {
+-                dataDir: `${paths.files}/index/${hash(root)}`,
++            a.opened ??= step(`open the workspace ${root.split('/').pop()}`, async () => {
++              const dataDir = `${paths.files}/index/${hash(root)}`;
++              // An index saved earlier: open from it at once. Listing the whole folder (17 s for 18,000 entries) and looking for
++              // what changed since then happen afterwards, in the background; the first opening of a folder still waits for them.
++              const saved = root !== docsDir && (await own.stat(`${dataDir}/index.db`).then((st) => st.isFile() && st.size > 0, () => false));
++              if (!saved) await prime(root, 'open');
++              const info = await target.openWorkspace(given, root === docsDir ? ({ docs: true, dataDir, notes: { exts: ['.md'], create: '.md' }, firstDay: settings.get().firstDayOfWeek } as never) : ({
++                dataDir,
+                 notes: { exts: settings.get().noteExts, create: settings.get().noteCreate },
+                 deviceName: settings.get().deviceName,
+                 firstDay: settings.get().firstDayOfWeek,
+                 globalsEnabled: false,
+-              } as never)))
++                deferIndexing: saved,
++              } as never));
++              if (saved) {
++                plog.line('INFO', 'open', `opened from the saved index; looking for changes in the background`);
++                setTimeout(() => void prime(root, 'background').then(() => target.refreshIndex()).catch((e: unknown) => plog.line('WARN', 'open', `background refresh failed: ${(e as Error)?.message ?? e}`)), 2500);
++              }
++              return info;
++            })
+               .catch((err: unknown) => {
+                 a.opened = null;
+                 throw err;
+diff --git a/docs/the-app/android.md b/docs/the-app/android.md
+index 2836c4f..97ecad8 100644
+--- a/docs/the-app/android.md
++++ b/docs/the-app/android.md
+@@ -30,13 +30,17 @@ Choosing something closes its panel. The toolbar stays where it is while you sel
+ 
+ ## Typing and reading: two modes
+ 
+-The page is always in one of two modes, never in between:
++The page is always in one of two modes, never in between (the toolbar never covers the last lines of the page: there is room for it below the text):
+ 
+ - **Typing**: the editor has the focus and the keyboard is up. The toolbar is shown and the sub-page bar is out of the way.
+ - **Reading**: the keyboard is down and the editor does not have the focus. The sub-page bar is shown and the toolbar is not.
+ 
+ When you put the keyboard away (the back gesture, or the keyboard's own button), the editor lets go of the focus, so you are reading again. This is done only when the app has **seen the keyboard go down**. With a hardware keyboard Android usually shows no on-screen keyboard at all; nothing then goes down, so the editor keeps the focus for as long as you type, and tapping outside the text leaves the typing mode. While the keyboard is up for something other than the editor (the search box, a dialog) the sub-page bar stays out of the way too.
+ 
++## Opening again is quick
++
++The first time a workspace is opened, the app reads the whole folder and builds a search index, which can take minutes on a big one. After that the index is kept, and opening the workspace again shows it at once; the look at what changed since (files from your sync tool, for instance) then runs in the background a few seconds later. A page that takes more than a moment to open shows a small spinner at the top.
++
+ ## Workspaces and tabs
+ 
+ Open **Workspaces and tabs…** in the menu, or tap the tab counter at the top. The list at the bottom shows every workspace you have added: tap one to go to it (its tab if it is open, a new tab if not), **Add workspace…** picks another folder, and the ✕ on a row takes it off the list (the folder and its notes are left alone; add the folder again to bring it back). Several workspaces can be open at once, each in its own tab; each one keeps its own search index in memory, so on a big workspace close the tabs you are done with.
+diff --git a/packages/editor/src/formatMenu.ts b/packages/editor/src/formatMenu.ts
+index c925fdb..5417f8e 100644
+--- a/packages/editor/src/formatMenu.ts
++++ b/packages/editor/src/formatMenu.ts
+@@ -681,8 +681,11 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
+       document.removeEventListener('keydown', onKey, true);
+       window.removeEventListener('blur', closeFormatMenu);
+       menu.remove();
++      if (dock) document.documentElement.style.removeProperty('--dock-h');
+     },
+   };
++  // the docked menu lies over the bottom of the window: the page keeps that much room below its last line
++  if (dock) document.documentElement.style.setProperty('--dock-h', `${menu.offsetHeight}px`);
+ }
+ 
+ let savedViewsHost: (() => Array<{ label: string; template: string }>) | null = null;
+@@ -707,6 +710,8 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
+   /** what the last pointer in the editor was: 'mouse', 'pen' or 'touch' */
+   let lastPointer = 'mouse';
+   let settle: ReturnType<typeof setTimeout> | undefined;
++  let settlePending = false;
++  let burstStart: { from: number; to: number } | null = null;
+   return [
+     EditorView.domEventHandlers({
+       pointerdown: (e) => {
+@@ -756,18 +761,31 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
+       clearTimeout(settle);
+       // on a touch screen the menu is there whenever the editor has the focus (and so the keyboard is up), not only for a selection
+       if (view.state.readOnly || !view.hasFocus) {
++        settlePending = false;
+         if (open?.dock) closeFormatMenu();
+         return;
+       }
++      if (!settlePending) burstStart = u.startState.selection.main;
++      settlePending = true;
+       settle = setTimeout(() => {
++        settlePending = false;
++        const was = burstStart;
++        burstStart = null;
+         if (view.state.readOnly || !view.hasFocus) return;
+         // The system's own "Select all" selects what is drawn, and a long page is drawn a part at a time: a selection that is
+-        // exactly the drawn part of a longer page was meant to be all of it.
++        // (nearly) the drawn part of a longer page, reached in one jump from a small selection or none, was meant to be all of
++        // it. (Dragging a handle moves a little at a time, so it is not mistaken for this; the first test, for a selection that
++        // is exactly the drawn part, needs no jump.)
+         {
+           const m = view.state.selection.main;
+           const vp = view.viewport;
+-          if (m.from === vp.from && m.to === vp.to && (vp.from > 0 || vp.to < view.state.doc.length) && m.to - m.from > 200) {
+-            view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
++          const len = view.state.doc.length;
++          const drawn = vp.to - vp.from;
++          const partial = vp.from > 0 || vp.to < len;
++          const exact = m.from === vp.from && m.to === vp.to && m.to - m.from > 200;
++          const jumped = !!was && drawn > 200 && m.to - m.from >= drawn * 0.85 && was.to - was.from < drawn * 0.3 && m.from <= vp.from + drawn * 0.1 && m.to >= vp.to - drawn * 0.1;
++          if (partial && (exact || jumped) && !(m.from === 0 && m.to === len)) {
++            view.dispatch({ selection: { anchor: 0, head: len } });
+             return;
+           }
+         }
+diff --git a/packages/service/src/api.ts b/packages/service/src/api.ts
+index 260267c..387c1ed 100644
+--- a/packages/service/src/api.ts
++++ b/packages/service/src/api.ts
+@@ -427,7 +427,7 @@ export interface AutomationLogEntry {
+ }
+ 
+ export interface WorkerApi {
+-  openWorkspace(root: string, opts?: { file?: string; config?: boolean; docs?: boolean; dataDir?: string; notes?: NoteTypes; firstDay?: number }): Promise<WorkspaceInfo>;
++  openWorkspace(root: string, opts?: { file?: string; config?: boolean; docs?: boolean; deferIndexing?: boolean; dataDir?: string; notes?: NoteTypes; firstDay?: number }): Promise<WorkspaceInfo>;
+   closeWorkspace(): Promise<void>;
+   /** Sub-pages of a page (null = top level). Pages hidden from the tree (and templates) are left out; `unlisted: true` brings them (templates included) back. */
+   /** `bareFolders: false` leaves out folders that hold no notes (the page tree can be set to do that; the sub-page bar never does). */
+diff --git a/packages/service/src/service.ts b/packages/service/src/service.ts
+index 1146ea5..00ebf7d 100644
+--- a/packages/service/src/service.ts
++++ b/packages/service/src/service.ts
+@@ -79,6 +79,8 @@ interface Open {
+   indexing: Promise<void>;
+   /** true while that background run is still going (moves log it: a plan made before indexing ends reads many files) */
+   indexingNow: boolean;
++  /** opened from a saved index, with the look at what changed since still to be made (see refreshIndex) */
++  deferredIndexing?: boolean;
+   /** which pages are hidden from the tree, as one string, to notice when that changes */
+   hiddenSig: string;
+   /** a fingerprint of the settings taken from other workspaces, to notice when they change */
+@@ -168,7 +170,7 @@ export class WorkspaceService implements WorkerApi {
+ 
+   // ---------------------------------------------------------------- workspace
+ 
+-  async openWorkspace(rootDir: string, opts: { file?: string; config?: boolean; docs?: boolean; dataDir?: string; notes?: NoteTypes; deviceName?: string; firstDay?: number; globalDir?: string; globalsEnabled?: boolean; appConfigDir?: string; shippedDefaultsDir?: string } = {}): Promise<WorkspaceInfo> {
++  async openWorkspace(rootDir: string, opts: { file?: string; config?: boolean; docs?: boolean; deferIndexing?: boolean; dataDir?: string; notes?: NoteTypes; deviceName?: string; firstDay?: number; globalDir?: string; globalsEnabled?: boolean; appConfigDir?: string; shippedDefaultsDir?: string } = {}): Promise<WorkspaceInfo> {
+     await this.closeWorkspace();
+     const root = path.resolve(rootDir);
+     const tOpen = performance.now();
+@@ -241,7 +243,16 @@ export class WorkspaceService implements WorkerApi {
+     };
+ 
+     // Index in the background; the tree already works from the disk.
+-    o.indexing = this.indexInBackground(o);
++    // Opening again with an index saved earlier: the workspace is usable from that index at once, and looking for what
++    // changed since (the slow part of a big folder) waits until the caller asks for it with refreshIndex().
++    if (opts.deferIndexing && !lite) {
++      o.deferredIndexing = true;
++      const st = o.index.stats();
++      this.emit('index:status', { state: 'ready', pages: st.pages, files: st.files, ms: 0, percent: 100, phase: 'ready' });
++      this.emit('tree:changed', { parents: 'all' });
++    } else {
++      o.indexing = this.indexInBackground(o);
++    }
+     log.info(`workspace open after ${Math.round(performance.now() - tOpen)} ms (indexing continues in the background)`);
+     if (docs) return { root, name: 'Documentation', config: true, docs: true };
+     if (config) return { root, name: `${path.basename(path.dirname(root))} (config)`, config: true };
+@@ -1210,6 +1221,13 @@ export class WorkspaceService implements WorkerApi {
+   async refreshIndex(): Promise<void> {
+     const o = this.open;
+     if (o.single || o.config || o.docs) return;
++    if (o.deferredIndexing) {
++      // the first look at what changed since the saved index: the full background run, with its status and the automations
++      o.deferredIndexing = false;
++      o.indexing = this.indexInBackground(o);
++      await o.indexing;
++      return;
++    }
+     await o.index.reconcile();
+   }
+ 
+-- 
+2.43.0
+

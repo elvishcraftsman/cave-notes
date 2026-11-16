@@ -681,8 +681,11 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
       document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('blur', closeFormatMenu);
       menu.remove();
+      if (dock) document.documentElement.style.removeProperty('--dock-h');
     },
   };
+  // the docked menu lies over the bottom of the window: the page keeps that much room below its last line
+  if (dock) document.documentElement.style.setProperty('--dock-h', `${menu.offsetHeight}px`);
 }
 
 let savedViewsHost: (() => Array<{ label: string; template: string }>) | null = null;
@@ -707,6 +710,8 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
   /** what the last pointer in the editor was: 'mouse', 'pen' or 'touch' */
   let lastPointer = 'mouse';
   let settle: ReturnType<typeof setTimeout> | undefined;
+  let settlePending = false;
+  let burstStart: { from: number; to: number } | null = null;
   return [
     EditorView.domEventHandlers({
       pointerdown: (e) => {
@@ -756,18 +761,31 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
       clearTimeout(settle);
       // on a touch screen the menu is there whenever the editor has the focus (and so the keyboard is up), not only for a selection
       if (view.state.readOnly || !view.hasFocus) {
+        settlePending = false;
         if (open?.dock) closeFormatMenu();
         return;
       }
+      if (!settlePending) burstStart = u.startState.selection.main;
+      settlePending = true;
       settle = setTimeout(() => {
+        settlePending = false;
+        const was = burstStart;
+        burstStart = null;
         if (view.state.readOnly || !view.hasFocus) return;
         // The system's own "Select all" selects what is drawn, and a long page is drawn a part at a time: a selection that is
-        // exactly the drawn part of a longer page was meant to be all of it.
+        // (nearly) the drawn part of a longer page, reached in one jump from a small selection or none, was meant to be all of
+        // it. (Dragging a handle moves a little at a time, so it is not mistaken for this; the first test, for a selection that
+        // is exactly the drawn part, needs no jump.)
         {
           const m = view.state.selection.main;
           const vp = view.viewport;
-          if (m.from === vp.from && m.to === vp.to && (vp.from > 0 || vp.to < view.state.doc.length) && m.to - m.from > 200) {
-            view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+          const len = view.state.doc.length;
+          const drawn = vp.to - vp.from;
+          const partial = vp.from > 0 || vp.to < len;
+          const exact = m.from === vp.from && m.to === vp.to && m.to - m.from > 200;
+          const jumped = !!was && drawn > 200 && m.to - m.from >= drawn * 0.85 && was.to - was.from < drawn * 0.3 && m.from <= vp.from + drawn * 0.1 && m.to >= vp.to - drawn * 0.1;
+          if (partial && (exact || jumped) && !(m.from === 0 && m.to === len)) {
+            view.dispatch({ selection: { anchor: 0, head: len } });
             return;
           }
         }

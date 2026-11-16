@@ -2280,7 +2280,25 @@ export class Controller {
    * hidden page, its nearest visible ancestor), unless `reveal: false` says the tree is where this came from.
    * `cursor: 'end'` puts the cursor under the last line (a page that was just created).
    */
+  /** How many pages are taking long to open (a spinner shows while it is more than none). */
+  readonly pagesLoading = signal(0);
+
   async openPage(path: string, opts: { fragment?: string | null; focus?: boolean; reveal?: boolean; force?: boolean; cursor?: 'end'; nav?: 'push' | 'soft' | 'skip' } = {}): Promise<void> {
+    // a page that is slow to come (a busy phone, a big workspace) shows a spinner after a moment, so it does not look stuck
+    let counted = false;
+    const timer = window.setTimeout(() => {
+      counted = true;
+      this.pagesLoading.value++;
+    }, 250);
+    try {
+      await this.openPageNow(path, opts);
+    } finally {
+      window.clearTimeout(timer);
+      if (counted) this.pagesLoading.value--;
+    }
+  }
+
+  private async openPageNow(path: string, opts: { fragment?: string | null; focus?: boolean; reveal?: boolean; force?: boolean; cursor?: 'end'; nav?: 'push' | 'soft' | 'skip' } = {}): Promise<void> {
     if (this.navTimer) {
       clearTimeout(this.navTimer);
       this.navTimer = null;

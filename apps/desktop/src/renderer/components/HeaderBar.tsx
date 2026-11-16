@@ -5,7 +5,7 @@ import type { Controller } from '../controller';
 import { Icon } from './icons';
 import { narrow, drawerPane } from '../layout';
 import { MenuItem, Popover } from './Overlays';
-import { TabBar } from './TabBar';
+import { PhoneTabCount, TabBar } from './TabBar';
 
 const ws0 = (ctl: Controller): string => ctl.workspace.value?.root ?? '';
 
@@ -45,9 +45,11 @@ export function HeaderBar({ ctl }: { ctl: Controller }): JSX.Element {
           )}
           {ws && !single && (
             <>
-              <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title={drawer ? 'Pages, outline, links and menu' : 'Pages (F9)'} aria-label={drawer ? 'Open the menu' : 'Toggle page sidebar'} aria-pressed={s.showLeft} onClick={() => { if (drawer && !s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
-                <Icon name={drawer ? 'menu' : 'sidebar-left'} />
-              </button>
+              {!drawer && (
+                <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title={drawer ? 'Pages, outline, links and menu' : 'Pages (F9)'} aria-label={drawer ? 'Open the menu' : 'Toggle page sidebar'} aria-pressed={s.showLeft} onClick={() => { if (drawer && !s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
+                  <Icon name={drawer ? 'menu' : 'sidebar-left'} />
+                </button>
+              )}
             </>
           )}
         </div>
@@ -79,6 +81,12 @@ export function HeaderBar({ ctl }: { ctl: Controller }): JSX.Element {
               <PluginsMenu ctl={ctl} close={() => setPlug(false)} />
             </Popover>
           </div>}
+          {narrow.value && <PhoneTabCount ctl={ctl} />}
+          {drawer && (
+            <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title="Pages, outline, links and menu" aria-label="Open the menu" aria-pressed={s.showLeft} onClick={() => { if (!s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
+              <Icon name="menu" />
+            </button>
+          )}
           {!drawer && <div class="menu-anchor">
             <button class={`icon-button ${menu ? 'active' : ''}`} title="Main menu" aria-label="Main menu" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
               <Icon name="menu" />

@@ -79,6 +79,8 @@ interface Open {
   indexing: Promise<void>;
   /** true while that background run is still going (moves log it: a plan made before indexing ends reads many files) */
   indexingNow: boolean;
+  /** opened from a saved index, with the look at what changed since still to be made (see refreshIndex) */
+  deferredIndexing?: boolean;
   /** which pages are hidden from the tree, as one string, to notice when that changes */
   hiddenSig: string;
   /** a fingerprint of the settings taken from other workspaces, to notice when they change */
@@ -168,7 +170,7 @@ export class WorkspaceService implements WorkerApi {
 
   // ---------------------------------------------------------------- workspace
 
-  async openWorkspace(rootDir: string, opts: { file?: string; config?: boolean; docs?: boolean; dataDir?: string; notes?: NoteTypes; deviceName?: string; firstDay?: number; globalDir?: string; globalsEnabled?: boolean; appConfigDir?: string; shippedDefaultsDir?: string } = {}): Promise<WorkspaceInfo> {
+  async openWorkspace(rootDir: string, opts: { file?: string; config?: boolean; docs?: boolean; deferIndexing?: boolean; dataDir?: string; notes?: NoteTypes; deviceName?: string; firstDay?: number; globalDir?: string; globalsEnabled?: boolean; appConfigDir?: string; shippedDefaultsDir?: string } = {}): Promise<WorkspaceInfo> {
     await this.closeWorkspace();
     const root = path.resolve(rootDir);
     const tOpen = performance.now();
@@ -241,7 +243,16 @@ export class WorkspaceService implements WorkerApi {
     };
 
     // Index in the background; the tree already works from the disk.
-    o.indexing = this.indexInBackground(o);
+    // Opening again with an index saved earlier: the workspace is usable from that index at once, and looking for what
+    // changed since (the slow part of a big folder) waits until the caller asks for it with refreshIndex().
+    if (opts.deferIndexing && !lite) {
+      o.deferredIndexing = true;
+      const st = o.index.stats();
+      this.emit('index:status', { state: 'ready', pages: st.pages, files: st.files, ms: 0, percent: 100, phase: 'ready' });
+      this.emit('tree:changed', { parents: 'all' });
+    } else {
+      o.indexing = this.indexInBackground(o);
+    }
     log.info(`workspace open after ${Math.round(performance.now() - tOpen)} ms (indexing continues in the background)`);
     if (docs) return { root, name: 'Documentation', config: true, docs: true };
     if (config) return { root, name: `${path.basename(path.dirname(root))} (config)`, config: true };
@@ -1210,6 +1221,13 @@ export class WorkspaceService implements WorkerApi {
   async refreshIndex(): Promise<void> {
     const o = this.open;
     if (o.single || o.config || o.docs) return;
+    if (o.deferredIndexing) {
+      // the first look at what changed since the saved index: the full background run, with its status and the automations
+      o.deferredIndexing = false;
+      o.indexing = this.indexInBackground(o);
+      await o.indexing;
+      return;
+    }
     await o.index.reconcile();
   }
 

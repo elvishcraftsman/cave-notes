@@ -30,12 +30,16 @@ Choosing something closes its panel. The toolbar stays where it is while you sel
 
 ## Typing and reading: two modes
 
-The page is always in one of two modes, never in between:
+The page is always in one of two modes, never in between (the toolbar never covers the last lines of the page: there is room for it below the text):
 
 - **Typing**: the editor has the focus and the keyboard is up. The toolbar is shown and the sub-page bar is out of the way.
 - **Reading**: the keyboard is down and the editor does not have the focus. The sub-page bar is shown and the toolbar is not.
 
 When you put the keyboard away (the back gesture, or the keyboard's own button), the editor lets go of the focus, so you are reading again. This is done only when the app has **seen the keyboard go down**. With a hardware keyboard Android usually shows no on-screen keyboard at all; nothing then goes down, so the editor keeps the focus for as long as you type, and tapping outside the text leaves the typing mode. While the keyboard is up for something other than the editor (the search box, a dialog) the sub-page bar stays out of the way too.
+
+## Opening again is quick
+
+The first time a workspace is opened, the app reads the whole folder and builds a search index, which can take minutes on a big one. After that the index is kept, and opening the workspace again shows it at once; the look at what changed since (files from your sync tool, for instance) then runs in the background a few seconds later. A page that takes more than a moment to open shows a small spinner at the top.
 
 ## Workspaces and tabs
 

@@ -189,6 +189,26 @@ describe('looking for workspaces', () => {
   });
 });
 
+describe('opening again from a saved index', () => {
+  it('is usable at once, and looks for changes only when asked', async () => {
+    await write('A.md', '# A\n');
+    const dataDir = path.join(root, '..', `cave-data-${path.basename(root)}`);
+    await svc.openWorkspace(root, { dataDir });
+    await waitReady();
+    await svc.closeWorkspace();
+    events.length = 0;
+    await write('B.md', '# B\n'); // made while the app was closed
+    const info = await svc.openWorkspace(root, { dataDir, deferIndexing: true });
+    expect(info.name).toBe(path.basename(root));
+    // the tree reads the disk, so both pages are there; the index has not looked yet
+    expect((await svc.listChildren(null)).map((c) => c.path).sort()).toEqual(['A.md', 'B.md']);
+    expect(events.filter((e) => e.event === 'index:status').some((e) => (e.payload as { state?: string }).state === 'indexing')).toBe(false);
+    await svc.refreshIndex();
+    expect((await svc.search('B', {})).results.some((r) => r.path === 'B.md')).toBe(true);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+});
+
 describe('the list of workspaces opened before', () => {
   it('leaves out what a .caveignore hides, as the scan does, and keeps what is outside the scanned folders', async () => {
     for (const d of ['One', 'Two/docs', 'Big/Ws', 'Skip/Me']) await write(`${d}/.cave-notes/workspace.yaml`, '');

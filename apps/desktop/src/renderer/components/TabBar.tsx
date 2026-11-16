@@ -182,6 +182,16 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
  * Tabs on a narrow screen, as on Chrome for Android: the bar shows the page that is open and a button with the number of tabs,
  * and that button opens all the tabs as cards to choose from, close or add to.
  */
+/** The button with the number of tabs, in the header bar of a narrow window (it opens the tabs as cards). */
+export function PhoneTabCount({ ctl }: { ctl: Controller }): JSX.Element {
+  const n = ctl.tabs.value.length;
+  return (
+    <button class="phone-tab-count" aria-label={`${n} open tabs. Show all`} title="All tabs" onClick={() => { ctl.tabSwitcherOpen.value = true; }}>
+      <span>{n > 99 ? ':D' : n}</span>
+    </button>
+  );
+}
+
 function PhoneTabs({ ctl, title }: { ctl: Controller; title: (t: Tab) => string }): JSX.Element {
   const tabs = ctl.tabs.value;
   const activeId = ctl.activeTabId.value;
@@ -191,9 +201,6 @@ function PhoneTabs({ ctl, title }: { ctl: Controller; title: (t: Tab) => string 
   return (
     <div class="tabbar phone-tabs">
       <span class="phone-tab-title">{active ? title(active) : 'Cave Notes'}</span>
-      <button class="phone-tab-count" aria-label={`${tabs.length} open tabs. Show all`} title="All tabs" onClick={() => setOpen(true)}>
-        <span>{tabs.length > 99 ? ':D' : tabs.length}</span>
-      </button>
       {open && <TabSwitcher ctl={ctl} title={title} onClose={() => setOpen(false)} />}
     </div>
   );
@@ -207,11 +214,11 @@ function TabSwitcher({ ctl, title, onClose }: { ctl: Controller; title: (t: Tab)
   return (
     <div class="tab-switcher" role="dialog" aria-label="Open tabs">
       <div class="tab-switcher-head">
-        <button class="icon-button" aria-label="Back to the page" onClick={onClose}><Icon name="close" size={18} /></button>
         <strong>{tabs.length === 1 ? '1 tab' : `${tabs.length} tabs`}</strong>
         <span class="tab-switcher-actions">
           <button class="pill-button suggested" onClick={() => { onClose(); void ctl.newTab(); }}>New tab</button>
         </span>
+        <button class="icon-button" aria-label="Back to the page" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
       <div class="tab-cards">
         {tabs.map((t) => {

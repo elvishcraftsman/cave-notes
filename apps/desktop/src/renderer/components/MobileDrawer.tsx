@@ -21,10 +21,14 @@ const PANES: Array<{ id: DrawerPane; label: string; icon: IconName }> = [
  * and search), the outline and links of the open page, and the main menu. Choosing something that leads to the page closes it.
  */
 export function MobileDrawer({ ctl, rootKey }: { ctl: Controller; rootKey: string }): JSX.Element {
-  const pane = drawerPane.value;
   const config = ctl.activeConfig.value;
   // a canvas has no headings: its tab lists the objects on it
   const onCanvas = !!ctl.canvasView.value && /\.canvas$/i.test(ctl.current.value?.path ?? '');
+  // the outline and the links are tabs only while the page has something to show in them (the pages and the menu always are)
+  const hasOutline = onCanvas || ctl.outline.value.length > 0;
+  const hasLinks = !config && ctl.links.value.filter((l) => !(l.kind === 'page' && l.target === '')).length + ctl.backlinks.value.length > 0;
+  const panes = PANES.filter((p) => (p.id === 'outline' ? hasOutline : p.id === 'links' ? hasLinks : true));
+  const pane = panes.some((p) => p.id === drawerPane.value) ? drawerPane.value : 'pages';
   const close = (): void => {
     if (ctl.settings.value.showLeft) ctl.toggleLeft();
   };
@@ -43,7 +47,7 @@ export function MobileDrawer({ ctl, rootKey }: { ctl: Controller; rootKey: strin
   return (
     <div class="mobile-drawer">
       <div class="drawer-tabs segmented" role="tablist" aria-label="Menu section">
-        {PANES.filter((p) => !(config && p.id === 'links')).map((p) => (
+        {panes.map((p) => (
           <button key={p.id} role="tab" aria-selected={pane === p.id} class={pane === p.id ? 'on' : ''} onClick={() => pick(p.id)}>
             <Icon name={p.icon} size={16} />
             <span class="drawer-tab-label">{p.id === 'outline' && onCanvas ? 'Objects' : p.label}</span>

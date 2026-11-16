@@ -427,7 +427,7 @@ export interface AutomationLogEntry {
 }
 
 export interface WorkerApi {
-  openWorkspace(root: string, opts?: { file?: string; config?: boolean; docs?: boolean; dataDir?: string; notes?: NoteTypes; firstDay?: number }): Promise<WorkspaceInfo>;
+  openWorkspace(root: string, opts?: { file?: string; config?: boolean; docs?: boolean; deferIndexing?: boolean; dataDir?: string; notes?: NoteTypes; firstDay?: number }): Promise<WorkspaceInfo>;
   closeWorkspace(): Promise<void>;
   /** Sub-pages of a page (null = top level). Pages hidden from the tree (and templates) are left out; `unlisted: true` brings them (templates included) back. */
   /** `bareFolders: false` leaves out folders that hold no notes (the page tree can be set to do that; the sub-page bar never does). */
