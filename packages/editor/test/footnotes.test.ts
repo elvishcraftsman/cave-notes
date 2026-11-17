@@ -1,6 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
-import { NoteEditor, footnoteFixes, scanFootnotes } from '../src/index';
+import { EditorSelection } from '@codemirror/state';
+import { NoteEditor, footnoteFixes, insertFootnote, scanFootnotes } from '../src/index';
 
 function apply(text: string): string {
   const fix = footnoteFixes(text);
@@ -53,6 +54,27 @@ describe('footnote order', () => {
     const t = ed.text();
     ed.view.dispatch({ changes: [{ from: t.indexOf(' b[^2]'), to: t.indexOf(' b[^2]') + 6 }, { from: 0, insert: 'b[^2] ' }] });
     expect(ed.text()).toBe('b[^1] a[^2]\n\n[^1]: second\n[^2]: first');
+  });
+});
+
+describe('inserting a footnote above existing ones', () => {
+  it('leaves the cursor in the footnote just inserted, not in the last one', () => {
+    const ed = make('a[^1] b[^2]\n\n[^1]: one\n[^2]: two');
+    ed.view.dispatch({ selection: EditorSelection.cursor('a[^1]'.length) });
+    insertFootnote(ed.view);
+    expect(ed.text()).toBe('a[^1][^2] b[^3]\n\n[^1]: one\n[^2]: \n\n[^3]: two');
+    const head = ed.view.state.selection.main.head;
+    expect(head).toBe(ed.text().indexOf('[^2]: ') + '[^2]: '.length);
+  });
+  it('keeps the cursor in a footnote that moves when its marker is moved up', () => {
+    const ed = make('a[^1] b[^2]\n\n[^1]: one\n[^2]: two');
+    const t = ed.text();
+    const at = t.indexOf('two') + 2;
+    ed.view.dispatch({ selection: EditorSelection.cursor(at) });
+    ed.view.dispatch({ changes: [{ from: t.indexOf(' b[^2]'), to: t.indexOf(' b[^2]') + 6 }, { from: 0, insert: 'b[^2] ' }] });
+    const after = ed.text();
+    expect(after).toBe('b[^1] a[^2]\n\n[^1]: two\n[^2]: one');
+    expect(after.slice(0, ed.view.state.selection.main.head).endsWith('[^1]: tw')).toBe(true);
   });
 });
 

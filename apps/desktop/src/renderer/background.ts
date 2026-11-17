@@ -80,6 +80,12 @@ export class BackgroundIndexer {
     return roots;
   }
 
+  /** Stop keeping this workspace (it is hidden now, or was removed): the caller closes it. It is not opened again by this. */
+  drop(root: string): void {
+    this.opened.delete(root);
+    this.failed.delete(root);
+  }
+
   /** Something changed (the setting, a workspace was added): look again soon. */
   poke(): void {
     if (this.stopped || !this.started) return;

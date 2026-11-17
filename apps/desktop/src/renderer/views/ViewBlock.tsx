@@ -212,6 +212,19 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
     <div
       class={`view-block t-${config.type} ${dropOver ? 'drop-over' : ''}`}
       data-view-type={config.type}
+      onKeyDown={(e) => {
+        // Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y) in a view take back and redo what was changed in it, unless a text box is being typed in (it has its own)
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+        const target = e.target as HTMLElement | null;
+        if (target?.closest?.('textarea, [contenteditable="true"], input:not([type=checkbox])')) return;
+        const k = e.key.toLowerCase();
+        const redo = (k === 'z' && e.shiftKey) || (k === 'y' && !e.shiftKey);
+        if (!redo && !(k === 'z' && !e.shiftKey)) return;
+        if (redo ? !ctl.canRedoAttribute() : !ctl.canUndoAttribute()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void ctl.undoAttribute(redo);
+      }}
       onContextMenu={(e) => {
         // rows have their own menu (and text boxes the usual one); anywhere else on the view offers to delete it
         if (e.defaultPrevented || (e.target as HTMLElement | null)?.closest?.('input, textarea, select, a, [contenteditable="true"]')) return;

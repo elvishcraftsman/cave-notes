@@ -1,5 +1,5 @@
 import {
-  AlignmentType, BorderStyle, CommentRangeEnd, CommentRangeStart, CommentReference, Document, ExternalHyperlink, Footer, FootnoteReferenceRun, Header, LevelFormat, PageNumber, Packer, Paragraph, ShadingType, Tab, TabStopType, Table, TableCell, TableRow, TextRun, WidthType,
+  AlignmentType, BorderStyle, CommentRangeEnd, CommentRangeStart, CommentReference, Document, ExternalHyperlink, Footer, FootnoteReferenceRun, Header, LevelFormat, PageBreak, PageNumber, Packer, Paragraph, ShadingType, Tab, TabStopType, Table, TableCell, TableRow, TextRun, WidthType,
   type ILevelsOptions, type ParagraphChild,
 } from 'docx';
 import type { Block, Inline, ListKind } from './doc';
@@ -145,6 +145,7 @@ export async function renderDocx(blocks: Block[], style: StyleSet, opts: { title
           out.push(spacer());
           break;
         case 'hr': out.push(new Paragraph({ spacing: { after: 120 }, border: { bottom: { style: BorderStyle.SINGLE, size: 6, space: 1, color: '999999' } }, children: [] })); break;
+        case 'pagebreak': out.push(new Paragraph({ spacing: { before: 0, after: 0 }, children: [new PageBreak()] })); break;
         case 'notes': break;
         case 'image': out.push(new Paragraph({ spacing: spacing(), children: [new TextRun({ text: `[${b.alt || 'image'}]`, italics: true, color: '777777' })] })); break;
         case 'list': {

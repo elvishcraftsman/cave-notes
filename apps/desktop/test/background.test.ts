@@ -31,6 +31,24 @@ describe('keeping every workspace indexed', () => {
     expect([...b.keeping]).toEqual(['/w/A', '/w/B', '/w/C']);
   });
 
+  it('stops keeping a workspace that was dropped, and does not refresh it', async () => {
+    const { deps, calls } = make();
+    const b = new BackgroundIndexer(deps, opts);
+    let p = b.pass();
+    await vi.runAllTimersAsync();
+    await p;
+    b.drop('/w/B');
+    expect(b.keeping.has('/w/B')).toBe(false);
+    calls.length = 0;
+    await vi.advanceTimersByTimeAsync(2000);
+    // a list that no longer holds it (a .caveignore hides it) does not open it again
+    const b2 = new BackgroundIndexer({ ...deps, list: async () => ['/w/A', '/w/C'] }, opts);
+    p = b2.pass();
+    await vi.runAllTimersAsync();
+    await p;
+    expect(calls.filter((c) => c.startsWith('open'))).toEqual(['open /w/A', 'open /w/C']);
+  });
+
   it('waits for the workspace in front to be ready before it opens anything', async () => {
     let release!: () => void;
     const { deps, calls, hold } = make();

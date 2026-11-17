@@ -29,6 +29,7 @@ export function pagedCss(s: StyleSet): string {
 body{padding:12px 0 1px}
 .cn-flow{box-sizing:content-box;width:${px(w)};height:${px(h)};column-width:${px(w)};column-gap:${px(gap)};column-fill:auto;overflow:visible}
 .cn-flow .notes{page-break-before:auto;break-before:column}
+.cn-flow .cn-pagebreak{break-after:column;page-break-after:auto}
 .cn-sheet{position:relative;box-sizing:border-box;width:${px(pw)};height:${px(ph)};margin:0 auto 14px;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3);overflow:hidden}
 .cn-win{position:absolute;left:${px(m)};top:${px(m)};width:${px(w)};height:${px(h)};overflow:hidden}
 .cn-hf{position:absolute;left:${px(m)};width:${px(w)};height:${px(m)};display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;font-size:${s.header.sizePt}pt;color:${s.header.color};line-height:1.2;white-space:pre-wrap;text-align:left;text-indent:0}

@@ -448,3 +448,26 @@ describe('headers, footers and page numbers', () => {
     expect(renderHtml(parseDoc('x'), BUILTIN_STYLES[0]!, { title: 't' })).not.toContain('@top-');
   });
 });
+
+describe('page breaks (a line of +++)', () => {
+  const MD = 'First page.\n+++\nSecond page.\n\n+++\n\n```\n+++\n```\n\nThird.\n';
+  it('is read as a block of its own, and left alone in code', () => {
+    const blocks = parseDoc(MD);
+    expect(blocks.map((b) => b.t)).toEqual(['para', 'pagebreak', 'para', 'pagebreak', 'code', 'para']);
+    expect(blocks[4]).toMatchObject({ t: 'code', text: '+++' });
+  });
+  it('is not a slide break and not counted as text', () => {
+    expect(parseDoc('A\n\n+++\n\nB').filter((b) => b.t === 'para')).toHaveLength(2);
+  });
+  it('breaks the page in html, docx and odt', async () => {
+    const style = BUILTIN_STYLES[0]!;
+    const blocks = parseDoc(MD);
+    expect(renderHtml(blocks, style, { title: 't' }).match(/class="cn-pagebreak"/g)).toHaveLength(2);
+    const docx = await JSZip.loadAsync(await renderDocx(blocks, style, { title: 't' }));
+    expect((await docx.file('word/document.xml')!.async('string')).match(/<w:br w:type="page"\/>/g)).toHaveLength(2);
+    const odt = await JSZip.loadAsync(await renderOdt(blocks, style, { title: 't' }));
+    const content = await odt.file('content.xml')!.async('string');
+    expect(content.match(/text:style-name="PageBreak"/g)).toHaveLength(2);
+    expect(`${content}${await odt.file('styles.xml')!.async('string')}`).toContain('fo:break-after="page"');
+  });
+});

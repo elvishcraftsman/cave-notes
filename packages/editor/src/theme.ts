@@ -77,6 +77,11 @@ export const noteTheme = EditorView.theme({
   '.cm-codeblock-first': { borderTopLeftRadius: '8px', borderTopRightRadius: '8px', paddingTop: '6px' },
   '.cm-codeblock-last': { borderBottomLeftRadius: '8px', borderBottomRightRadius: '8px', paddingBottom: '6px' },
   '.cm-hr-line': { backgroundImage: 'linear-gradient(var(--border), var(--border))', backgroundSize: '100% 2px', backgroundRepeat: 'no-repeat', backgroundPosition: '0 50%' },
+  // a page break (`+++`): a dashed rule with a small label when it is not being edited
+  '.cm-pagebreak-line': { color: 'var(--dim-fg)' },
+  '.cm-pagebreak-idle': { backgroundImage: 'repeating-linear-gradient(90deg, var(--border) 0 7px, transparent 7px 13px)', backgroundSize: '100% 1px', backgroundRepeat: 'no-repeat', backgroundPosition: '0 50%', textAlign: 'center' },
+  '.cm-pagebreak-idle::after': { content: '"page break"', fontFamily: 'var(--ui-font, inherit)', fontSize: '0.7em', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--dim-fg)', background: 'var(--view-bg)', padding: '0 0.8em' },
+  '.cm-hidden-mark': { fontSize: '0 !important', letterSpacing: '0 !important' },
   '.cm-list-indent': { display: 'inline-block', width: '0', overflow: 'hidden', whiteSpace: 'pre', verticalAlign: 'top', height: '0' },
   // The marker box is as wide as the marker column, with the marker pushed to its right end: the empty room lies before the
   // marker, so the text starts right where the space after it ends (one place for the cursor, not two). break-spaces keeps

@@ -25,6 +25,7 @@ export function describe(textWithCursor: string, options: LivePreviewOptions = {
     const cls = (value.spec as { class?: string }).class;
     const widget = (value.spec as { widget?: object }).widget;
     if (kind === 'LineDecoration') out.lines.push(`${state.doc.lineAt(from).number}:${cls}`);
+    else if (kind === 'MarkDecoration' && cls === 'cm-hidden-mark') out.hidden.push(doc.slice(from, to));
     else if (kind === 'MarkDecoration') out.marks.push(`${cls}:${doc.slice(from, to)}`);
     else if (widget) out.widgets.push(`${widget.constructor.name}:${doc.slice(from, to)}`);
     else out.hidden.push(doc.slice(from, to));

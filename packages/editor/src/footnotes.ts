@@ -375,9 +375,11 @@ export function footnoteFixes(text: string): FootnoteFix | null {
     changes,
     mapPos(pos: number): number {
       for (const m of moved) {
-        if (pos < m.slot.from || pos > m.slot.to) continue;
+        // `m.def` is the footnote that moves, `m.slot` the place it moves to. A cursor in the footnote that moves goes with it
+        // (the one just inserted at the end of the page, say, ends up in the middle of the others, and the cursor stays in it)
+        if (pos < m.def.from || pos > m.def.to) continue;
         // inside a footnote that moved: it keeps its place within the text that moved
-        const k = pos - m.slot.from;
+        const k = pos - m.def.from;
         const inBody = k >= m.oldPrefix;
         const offset = inBody ? m.newPrefix + (k - m.oldPrefix) : Math.min(k, m.newPrefix);
         return cs.mapPos(m.slot.from, -1) + offset;

@@ -118,6 +118,9 @@ class ImageWidget extends WidgetType {
 }
 
 const HIDE = Decoration.replace({});
+/** Hides the marks of emphasis and code (`*`, `**`, `~~`, backticks) as text drawn at no size, not as a replaced range: a replaced range has a
+ *  zero-width image after it, and the browser may break the line there, leaving a `(` or `)` alone on the other line. */
+const HIDE_INLINE = Decoration.mark({ class: 'cm-hidden-mark' });
 const line = (cls: string): Decoration => Decoration.line({ class: cls });
 const mark = (cls: string, attributes?: Record<string, string>): Decoration =>
   Decoration.mark({ class: cls, ...(attributes ? { attributes } : {}) });
@@ -165,6 +168,9 @@ export function computeDecorations(
   };
   const hide = (from: number, to: number): void => {
     if (to > from) add(HIDE, from, to);
+  };
+  const hideInline = (from: number, to: number): void => {
+    if (to > from) add(HIDE_INLINE, from, to);
   };
   const lines = (from: number, to: number, cls: string): void => {
     for (let n = doc.lineAt(from).number; n <= doc.lineAt(Math.max(from, to - 1)).number; n++) {
@@ -260,7 +266,7 @@ export function computeDecorations(
             add(mark(cls as string), from, to);
             if (!touches(from, to)) {
               for (const m of node.getChildren(name === 'InlineCode' ? 'CodeMark' : name === 'Strikethrough' ? 'StrikethroughMark' : 'EmphasisMark')) {
-                hide(m.from, m.to);
+                hideInline(m.from, m.to);
               }
             }
             return;
@@ -303,6 +309,23 @@ export function computeDecorations(
     });
 
     wikilinks(range.from, range.to);
+    pageBreaks(range.from, range.to);
+  }
+
+  /** A line of `+++` is a page break (the exports start a new page there): drawn as a dashed rule, plain text on the line being edited. */
+  function pageBreaks(from: number, to: number): void {
+    for (let n = doc.lineAt(from).number; n <= doc.lineAt(Math.max(from, to - 1)).number; n++) {
+      const ln = doc.line(n);
+      if (!/^ {0,3}\+\+\+[ \t]*$/.test(ln.text)) continue;
+      let inCode = false;
+      for (let node: SyntaxNode | null = tree.resolveInner(ln.from, 1); node; node = node.parent) {
+        if (node.name === 'FencedCode' || node.name === 'CodeBlock' || node.name === 'Frontmatter') inCode = true;
+      }
+      if (inCode) continue;
+      const idle = !activeLine(ln.from);
+      add(line(idle ? 'cm-pagebreak-line cm-pagebreak-idle' : 'cm-pagebreak-line'), ln.from);
+      if (idle) hide(ln.from, ln.to);
+    }
   }
 
   /**

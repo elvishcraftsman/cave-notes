@@ -150,7 +150,7 @@ function classify(blocks: Block[], opts: SlideOptions, found: { background: Slid
         out.push({ kind: 'caption', blocks: [b] });
         return;
       }
-      if (b.t === 'hr') return;
+      if (b.t === 'hr' || b.t === 'pagebreak') return; // (a slide is a page already)
       out.push({ kind: side === 'left' ? 'text-left' : side === 'right' ? 'text-right' : 'text', ...(side ? { side } : {}), blocks: [b] });
     });
   };

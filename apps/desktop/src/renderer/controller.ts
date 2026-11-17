@@ -345,7 +345,16 @@ export class Controller {
   private readonly background = new BackgroundIndexer({
     list: async () => {
       const s = this.settings.value;
-      return [...new Set([...s.recent, ...s.found])];
+      const all = [...new Set([...s.recent, ...s.found])];
+      // a workspace a .caveignore hides is not indexed in the background (and so is not in the indexing bars either);
+      // ask afresh, because the list of hidden ones may not have been read yet when this pass starts
+      let hidden = new Set(this.ignoredRoots.value);
+      try {
+        hidden = new Set(await this.main.ignoredWorkspaces(all));
+      } catch {
+        /* keep what was known before */
+      }
+      return all.filter((r) => !hidden.has(r));
     },
     open: async (root) => {
       // only a folder that still is a workspace: opening a plain folder here would make it one
@@ -829,7 +838,16 @@ export class Controller {
     const s = this.settings.value;
     try {
       const hidden = await this.main.ignoredWorkspaces([...new Set([...s.recent, ...s.found])]);
-      if (n === this.ignoredCheck) this.ignoredRoots.value = hidden;
+      if (n === this.ignoredCheck) {
+        this.ignoredRoots.value = hidden;
+        // one that was being kept indexed in the background and is hidden now (a .caveignore line was added): let it go,
+        // unless a tab or the window in front is using it
+        for (const root of hidden) {
+          if (!this.background.keeping.has(root) || this.active?.root === root || this.tabs.value.some((t) => t.root === root)) continue;
+          this.background.drop(root);
+          void this.releaseSession(root);
+        }
+      }
     } catch {
       /* the list stays as it was */
     }
@@ -3892,15 +3910,97 @@ export class Controller {
     this.toast('Version restored. It is saved like any other edit.');
   }
 
-  /** Change one frontmatter attribute of a page (drag a card to another column, drop on a day). */
+  /** What changing attributes in a view did, newest last: each entry is one action (a checkbox, a menu, a card dragged), with the page text before and after. */
+  private attrUndo: Array<Array<{ path: string; before: string; after: string }>> = [];
+  private attrRedo: Array<Array<{ path: string; before: string; after: string }>> = [];
+  private attrRoot = '';
+  private attrGroup: Array<{ path: string; before: string; after: string }> | null = null;
+
+  /** Several attribute changes that Undo takes back together (a card set on many pages, a group of rows dropped). */
+  async inAttributeGroup<T>(run: () => Promise<T>): Promise<T> {
+    if (this.attrGroup) return run();
+    const group: Array<{ path: string; before: string; after: string }> = [];
+    this.attrGroup = group;
+    try {
+      return await run();
+    } finally {
+      this.attrGroup = null;
+      this.recordAttributeEdit(group);
+    }
+  }
+
+  private recordAttributeEdit(group: Array<{ path: string; before: string; after: string }>): void {
+    if (group.length === 0) return;
+    const root = this.active?.root ?? '';
+    if (root !== this.attrRoot) {
+      this.attrUndo = [];
+      this.attrRoot = root;
+    }
+    this.attrUndo.push(group);
+    if (this.attrUndo.length > 100) this.attrUndo.shift();
+    this.attrRedo = [];
+  }
+
+  canUndoAttribute(): boolean {
+    return this.attrUndo.length > 0 && this.attrRoot === (this.active?.root ?? '');
+  }
+
+  canRedoAttribute(): boolean {
+    return this.attrRedo.length > 0 && this.attrRoot === (this.active?.root ?? '');
+  }
+
+  /** Take back (or, with `redo`, do again) the last change made to attributes in a view. Returns false when there was nothing to do. */
+  async undoAttribute(redo = false): Promise<boolean> {
+    const from = redo ? this.attrRedo : this.attrUndo;
+    if (from.length === 0 || this.attrRoot !== (this.active?.root ?? '')) return false;
+    const group = from[from.length - 1]!;
+    try {
+      await this.flush();
+      const todo = redo ? group : [...group].reverse();
+      // only when every page is as the change left it (or, redoing, as it was before): else something else has edited it since
+      for (const e of todo) {
+        const now = await this.ws.readPage(e.path);
+        if (now.text !== (redo ? e.before : e.after)) {
+          from.pop();
+          this.toast('A page was changed since, so that change cannot be undone.');
+          return true;
+        }
+      }
+      for (const e of todo) {
+        const now = await this.ws.readPage(e.path);
+        const r = await this.ws.writePage(e.path, redo ? e.after : e.before, now.hash ?? null);
+        if (!r.ok) {
+          this.toast('That page changed on disk. Try again.');
+          return true;
+        }
+        if (this.current.value?.path === e.path) await this.reloadCurrent();
+      }
+      from.pop();
+      (redo ? this.attrUndo : this.attrRedo).push(group);
+      this.viewTick.value++;
+      void this.loadChildren();
+      this.toast(redo ? 'Done again.' : 'Undone.');
+    } catch (e) {
+      this.toast(explain(e));
+    }
+    return true;
+  }
+
+  /** Change one frontmatter attribute of a page (drag a card to another column, drop on a day). Undo takes it back. */
   async setPageAttribute(path: string, key: string, value: AttrValue | null): Promise<boolean> {
     const isCurrent = this.current.value?.path === path;
     if (isCurrent) await this.flush();
     try {
+      const before = (await this.ws.readPage(path)).text;
       const r = await this.ws.setAttribute(path, key, value);
       if (!r.ok) {
         this.toast('That page changed on disk. Try again.');
         return false;
+      }
+      const after = (await this.ws.readPage(path)).text;
+      if (after !== before) {
+        if (this.attrGroup) this.attrGroup.push({ path, before, after });
+        else this.recordAttributeEdit([{ path, before, after }]);
       }
       if (isCurrent) await this.reloadCurrent();
       return true;
@@ -5035,41 +5135,17 @@ export class Controller {
     }
   }
 
-  /** Ask where to, then move several pages under that page (empty: top level). */
+  /** Ask where to, then move several pages there: the same picker as “Move to…” (pick a page, or the top level, in this workspace or another). */
   movePagesDialog(paths: string[]): void {
-    const top = this.topmost(paths);
-    if (top.length === 0) return;
-    this.dialog.value = {
-      kind: 'prompt',
-      title: top.length === 1 ? 'Move Page' : `Move ${top.length} Pages`,
-      body: 'The name of the page to move them under. Leave it empty for the top level. Links to them are updated.',
-      label: 'Under page',
-      value: '',
-      confirm: 'Move',
-      submit: async (name) => {
-        try {
-          let parent: string | null = null;
-          if (name.trim()) {
-            const r = await this.ws.resolveLink({ syntax: 'wiki', target: name.trim() }, this.current.value?.path ?? '');
-            if (r.kind !== 'page' || r.status !== 'ok') return `There is no page called “${name.trim()}”.`;
-            parent = r.path;
-          }
-          this.dialog.value = null;
-          for (const p of top) await this.movePage(p, parent);
-          this.viewTick.value++;
-          void this.loadChildren();
-          return null;
-        } catch (e) {
-          return explain(e);
-        }
-      },
-    };
+    this.openTransfer(paths, 'move');
   }
 
   /** Set one attribute (null: take it away) on several pages. Returns how many were changed. */
   async setAttributeOnPages(paths: string[], key: string, value: AttrValue | null): Promise<number> {
     let done = 0;
-    for (const p of paths) if (await this.setPageAttribute(p, key, value)) done++;
+    await this.inAttributeGroup(async () => {
+      for (const p of paths) if (await this.setPageAttribute(p, key, value)) done++;
+    });
     this.viewTick.value++;
     if (done < paths.length) this.toast(`${done} of ${paths.length} pages were changed.`);
     return done;

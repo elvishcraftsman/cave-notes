@@ -65,6 +65,7 @@ function block(b: Block, indent = false): string {
     case 'quote': return `<blockquote>${b.blocks.map((x) => block(x)).join('')}</blockquote>`;
     case 'code': return `<pre><code>${esc(b.text)}</code></pre>`;
     case 'hr': return '<hr>';
+    case 'pagebreak': return '<div class="cn-pagebreak"></div>';
     case 'image': {
       const src = imageSrc?.(b.url);
       return src ? `<img class="slide-img" src="${esc(src)}" alt="${esc(b.alt)}">` : `<p class="img">[${esc(b.alt || 'image')}]</p>`;
@@ -134,6 +135,7 @@ ul,ol{margin:0 0 ${s.body.paragraphAfter}pt 0;padding-left:${s.listIndentCm}cm}
 li>ul,li>ol{margin-bottom:0}
 li.task{list-style:none;margin-left:-${s.listIndentCm * 0.7}cm}
 hr{border:0;border-top:1pt solid #999;margin:10pt 0}
+.cn-pagebreak{height:0;margin:0;padding:0;break-after:page;page-break-after:always}
 table{border-collapse:collapse;margin:0 0 ${s.body.paragraphAfter}pt;max-width:100%}
 th,td{border:.5pt solid ${s.table.border};padding:3pt 6pt;vertical-align:top}
 th{background:${s.table.headerBackground}}

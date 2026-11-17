@@ -182,6 +182,7 @@ export async function renderOdt(blocks: Block[], style: StyleSet, opts: { title?
           case 'notes': return '';
           case 'code': return x.text.split('\n').map((l) => `<text:p text:style-name="Code">${esc(l).replace(/^ +| {2,}/g, (m) => `<text:s text:c="${m.length}"/>`).replace(/\t/g, '<text:tab/>')}</text:p>`).join('') + '<text:p text:style-name="Spacer"/>';
           case 'hr': return '<text:p text:style-name="Rule"/>';
+          case 'pagebreak': return '<text:p text:style-name="PageBreak"/>';
           case 'image': return `<text:p text:style-name="Body"><text:span text:style-name="Dim">[${esc(x.alt || 'image')}]</text:span></text:p>`;
           case 'list': return serialize(listToks(x, quote, 0));
           case 'table': return tableXml(x);
@@ -253,6 +254,7 @@ ${par('Spacer', 'Body', 'fo:margin-top="0cm" fo:margin-bottom="6pt" fo:line-heig
 ${par('ListLast', 'Body', `fo:margin-bottom="${pt(b.paragraphAfter)}"`)}
 ${anyHeader ? runPar('RunHeader', style.header) : ''}
 ${anyFooter ? runPar('RunFooter', style.footer) : ''}
+${par('PageBreak', 'Body', 'fo:margin-top="0cm" fo:margin-bottom="0cm" fo:line-height="100%" fo:break-after="page"', 'fo:font-size="1pt"')}
 ${par('Rule', 'Body', 'fo:border-bottom="0.75pt solid #999999" fo:margin-bottom="6pt"')}
 <style:style style:name="Footnote_20_Symbol" style:display-name="Footnote Symbol" style:family="text"><style:text-properties style:text-position="super 58%"/></style:style>
 <style:style style:name="Footnote_20_anchor" style:display-name="Footnote anchor" style:family="text"><style:text-properties style:text-position="super 58%"/></style:style>

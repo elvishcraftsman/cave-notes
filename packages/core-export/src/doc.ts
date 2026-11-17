@@ -43,6 +43,8 @@ export type Block =
   | { t: 'div'; classes: string[]; blocks: Block[]; /** `{key=value}` pairs of the opening line (a slide's `layout=`) */ attrs?: Record<string, string> }
   | { t: 'code'; text: string; lang: string }
   | { t: 'hr' }
+  /** a line of `+++`: the text after it starts on a new page */
+  | { t: 'pagebreak' }
   | { t: 'list'; ordered: boolean; kind: ListKind; start: number; items: ListItem[] }
   | { t: 'table'; head: Inline[][]; rows: Inline[][][]; align: Array<'left' | 'right' | 'center' | null> }
   /** `side` and `orient` come from `{.left}`, `{.right}`, `{.portrait}`, `{.landscape}` after the image */
@@ -96,6 +98,8 @@ function shadow(text: string): { text: string; markers: Map<number, Marker> } {
       const n = closers[1]!.split(/[ \t]+/).length;
       return n === 1 ? '<!--cn-end-->' : `<!--cn-end ${n}-->`;
     }
+    // `+++` on a line of its own is a page break (shown to the parser as a comment, read back in `blocks`)
+    if (/^ {0,3}\+\+\+[ \t]*$/.test(line)) return '<!--cn-pagebreak-->';
     const d = /^ {0,3}(:{3,})[ \t]*(.*?)[ \t]*:*[ \t]*$/.exec(line);
     if (d) {
       if (d[2] === '') return '<!--cn-end-->';
@@ -342,6 +346,10 @@ function blocks(input: Node[] | undefined, markers: Map<number, Marker>): Block[
         break;
       }
       case 'html': {
+        if ((n.value ?? '').trim() === '<!--cn-pagebreak-->') {
+          out.push({ t: 'pagebreak' });
+          break;
+        }
         const v = (n.value ?? '').replace(/<!--[\s\S]*?-->/g, '').replace(HTML_TAG, '').trim();
         if (v) out.push({ t: 'para', inlines: [{ text: v }] });
         break;
@@ -407,6 +415,7 @@ export function slideBreaks(markdown: string): { lines: string[]; breaks: number
       prev = null;
     } else if (n.type === 'html' && /^<!--cn-div/.test((n.value ?? '').trim())) depth++;
     else if (n.type === 'html' && /^<!--cn-end/.test((n.value ?? '').trim())) depth = Math.max(0, depth - Number(/\d+/.exec(n.value ?? '')?.[0] ?? 1));
+    else if (n.type === 'html' && (n.value ?? '').trim() === '<!--cn-pagebreak-->') continue; // a page break is no slide break
     else if (depth > 0 || n.type === 'footnoteDefinition' || n.type === 'definition') continue;
     else {
       // a heading that comes after something that is not a heading starts a new slide (no rule needed)

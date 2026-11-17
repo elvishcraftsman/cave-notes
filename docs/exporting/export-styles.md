@@ -204,6 +204,10 @@ The `blockquote` entry styles text that starts with `>` (older files that say `q
 
 `placement: footnotes` puts the notes at the foot of the page, `endnotes` collects them at the end. Word and OpenDocument files get real footnotes (and real endnotes in OpenDocument). **PDF and the preview always collect the notes after the text**, because the printing engine cannot place notes per page. In Word, endnotes are written as a numbered *Notes* list at the end.
 
+### Page breaks
+
+A line with only `+++` starts a new page: the text after it begins on the next page in Word, OpenDocument and PDF files, and in the page preview. In the editor the line is drawn as a dashed rule (the plain `+++` shows while the cursor is on it). Inside a code block it is just text. Slides ignore it, because every slide is a page already.
+
 ## Headers, footers and page numbers
 
 `header:` and `footer:` put running text above and below the text of every page. Each has three places, `left`, `center` and `right`:

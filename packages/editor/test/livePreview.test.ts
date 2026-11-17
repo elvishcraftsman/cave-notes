@@ -133,6 +133,14 @@ suite('blocks', () => {
     expect(d.hidden).toEqual(['---']);
     expect(describe('above\n\n--‸-\n\nbelow').hidden).toEqual([]);
   });
+
+  it('turns +++ into a page break, hidden unless the cursor is on it, and not inside code', () => {
+    const d = describe('above\n+++\nbelow‸');
+    expect(d.lines).toContain('2:cm-pagebreak-line cm-pagebreak-idle');
+    expect(d.hidden).toEqual(['+++']);
+    expect(describe('above\n+‸++\nbelow').hidden).toEqual([]);
+    expect(describe('```\n+++\n```\n\n‸').lines.some((l) => l.includes('pagebreak'))).toBe(false);
+  });
 });
 
 suite('frontmatter', () => {
@@ -171,7 +179,8 @@ suite('focus', () => {
     const hiddenOf = (reveal: boolean): string[] => {
       const out: string[] = [];
       computeDecorations(state, [{ from: 0, to: doc.length }], {}, reveal).between(0, doc.length, (f, t, v) => {
-        if (v.constructor.name === 'PointDecoration' && !(v.spec as { widget?: unknown }).widget) out.push(doc.slice(f, t));
+        const spec = v.spec as { widget?: unknown; class?: string };
+        if ((v.constructor.name === 'PointDecoration' && !spec.widget) || spec.class === 'cm-hidden-mark') out.push(doc.slice(f, t));
       });
       return out;
     };
@@ -286,5 +295,19 @@ suite('an image that fails to load', () => {
     img.dispatchEvent(new Event('error'));
     expect(root.querySelector('img')).toBeNull();
     expect(root.textContent).toBe('🖼 a'); // the fallback lives inside the same root element
+  });
+});
+
+suite('markers around a line break', () => {
+  it('hides emphasis marks as text, with no replaced range to break the line at', () => {
+    const state = describe('A (*word*) here‸');
+    expect(state.hidden).toEqual(['*', '*']);
+    expect(state.widgets).toEqual([]);
+    const set = computeDecorations(state.state, [{ from: 0, to: state.state.doc.length }], {});
+    let replaced = 0;
+    set.between(0, state.state.doc.length, (_f, _t, v) => {
+      if (v.constructor.name === 'PointDecoration' || (v as { point?: boolean }).point) replaced++;
+    });
+    expect(replaced).toBe(0);
   });
 });

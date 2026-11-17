@@ -198,9 +198,9 @@ function useGroupDrop({ ctl, config, keys, selection, query }: Pick<BodyProps, '
         setOver(null);
         let paths: string[] = [];
         try { paths = JSON.parse(raw) as string[]; } catch { return; }
-        void (async () => {
+        void ctl.inAttributeGroup(async () => {
           for (const p of paths) await ctl.setPageAttribute(p, key!, coerce(value, info?.type ?? 'string'));
-        })();
+        });
       },
     } : {};
   };

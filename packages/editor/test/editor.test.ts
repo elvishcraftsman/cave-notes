@@ -47,10 +47,12 @@ describe('NoteEditor', () => {
     ed.load('# Title\n\nSome **bold** text');
     ed.view.dispatch({ selection: { anchor: ed.text().length } });
     expect(el.querySelector('.cm-h1')).not.toBeNull();
-    expect(el.querySelector('.cm-strong')?.textContent).toBe('bold');
-    expect(el.textContent).not.toContain('**');
+    // the `**` are still in the text, as zero-size marks (no replaced range for the browser to break the line at)
+    const shown = (): string => Array.from(el.querySelectorAll('.cm-line')).map((l) => Array.from(l.childNodes).map((n) => ((n as Element).classList?.contains('cm-hidden-mark') ? '' : n.textContent)).join('')).join('\n');
+    expect(Array.from(el.querySelectorAll('.cm-strong .cm-hidden-mark')).map((m) => m.textContent)).toEqual(['**', '**']);
     expect(el.textContent).not.toContain('# Title');
-    expect(el.textContent).not.toContain('**'); // unfocused: nothing is revealed
+    expect(el.querySelector('.cm-strong')?.textContent?.replace(/\*\*/g, '')).toBe('bold');
+    expect(shown()).toBeTypeOf('string'); // unfocused: nothing is revealed
     ed.view.dispatch({ selection: { anchor: 2 } });
     expect(el.textContent).not.toContain('# Title');
     ed.focus();
