@@ -119,7 +119,7 @@ export interface StyleSet {
   };
   headings: [TextStyle, TextStyle, TextStyle, TextStyle, TextStyle, TextStyle];
   code: { font: string; sizePt: number; color: string; background: string };
-  blockquote: { color: string; italic: boolean; indentCm: number; bar: string };
+  blockquote: { color: string; italic: boolean; indentCm: number; /** how far each level of quote is moved in from the right margin (0: not at all) */ rightIndentCm: number; bar: string };
   table: { headerBackground: string; border: string };
   /** `endnotes`: the notes are collected at the end of the document instead of at the foot of each page (always the case in PDF and HTML) */
   footnotes: { sizePt: number; color: string; italic: boolean; endnotes: boolean };
@@ -146,7 +146,7 @@ export const BUILTIN_STYLES: StyleSet[] = [
     body: { font: 'Calibri', sizePt: 11, color: '#1a1a1a', lineHeight: 1.4, justify: false, paragraphAfter: 8, firstLineIndentCm: 0, indentAfterHeading: true },
     headings: [heading('Calibri', 24, '#111111', 0, 10), heading('Calibri', 18, '#111111'), heading('Calibri', 14, '#222222'), heading('Calibri', 12, '#222222'), heading('Calibri', 11, '#333333'), heading('Calibri', 11, '#555555', 14, 6, false, true)],
     code: { font: 'Consolas', sizePt: 10, color: '#222222', background: '#f2f2f2' },
-    blockquote: { color: '#555555', italic: true, indentCm: 0.8, bar: '#bbbbbb' },
+    blockquote: { color: '#555555', italic: true, indentCm: 0.8, rightIndentCm: 0, bar: '#bbbbbb' },
     table: { headerBackground: '#f0f0f0', border: '#999999' },
     footnotes: { sizePt: 9, color: '#333333', italic: false, endnotes: false },
     link: { color: '#1a5fb4', underline: true },
@@ -164,7 +164,7 @@ export const BUILTIN_STYLES: StyleSet[] = [
     body: { font: 'Times New Roman', sizePt: 12, color: '#000000', lineHeight: 2, justify: false, paragraphAfter: 0, firstLineIndentCm: 0, indentAfterHeading: true },
     headings: [heading('Times New Roman', 16, '#000000', 0, 12), heading('Times New Roman', 14, '#000000', 12, 6), heading('Times New Roman', 12, '#000000', 12, 6), heading('Times New Roman', 12, '#000000', 12, 6, true, true), heading('Times New Roman', 12, '#000000', 12, 6, false), heading('Times New Roman', 12, '#000000', 12, 6, false, true)],
     code: { font: 'Courier New', sizePt: 11, color: '#000000', background: '#ffffff' },
-    blockquote: { color: '#000000', italic: false, indentCm: 1.27, bar: '#ffffff' },
+    blockquote: { color: '#000000', italic: false, indentCm: 1.27, rightIndentCm: 0, bar: '#ffffff' },
     table: { headerBackground: '#ffffff', border: '#000000' },
     footnotes: { sizePt: 10, color: '#000000', italic: false, endnotes: true },
     link: { color: '#000000', underline: true },
@@ -182,7 +182,7 @@ export const BUILTIN_STYLES: StyleSet[] = [
     body: { font: 'Georgia', sizePt: 10.5, color: '#202020', lineHeight: 1.5, justify: true, paragraphAfter: 6, firstLineIndentCm: 0, indentAfterHeading: true },
     headings: [heading('Arial', 22, '#7a1f1f', 0, 12), heading('Arial', 16, '#7a1f1f', 16, 6), heading('Arial', 13, '#333333', 12, 4), heading('Arial', 11, '#333333', 10, 4), heading('Arial', 10.5, '#555555', 10, 4), heading('Arial', 10.5, '#555555', 10, 4, false, true)],
     code: { font: 'DejaVu Sans Mono', sizePt: 9, color: '#222222', background: '#eeeeee' },
-    blockquote: { color: '#444444', italic: true, indentCm: 1, bar: '#7a1f1f' },
+    blockquote: { color: '#444444', italic: true, indentCm: 1, rightIndentCm: 0, bar: '#7a1f1f' },
     table: { headerBackground: '#eeeeee', border: '#999999' },
     footnotes: { sizePt: 8.5, color: '#333333', italic: false, endnotes: false },
     link: { color: '#7a1f1f', underline: false },
@@ -267,7 +267,7 @@ export function cleanStyleSet(raw: unknown, base: StyleSet = BUILTIN_STYLES[0]!)
     body: { font: str(body.font, base.body.font), sizePt: num(body.sizePt, 6, 36, base.body.sizePt), color: hex(body.color, base.body.color), lineHeight: num(body.lineHeight, 1, 3, base.body.lineHeight), justify: bool(body.justify, base.body.justify), paragraphAfter: num(body.paragraphAfter, 0, 48, base.body.paragraphAfter), firstLineIndentCm: num(body.firstLineIndentCm, 0, 5, base.body.firstLineIndentCm), indentAfterHeading: bool(body.indentAfterHeading, base.body.indentAfterHeading) },
     headings,
     code: { font: str(code.font, base.code.font), sizePt: num(code.sizePt, 6, 36, base.code.sizePt), color: hex(code.color, base.code.color), background: hex(code.background, base.code.background) },
-    blockquote: { color: hex(quote.color, base.blockquote.color), italic: bool(quote.italic, base.blockquote.italic), indentCm: num(quote.indentCm, 0, 4, base.blockquote.indentCm), bar: hex(quote.bar, base.blockquote.bar) },
+    blockquote: { color: hex(quote.color, base.blockquote.color), italic: bool(quote.italic, base.blockquote.italic), indentCm: num(quote.indentCm, 0, 4, base.blockquote.indentCm), rightIndentCm: num(quote.rightIndentCm, 0, 4, base.blockquote.rightIndentCm), bar: hex(quote.bar, base.blockquote.bar) },
     table: { headerBackground: hex(table.headerBackground, base.table.headerBackground), border: hex(table.border, base.table.border) },
     footnotes: { sizePt: num(notes.sizePt, 5, 24, base.footnotes.sizePt), color: hex(notes.color, base.footnotes.color), italic: bool(notes.italic, base.footnotes.italic), endnotes: bool(notes.endnotes, base.footnotes.endnotes) },
     link: { color: hex(link.color, base.link.color), underline: bool(link.underline, base.link.underline) },

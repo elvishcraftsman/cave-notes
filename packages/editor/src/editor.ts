@@ -7,6 +7,7 @@ import { createSearchPanel } from './searchPanel';
 import { yamlDocument, yamlHints } from './yamlHints';
 import { addFrontmatter, attributeBar, hasFrontmatter } from './attributes';
 import { viewBlockHost, type ViewBlockHost } from './blocks';
+import { tableExportHost, type TableExportHandler } from './tables';
 import { parseCanvas } from '@cave-notes/ui-canvas';
 import { canvasFlag, canvasMode, canvasTheme, canvasViewOf, type CanvasEditorHost } from './canvas';
 import { conflicts } from './conflicts';
@@ -108,6 +109,8 @@ export interface EditorOptions {
   attributeBar?: boolean;
   /** Draws ```view blocks (database views). Without it they stay plain code blocks. */
   viewBlock?: ViewBlockHost;
+  /** A table's menu offers to save it as CSV, xlsx or ods: this does it (without it the menu has no such entries). */
+  onExportTable?: TableExportHandler;
   /** draws `![[…]]` embeds; without it they stay plain text */
   embed?: EmbedHost;
   /** Typing " or ' writes curly quotes (undo turns one back into the straight character). Default true. */
@@ -373,6 +376,7 @@ export class NoteEditor {
       conflicts(),
       o.codeRun ? codeRunHost.of(o.codeRun) : [],
       o.viewBlock ? viewBlockHost.of(o.viewBlock) : [],
+      o.onExportTable ? tableExportHost.of(o.onExportTable) : [],
       o.embed ? [embedHost.of(o.embed), embeds(), queryLinks(), expressions()] : [],
       o.wikilinkCompletions ? autocompletion({ override: [wikilinkSource(o.wikilinkCompletions, o.createLinkedPage)], icons: false, defaultKeymap: false }) : [],
       keymap.of([

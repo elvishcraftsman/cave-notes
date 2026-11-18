@@ -18,6 +18,8 @@ export interface WorkerDeps {
   initSqlite(info: InitInfo): Promise<unknown>;
   /** how often to save the search index while the app is open, in ms (default 30 s) */
   snapshotEveryMs?: number;
+  /** how long after indexing has finished the index is saved (default 3 s) */
+  snapshotAfterIndexMs?: number;
 }
 
 /** Starts the service on this scope; returns a function that stops its timers. */
@@ -83,7 +85,20 @@ export function startWebWorker(scope: WorkerScope, deps: WorkerDeps): () => void
     });
     snapshotAll = () => driver.snapshotAll();
     allClosed = () => driver.allClosed();
-    service = new WorkspaceService((event, payload) => post({ kind: 'event', event, payload }), {
+    // When indexing has finished, the index goes to storage soon: a phone may stop the app at any moment, and an index that was
+    // never saved is built again from the files at the next opening, which is the slow part.
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    service = new WorkspaceService((event, payload) => {
+      post({ kind: 'event', event, payload });
+      if (event === 'index:status' && (payload as { state?: string; stale?: boolean } | undefined)?.state === 'ready' && !(payload as { stale?: boolean }).stale && !stopped) {
+        clearTimeout(readyTimer);
+        readyTimer = setTimeout(() => {
+          if (stopped) return;
+          snapshotAll();
+          void writeSnapshots();
+        }, deps.snapshotAfterIndexMs ?? 3000);
+      }
+    }, {
       workers: 0,
       driver,
       // restore the saved index (if there is one) before the database opens

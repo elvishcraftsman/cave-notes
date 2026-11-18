@@ -248,7 +248,7 @@ export class WorkspaceService implements WorkerApi {
     if (opts.deferIndexing && !lite) {
       o.deferredIndexing = true;
       const st = o.index.stats();
-      this.emit('index:status', { state: 'ready', pages: st.pages, files: st.files, ms: 0, percent: 100, phase: 'ready' });
+      this.emit('index:status', { state: 'ready', pages: st.pages, files: st.files, ms: 0, percent: 100, phase: 'ready', stale: true });
       this.emit('tree:changed', { parents: 'all' });
     } else {
       o.indexing = this.indexInBackground(o);
@@ -256,7 +256,7 @@ export class WorkspaceService implements WorkerApi {
     log.info(`workspace open after ${Math.round(performance.now() - tOpen)} ms (indexing continues in the background)`);
     if (docs) return { root, name: 'Documentation', config: true, docs: true };
     if (config) return { root, name: `${path.basename(path.dirname(root))} (config)`, config: true };
-    return single ? { root, name: pageName(single), single: true } : { root, name: path.basename(root) };
+    return single ? { root, name: pageName(single), single: true } : { root, name: path.basename(root), ...(o.deferredIndexing ? { stale: true } : {}) };
   }
 
 
@@ -1215,6 +1215,16 @@ export class WorkspaceService implements WorkerApi {
     o.lookup = null;
     this.emit('tree:changed', { parents: 'all' });
     this.emit('index:updated', { path: null });
+  }
+
+  /**
+   * Bring these pages up to date in the index before anything else (the pages open in tabs, when the app starts): a few
+   * files, so it takes no time, and what is on screen is right while the rest of the folder is still being looked at.
+   */
+  async prioritizePages(paths: string[]): Promise<void> {
+    const o = this.open;
+    if (o.single || o.config || o.docs || paths.length === 0) return;
+    await o.index.refresh(paths.slice(0, 50));
   }
 
   /** Look for changes made outside the app (a sync tool, a network folder) and update the index. Cheap when nothing changed. */

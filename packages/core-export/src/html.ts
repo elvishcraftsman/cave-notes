@@ -130,7 +130,7 @@ a{color:${s.link.color};text-decoration:${s.link.underline ? 'underline' : 'none
 code{font-family:${family(s.code.font)};font-size:${s.code.sizePt}pt}
 pre{margin:0 0 ${s.body.paragraphAfter}pt;padding:6pt 8pt;background:${s.code.background};color:${s.code.color};white-space:pre-wrap;line-height:1.3;page-break-inside:avoid}
 pre code{font-size:${s.code.sizePt}pt}
-blockquote{margin:0 0 ${s.body.paragraphAfter}pt ${s.blockquote.indentCm / 2}cm;padding-left:${s.blockquote.indentCm / 2}cm;border-left:3pt solid ${s.blockquote.bar};color:${s.blockquote.color};font-style:${s.blockquote.italic ? 'italic' : 'normal'}}
+blockquote{margin:0 ${s.blockquote.rightIndentCm}cm ${s.body.paragraphAfter}pt ${s.blockquote.indentCm / 2}cm;padding-left:${s.blockquote.indentCm / 2}cm;border-left:3pt solid ${s.blockquote.bar};color:${s.blockquote.color};font-style:${s.blockquote.italic ? 'italic' : 'normal'}}
 ul,ol{margin:0 0 ${s.body.paragraphAfter}pt 0;padding-left:${s.listIndentCm}cm}
 li>ul,li>ol{margin-bottom:0}
 li.task{list-style:none;margin-left:-${s.listIndentCm * 0.7}cm}

@@ -50,7 +50,7 @@ export type Block =
   /** `side` and `orient` come from `{.left}`, `{.right}`, `{.portrait}`, `{.landscape}` after the image */
   | { t: 'image'; alt: string; url: string; side?: 'left' | 'right'; orient?: 'portrait' | 'landscape'; /** the rest of what follows the picture in `{…}` (crop, size, background: see slideImages.ts) */ attrs?: ImageAttrs }
   /** the footnotes of the document, in the order they are referred to; always the last block */
-  | { t: 'notes'; items: Block[][]; /** the label of each footnote */ ids?: string[] };
+  | { t: 'notes'; items: Block[][]; /** the label of each footnote */ ids?: string[]; /** which footnotes were written inside a `::: count` block, and so are counted in the word count */ counted?: boolean[] };
 
 // ---------------------------------------------------------------- lettered and Roman markers
 // remark only knows "1."; such a marker is shown to it as a number of the same width, and its real text is kept by line.
@@ -376,13 +376,23 @@ export function parseDoc(markdown: string, opts: { splitImages?: boolean } = {})
   sourceLines = text.split('\n');
   const defs = new Map<string, Node>();
   for (const n of tree.children ?? []) if (n.type === 'footnoteDefinition' && n.identifier !== undefined && !defs.has(n.identifier)) defs.set(n.identifier, n);
+  // footnotes written inside a `::: count` block are counted in the word count (the others never are)
+  const counted = new Set<string>();
+  const open: boolean[] = [];
+  for (const n of tree.children ?? []) {
+    const v = n.type === 'html' ? (n.value ?? '').trim() : '';
+    if (/^<!--cn-div/.test(v)) open.push((/^<!--cn-div ([^:]*?)(?: ::.*)?-->$/.exec(v)?.[1] ?? '').split(/\s+/).includes('count'));
+    else if (/^<!--cn-end/.test(v)) open.length = Math.max(0, open.length - Number(/\d+/.exec(v)?.[0] ?? 1));
+    else if (n.type === 'footnoteDefinition' && n.identifier !== undefined && open.includes(true)) counted.add(n.identifier);
+  }
   const out = blocks(tree.children, markers);
   if (noteOrder.size > 0) {
     const items = [...noteOrder.keys()].map((id) => {
       const def = defs.get(id);
       return def ? blocks(def.children, markers) : [{ t: 'para', inlines: [{ text: '(this footnote has no text)', italic: true }] } as Block];
     });
-    out.push({ t: 'notes', items, ids: [...noteOrder.keys()] });
+    const ids = [...noteOrder.keys()];
+    out.push({ t: 'notes', items, ids, ...(ids.some((id) => counted.has(id)) ? { counted: ids.map((id) => counted.has(id)) } : {}) });
   }
   return out;
 }
@@ -415,7 +425,13 @@ export function slideBreaks(markdown: string): { lines: string[]; breaks: number
       prev = null;
     } else if (n.type === 'html' && /^<!--cn-div/.test((n.value ?? '').trim())) depth++;
     else if (n.type === 'html' && /^<!--cn-end/.test((n.value ?? '').trim())) depth = Math.max(0, depth - Number(/\d+/.exec(n.value ?? '')?.[0] ?? 1));
-    else if (n.type === 'html' && (n.value ?? '').trim() === '<!--cn-pagebreak-->') continue; // a page break is no slide break
+    else if (n.type === 'html' && (n.value ?? '').trim() === '<!--cn-pagebreak-->') {
+      // a `+++` ends a slide, like a `---` does (inside a `::: name` block it is nothing)
+      if (depth === 0 && n.position) {
+        breaks.push(n.position.start.line);
+        prev = null;
+      }
+    }
     else if (depth > 0 || n.type === 'footnoteDefinition' || n.type === 'definition') continue;
     else {
       // a heading that comes after something that is not a heading starts a new slide (no rule needed)

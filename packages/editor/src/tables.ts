@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language';
-import type { EditorState, Extension } from '@codemirror/state';
+import { Facet, type EditorState, type Extension } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 import { installFormatMenuStyles } from './theme';
 
@@ -167,6 +167,77 @@ export function plainCell(md: string): string {
     .replace(/(^|[^*])\*([^*]+)\*/g, '$1$2')
     .replace(/~~([^~]+)~~/g, '$1')
     .replace(/<br\s*\/?>/gi, '\n');
+}
+
+// ---- sorting and exporting
+
+export type TableExportFormat = 'csv' | 'xlsx' | 'ods';
+/** What the app does with a table the person asked to export (the cells are plain text). */
+export type TableExportHandler = (format: TableExportFormat, table: { head: string[]; align: Align[]; rows: string[][] }) => void;
+/** Where the app says how a table is exported; without it the table menu has no export entries. */
+export const tableExportHost = Facet.define<TableExportHandler, TableExportHandler | null>({ combine: (v) => v[0] ?? null });
+
+const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+/** The number a cell says (`1,200`, `$3.50`, `(12)`, `12%`), or null: a code such as `02134` is not one. */
+function sortNumber(text: string): number | null {
+  let s = text.trim();
+  let negative = false;
+  const paren = /^\((.*)\)$/.exec(s);
+  if (paren) {
+    s = paren[1]!.trim();
+    negative = true;
+  }
+  if (!/^[-+\u2212]?[$\u20AC\u00A3\u00A5]?\s*[-+\u2212]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\s*%?$/.test(s)) return null;
+  const digits = s.replace(/[%\s$\u20AC\u00A3\u00A5,]/g, '').replace(/\u2212/g, '-');
+  if (/^[-+]?0\d/.test(digits)) return null;
+  const n = Number(digits);
+  return Number.isFinite(n) ? (negative ? -n : n) / (s.endsWith('%') ? 100 : 1) : null;
+}
+/** The day a cell says (`2026-03-04`, `4 Mar 2026`, `March 4, 2026`) as a number that orders by time, or null. */
+function sortDate(text: string): number | null {
+  const s = text.trim();
+  let r: RegExpExecArray | null;
+  let y: number, m: number, d: number;
+  if ((r = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(s))) [y, m, d] = [Number(r[1]), Number(r[2]), Number(r[3])];
+  else if ((r = /^(\d{1,2})\s+([A-Za-z]{3,9})\.?,?\s+(\d{4})$/.exec(s)) && MONTH_NAMES.includes(r[2]!.slice(0, 3).toLowerCase())) [y, m, d] = [Number(r[3]), MONTH_NAMES.indexOf(r[2]!.slice(0, 3).toLowerCase()) + 1, Number(r[1])];
+  else if ((r = /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(s)) && MONTH_NAMES.includes(r[1]!.slice(0, 3).toLowerCase())) [y, m, d] = [Number(r[3]), MONTH_NAMES.indexOf(r[1]!.slice(0, 3).toLowerCase()) + 1, Number(r[2])];
+  else return null;
+  return Date.UTC(y, m - 1, d) + (r && r[4] !== undefined && /^\d{4}-/.test(s) ? (Number(r[4]) * 60 + Number(r[5])) * 60000 : 0);
+}
+
+/**
+ * The order the body rows take when the table is sorted by one column: numbers by value, dates by time, anything else as
+ * text (digits inside words in their natural order, letters without regard to case or accents). A column counts as numbers
+ * or dates only when every filled cell is one. Empty cells go last whichever way it is sorted, and rows that tie stay as
+ * they were. Returns the old index of each row, in the new order.
+ */
+export function sortedRowOrder(rows: string[][], col: number, dir: 'asc' | 'desc'): number[] {
+  const texts = rows.map((r) => plainCell(r[col] ?? '').trim());
+  const filled = texts.filter((t) => t !== '');
+  const numbers = filled.length > 0 && filled.every((t) => sortNumber(t) !== null) ? texts.map((t) => (t === '' ? null : sortNumber(t))) : null;
+  const dates = !numbers && filled.length > 0 && filled.every((t) => sortDate(t) !== null) ? texts.map((t) => (t === '' ? null : sortDate(t))) : null;
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const sign = dir === 'asc' ? 1 : -1;
+  return texts
+    .map((t, i) => i)
+    .sort((a, b) => {
+      const ea = texts[a] === '';
+      const eb = texts[b] === '';
+      if (ea || eb) return ea === eb ? a - b : ea ? 1 : -1;
+      const keyA = (numbers ?? dates)?.[a];
+      const keyB = (numbers ?? dates)?.[b];
+      const c = keyA != null && keyB != null ? keyA - keyB : collator.compare(texts[a]!, texts[b]!);
+      return c !== 0 ? sign * c : a - b;
+    });
+}
+
+/** Sort a table's body rows by a column (the header stays first); the heights of the rows go with their rows. */
+export function sortTable(m: TableModel, col: number, dir: 'asc' | 'desc'): void {
+  const order = sortedRowOrder(m.rows, col, dir);
+  const rows = order.map((i) => m.rows[i]!);
+  const heights = order.map((i) => m.heights[i + 1] ?? null);
+  m.rows.splice(0, m.rows.length, ...rows);
+  for (let i = 0; i < heights.length; i++) m.heights[i + 1] = heights[i]!;
 }
 
 /** Tab-separated text for cells, the way spreadsheets write it (a cell with a tab, a newline or a quote is quoted). */
@@ -774,12 +845,30 @@ class TableEditor {
             { label: 'Insert column left', run: () => this.mutate(() => this.insertCol(i), { row: 0, col: i }) },
             { label: 'Insert column right', run: () => this.mutate(() => this.insertCol(i + 1), { row: 0, col: i + 1 }) },
             { label: 'Delete column', disabled: this.nCols < 2, run: () => this.mutate(() => this.deleteCol(i), { row: 0, col: Math.min(i, this.nCols - 2) }) },
+            { label: 'Sort ascending (A \u2192 Z, 1 \u2192 9)', disabled: this.model.rows.length < 2, run: () => this.mutate(() => sortTable(this.model, i, 'asc'), { row: 0, col: i }) },
+            { label: 'Sort descending (Z \u2192 A, 9 \u2192 1)', disabled: this.model.rows.length < 2, run: () => this.mutate(() => sortTable(this.model, i, 'desc'), { row: 0, col: i }) },
+            ...this.exportItems(),
             { label: 'Align left', checked: this.model.align[i] === 'left', run: () => this.mutate(() => void (this.model.align[i] = 'left'), { row: 0, col: i }) },
             { label: 'Align centre', checked: this.model.align[i] === 'center', run: () => this.mutate(() => void (this.model.align[i] = 'center'), { row: 0, col: i }) },
             { label: 'Align right', checked: this.model.align[i] === 'right', run: () => this.mutate(() => void (this.model.align[i] = 'right'), { row: 0, col: i }) },
             { label: 'Reset column widths', disabled: !this.model.widths.some(Boolean), run: () => this.mutate(() => this.model.widths.fill(null), { row: 0, col: i }) },
           ];
     this.openMenu(anchor, items);
+  }
+
+  /** Entries that save the table as a spreadsheet file, when the app says how. */
+  private exportItems(): MenuItem[] {
+    const handler = this.view.state.facet(tableExportHost);
+    if (!handler) return [];
+    const send = (format: TableExportFormat): void => {
+      this.closeMenu?.();
+      handler(format, { head: this.model.head.map((c) => plainCell(c)), align: [...this.model.align], rows: this.model.rows.map((r) => r.map((c) => plainCell(c))) });
+    };
+    return [
+      { label: 'Export table as CSV\u2026', run: () => send('csv') },
+      { label: 'Export table as Excel (.xlsx)\u2026', run: () => send('xlsx') },
+      { label: 'Export table as OpenDocument (.ods)\u2026', run: () => send('ods') },
+    ];
   }
 
   private openMenu(anchor: HTMLElement, items: MenuItem[]): void {

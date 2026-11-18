@@ -16,7 +16,7 @@ That one line is all there is to it: the theme decides how the slides look, and 
 
 ## Slides
 
-A horizontal rule on a line of its own, `---`, ends a slide. A `---` inside a code block, a table or the attributes is not a break. Empty slides are skipped.
+A horizontal rule on a line of its own, `---`, ends a slide. So does `+++` on a line of its own, the line that starts a new page in a Word, OpenDocument or PDF export, so the same page can be exported both ways. A `---` or `+++` inside a code block, a table, the attributes or a `::: name` block is not a break. Empty slides are skipped.
 
 A heading that comes after something that is not a heading starts a new slide by itself, so a rule is not needed there. A heading right after another heading (a title and its subtitle) stays on the same slide, and so do headings inside a `left` or `right` block.
 

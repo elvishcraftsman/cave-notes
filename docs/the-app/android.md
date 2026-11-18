@@ -41,6 +41,15 @@ When you put the keyboard away (the back gesture, or the keyboard's own button),
 
 The first time a workspace is opened, the app reads the whole folder and builds a search index, which can take minutes on a big one. After that the index is kept, and opening the workspace again shows it at once; the look at what changed since (files from your sync tool, for instance) then runs in the background a few seconds later. A page that takes more than a moment to open shows a small spinner at the top.
 
+## While the index catches up
+
+Until the background look at what changed has finished, the workspace works as a notes app, and the things that need an exact, complete index wait:
+
+- **Works at once:** the page tree (from the index saved last time), opening, typing in and saving any page, formatting, tables, export, and opening a page from a link or a tab. The pages open in tabs are brought up to date first, so what is on screen is right.
+- **Works, with a note:** search and database views use the saved index. They say that the index is still being brought up to date, because a page changed by your sync tool may be missing or out of date.
+- **Waits, and is grayed out or says so:** moving and renaming pages and folders, changing many pages at once (the selection bar of a view, replace in all pages), and automation buttons. These rewrite other pages from what the index knows, so they must not use an out-of-date one. They turn on by themselves when the index is up to date, and the progress bar at the bottom of the page shows how far it is.
+- **A page that is not found**, because it was moved or renamed while the app was closed, is not given up on: the app says so, and when the index is up to date it looks for the page by name and opens it where it is now.
+
 ## Workspaces and tabs
 
 Open **Workspaces and tabs…** in the menu, or tap the tab counter at the top. The list at the bottom shows every workspace you have added: tap one to go to it (its tab if it is open, a new tab if not), **Add workspace…** picks another folder, and the ✕ on a row takes it off the list (the folder and its notes are left alone; add the folder again to bring it back). Several workspaces can be open at once, each in its own tab; each one keeps its own search index in memory, so on a big workspace close the tabs you are done with.
@@ -62,7 +71,7 @@ dist/
 
 If the phone seems to freeze or Android offers to close the app, this is the first thing to try. Opening again after that takes a fraction of the time.
 
-The search index is also saved less often on a big workspace, and always when you leave the app.
+The search index is also saved less often on a big workspace, and always when you leave the app. It is also saved a few seconds after the first full indexing finishes, so a phone that stops the app right afterwards does not have to do it all again.
 
 ## Building the app, and signing it
 

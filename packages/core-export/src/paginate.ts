@@ -29,7 +29,7 @@ export function pagedCss(s: StyleSet): string {
 body{padding:12px 0 1px}
 .cn-flow{box-sizing:content-box;width:${px(w)};height:${px(h)};column-width:${px(w)};column-gap:${px(gap)};column-fill:auto;overflow:visible}
 .cn-flow .notes{page-break-before:auto;break-before:column}
-.cn-flow .cn-pagebreak{break-after:column;page-break-after:auto}
+.cn-flow .cn-pagebreak{break-after:auto;page-break-after:auto}
 .cn-sheet{position:relative;box-sizing:border-box;width:${px(pw)};height:${px(ph)};margin:0 auto 14px;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.3);overflow:hidden}
 .cn-win{position:absolute;left:${px(m)};top:${px(m)};width:${px(w)};height:${px(h)};overflow:hidden}
 .cn-hf{position:absolute;left:${px(m)};width:${px(w)};height:${px(m)};display:grid;grid-template-columns:1fr 1fr 1fr;align-items:center;font-size:${s.header.sizePt}pt;color:${s.header.color};line-height:1.2;white-space:pre-wrap;text-align:left;text-indent:0}
@@ -57,9 +57,35 @@ function runningLine(doc: Document, where: 'top' | 'bottom', hf: HeaderFooter, t
  * sheet per page. Wait for the fonts first (`document.fonts.ready`), or the count is of the wrong text. Returns the number
  * of pages.
  */
+/**
+ * A page break (`+++`) is an empty element, and a forced break on an element with no height is not reliably honoured when the
+ * browser lays text out in columns. So the break is put on what comes after the marker (the next element, or if the marker
+ * ends a block, the next element after that block): that starts a new column, which is a new page. A page break at the very
+ * end of the text starts nothing.
+ */
+export function applyPageBreaks(flow: HTMLElement): void {
+  for (const mark of Array.from(flow.querySelectorAll<HTMLElement>('.cn-pagebreak'))) {
+    let from: Element | null = mark;
+    let next: Element | null = null;
+    while (from && from !== flow) {
+      next = from.nextElementSibling;
+      if (next) break;
+      from = from.parentElement;
+    }
+    // another break right after this one: the page is left empty, as it would be in Word
+    while (next && next.classList.contains('cn-pagebreak')) {
+      (next as HTMLElement).style.breakBefore = 'column';
+      (next as HTMLElement).style.height = '1px';
+      next = next.nextElementSibling;
+    }
+    if (next) (next as HTMLElement).style.breakBefore = 'column';
+  }
+}
+
 export function paginate(doc: Document, style: StyleSet, title: string, opts: { sheets?: boolean; maxSheets?: number } = {}): number {
   const flow = doc.querySelector<HTMLElement>('.cn-flow');
   if (!flow) return 1;
+  applyPageBreaks(flow);
   const { w, gap } = pageMetrics(style);
   const pages = Math.max(1, Math.round((flow.scrollWidth + gap) / (w + gap)));
   if (opts.sheets === false) return pages;
@@ -87,25 +113,27 @@ export function paginate(doc: Document, style: StyleSet, title: string, opts: { 
   return pages;
 }
 
-function textsOf(blocks: Block[], out: string[]): void {
+/** Collect the text that is counted. Inside a `nocount` block nothing is, except what is in a `count` block in it. */
+function textsOf(blocks: Block[], out: string[], skipping = false): void {
   for (const b of blocks) {
     switch (b.t) {
-      case 'heading': case 'para': out.push(plainText(b.inlines)); break;
-      // a block that says `nocount` (`::: nocount`, or `::: hanging nocount`) is not counted, with everything in it
-      case 'quote': textsOf(b.blocks, out); break;
-      case 'div': if (!b.classes.includes('nocount')) textsOf(b.blocks, out); break;
-      case 'code': out.push(b.text); break;
-      case 'list': for (const it of b.items) textsOf(it.blocks, out); break;
-      case 'table': for (const c of [...b.head, ...b.rows.flat()]) out.push(plainText(c)); break;
-      // the footnotes are not part of the count
-      case 'notes': break;
-      case 'image': out.push(b.alt); break;
-      default: break;
+      // a block that says `nocount` (`::: nocount`, or `::: hanging nocount`) is not counted, with everything in it; `count` brings it back
+      case 'div': textsOf(b.blocks, out, b.classes.includes('count') ? false : skipping || b.classes.includes('nocount')); break;
+      case 'quote': textsOf(b.blocks, out, skipping); break;
+      case 'list': for (const it of b.items) textsOf(it.blocks, out, skipping); break;
+      // the footnotes are not part of the count, unless they were written inside a `count` block
+      case 'notes': b.items.forEach((it, i) => { if (b.counted?.[i]) textsOf(it, out, false); }); break;
+      default:
+        if (skipping) break;
+        if (b.t === 'heading' || b.t === 'para') out.push(plainText(b.inlines));
+        else if (b.t === 'code') out.push(b.text);
+        else if (b.t === 'table') for (const c of [...b.head, ...b.rows.flat()]) out.push(plainText(c));
+        else if (b.t === 'image') out.push(b.alt);
     }
   }
 }
 
-/** The words of a page as a word processor counts them: no attributes at the top, no Markdown marks, no footnotes, and not what is in a `nocount` block. */
+/** The words of a page as a word processor counts them: no attributes at the top, no Markdown marks, no footnotes (unless they are in a `count` block), and not what is in a `nocount` block. */
 export function countWords(markdown: string): number {
   const texts: string[] = [];
   textsOf(parseDoc(markdown), texts);

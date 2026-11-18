@@ -402,6 +402,11 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
 
       {data.failure && <p class="vb-note warn">Could not run this view: {data.failure}</p>}
       {data.errors.length > 0 && <p class="vb-note warn">{data.errors.join(' ')}</p>}
+      {!ctl.indexFresh.value && query.trim() !== '' && (
+        <p class="vb-note vb-stale" role="status" data-stale>
+          The index is still being brought up to date, so these rows may be out of date. Moving and changing many pages at once wait until it is done.
+        </p>
+      )}
       {query.trim() === '' ? (
         <p class="vb-note">Add a filter to choose which pages appear here.</p>
       ) : data.rows.length === 0 && !data.loading && !data.failure ? (
@@ -413,6 +418,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
               count={selected.size}
               keys={keys}
               onDuplicate={() => void ctl.duplicatePages(picked).then(() => setSelected(new Set()))}
+              blocked={!ctl.indexFresh.value}
               onMove={() => ctl.movePagesDialog(picked)}
               onDelete={() => void ctl.deletePages(picked).then((ok) => ok && setSelected(new Set()))}
               onSet={(k, v) => void ctl.setAttributeOnPages(picked, k, v)}

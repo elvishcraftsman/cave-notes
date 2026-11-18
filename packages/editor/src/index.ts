@@ -7,6 +7,7 @@ export { noteTheme } from './theme';
 export { toggleWrap, insertLink, insertViewBlock } from './commands';
 export { viewBlockHost, fenceInner, type ViewBlockApi, type ViewBlockHandle, type ViewBlockHost } from './blocks';
 export { blockWidgets, frontmatterPairs, parseTable, splitRow } from './blocks';
+export { sortTable, sortedRowOrder, tableExportHost, type TableExportFormat, type TableExportHandler } from './tables';
 export { blankTable, cellsToHtml, cellsToTsv, clipboardCells, insertTable, parseTsv, plainCell, readTable, serializeTable, tableCopy, tableMetaLine, type TableModel } from './tables';
 export { addFrontmatter, attributeBar, hasFrontmatter, setAttributeHelp } from './attributes';
 export { fenceAutoClose } from './commands';

@@ -9,7 +9,7 @@ import { SearchSession, setSort, toggleToken, type SessionState } from '@cave-no
 import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-notes/ui-tree';
 import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
 import YAML from 'yaml';
-import { BUILTIN_STYLES, countWords, imagesInLines, paginate, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
+import { BUILTIN_STYLES, countWords, tableToCsv, tableToOds, tableToXlsx, imagesInLines, paginate, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
 import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, ImportRequest, ImportResult } from '../shared/api';
 import { type Deps, capabilitiesOf, explain } from './bridge';
 import { accentRoles, headerColorFor } from './color';
@@ -73,7 +73,7 @@ export function nameFromTitle(title: string): string {
 
 /** A workspace that is open in at least one tab. */
 /** What the index is doing: shown in the file tree header. */
-export interface IndexInfo { state: 'indexing' | 'ready'; pages: number; files?: number; percent?: number; phase?: string }
+export interface IndexInfo { state: 'indexing' | 'ready'; pages: number; files?: number; percent?: number; phase?: string; /** ready only as of the index saved last time: the files have not been looked at yet, so it can be out of date */ stale?: boolean }
 
 /** One progress bar under the page tree: a workspace and how far its index is. */
 export interface IndexBar { root: string; name: string; color: string | null; index: IndexInfo; front: boolean }
@@ -182,6 +182,8 @@ export class Controller {
   readonly automationHits = signal<{ path: string; hits: AutomationRuleHit[] }>({ path: '', hits: [] });
   readonly backlinks = signal<BacklinkInfo[]>([]);
   readonly indexStatus = signal<IndexInfo>({ state: 'ready', pages: 0 });
+  /** The index of the workspace in front has been checked against the files and is complete: what needs an exact index can be done. */
+  readonly indexFresh = computed(() => this.indexStatus.value.state === 'ready' && !this.indexStatus.value.stale);
   /** bumped whenever any workspace's index progress (or the set of open workspaces) changes: the bars under the tree redraw */
   readonly indexTick = signal(0);
   readonly toasts = signal<Toast[]>([]);
@@ -326,6 +328,18 @@ export class Controller {
   /** when a view here last asked a workspace other than this one: only then does a change over there matter to what is shown */
   private foreignAskedAt = 0;
   private otherTickTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * For what rewrites other pages from the index (moving, renaming, setting an attribute on many pages): true when the
+   * index is complete. While it is still being brought up to date it says so and returns false, because the links and
+   * the pages found would be those of the last time.
+   */
+  requireFreshIndex(what: string): boolean {
+    if (this.indexFresh.value) return true;
+    const st = this.indexStatus.value;
+    this.toast(`Wait until the index is up to date before ${what}${st.state === 'indexing' && st.percent ? ` (it is at ${Math.round(st.percent)}%)` : ''}.`);
+    return false;
+  }
 
   /** Resolves when the session's index is ready (at once for none), or after five minutes whatever it is doing. */
   private whenIndexed(sess: Session | null): Promise<void> {
@@ -1035,6 +1049,26 @@ export class Controller {
   // ---------------------------------------------------------------- preferences
 
   /** Open the export dialog for the page on screen (what is in the editor now, saved or not). */
+  /** Save a table of the page as a CSV, Excel or OpenDocument spreadsheet file (the browser's download). */
+  async exportTable(format: 'csv' | 'xlsx' | 'ods', table: { head: string[]; rows: string[][] }): Promise<void> {
+    try {
+      const page = this.current.value?.path.replace(/^.*\//, '').replace(/\.[^.]*$/, '') || 'table';
+      const base = `${page} table`.replace(/[\\/:*?"<>|]+/g, '-');
+      const mime = { csv: 'text/csv;charset=utf-8', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ods: 'application/vnd.oasis.opendocument.spreadsheet' }[format];
+      const data: BlobPart = format === 'csv' ? tableToCsv(table.head, table.rows) : format === 'xlsx' ? ((await tableToXlsx(table.head, table.rows, { sheet: page })) as BlobPart) : ((await tableToOds(table.head, table.rows, { sheet: page })) as BlobPart);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([data], { type: mime }));
+      a.download = `${base}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      this.toast(`Exporting ${a.download}\u2026`);
+    } catch (e) {
+      this.toast(`The table could not be exported: ${explain(e)}`);
+    }
+  }
+
   openExport(): void {
     const cur = this.current.value;
     if (!cur?.exists) return;
@@ -1314,7 +1348,7 @@ export class Controller {
       throw e;
     }
     const tree = new TreeModel({ load: (p) => ws.listChildren(p, { workspaces: this.settings.value.showNestedWorkspaces, bareFolders: !this.settings.value.hideBareFolders, unlisted: this.showTemplates.value }) });
-    const sess: Session = { root: info.root, info, ws, tree, single: !!info.single, config: !!info.config, docs: !!info.docs, assetId: id, index: info.indexed !== undefined ? { state: 'ready', pages: info.indexed, percent: 100 } : { state: 'indexing', pages: 0, percent: 0 }, lastMove: false, expandedTimer: null };
+    const sess: Session = { root: info.root, info, ws, tree, single: !!info.single, config: !!info.config, docs: !!info.docs, assetId: id, index: info.indexed !== undefined ? { state: 'ready', pages: info.indexed, percent: 100 } : info.stale ? { state: 'ready', pages: 0, percent: 100, stale: true } : { state: 'indexing', pages: 0, percent: 0 }, lastMove: false, expandedTimer: null };
     tree.subscribe(() => {
       if (this.active === sess) this.treeTick.value++;
       this.scheduleExpandedSave(sess);
@@ -1330,6 +1364,9 @@ export class Controller {
     this.looks.value = { ...this.looks.value, [info.root]: look };
     this.rememberIcon(info.root, look);
     void ws.lastMove().then((m) => (sess.lastMove = !!m)).catch(() => {});
+    // the pages open in tabs are brought up to date in the index before the rest, so what is on screen is right at once
+    const open = this.tabs.value.filter((t) => t.root === info.root && t.path && !t.single).map((t) => t.path!);
+    if (open.length > 0 && !sess.single && !sess.config && !sess.docs) void ws.prioritizePages(open).catch(() => {});
     return sess;
   }
 
@@ -1973,9 +2010,10 @@ export class Controller {
   private onIndexStatus(st: IndexInfo, root: string | undefined): void {
     const sess = this.sessionOf(root);
     if (!sess) return;
-    sess.index = { state: st.state, pages: st.pages, ...(st.files !== undefined ? { files: st.files } : {}), percent: st.state === 'ready' ? 100 : st.percent ?? 0, ...(st.phase ? { phase: st.phase } : {}) };
+    sess.index = { state: st.state, pages: st.pages, ...(st.files !== undefined ? { files: st.files } : {}), percent: st.state === 'ready' ? 100 : st.percent ?? 0, ...(st.phase ? { phase: st.phase } : {}), ...(st.stale ? { stale: true } : {}) };
     if (this.active === sess) this.indexStatus.value = sess.index;
     this.indexTick.value++;
+    if (st.state === 'ready' && !st.stale && this.waitingForMoved?.root === sess.root && this.active === sess) void this.findMovedPage();
     if (st.state === 'ready') {
       for (const done of this.indexWaiters.get(sess) ?? []) done();
       this.indexWaiters.delete(sess);
@@ -2316,6 +2354,27 @@ export class Controller {
     }
   }
 
+  /** A page that was not found while the index was still being brought up to date: looked for again when it is done. */
+  private waitingForMoved: { root: string; path: string; name: string } | null = null;
+
+  private async findMovedPage(): Promise<void> {
+    const w = this.waitingForMoved;
+    this.waitingForMoved = null;
+    if (!w || this.active?.root !== w.root) return;
+    try {
+      if ((await this.ws.readPage(w.path)).exists) return void (await this.openPage(w.path));
+      const r = await this.ws.resolveLink({ syntax: 'wiki', target: w.name }, w.path);
+      if (r.kind === 'page' && r.status === 'ok' && r.path && r.path !== w.path) {
+        this.toast(`“${w.name}” is now at ${stripExt(r.path)}.`);
+        await this.openPage(r.path);
+        return;
+      }
+    } catch {
+      /* it is not there */
+    }
+    this.toast(`“${w.name}” no longer exists.`);
+  }
+
   private async openPageNow(path: string, opts: { fragment?: string | null; focus?: boolean; reveal?: boolean; force?: boolean; cursor?: 'end'; nav?: 'push' | 'soft' | 'skip' } = {}): Promise<void> {
     if (this.navTimer) {
       clearTimeout(this.navTimer);
@@ -2344,7 +2403,14 @@ export class Controller {
     if (!data.exists && !(await this.ws.pageInfo(path).catch(() => ({ path })))) {
       // neither a file nor a folder of pages: it was deleted or moved away
       console.warn(`[openPage] page not found: ${path} in workspace ${this.active?.root ?? '?'} (see the worker's "readPage: ENOENT" line just before this for what is on disk)`);
-      this.toast(`“${stripExt(path).split('/').pop()}” no longer exists.`);
+      const name = stripExt(path).split('/').pop() ?? path;
+      if (!this.indexFresh.value && this.active) {
+        // the index still says where things were last time: a page that moved or was renamed cannot be found until it is up to date
+        this.waitingForMoved = { root: this.active.root, path, name };
+        this.toast(`“${name}” was not found. It may have been moved or renamed. The index is still being brought up to date, and the app will look for it again when that is done.`);
+      } else {
+        this.toast(`“${name}” no longer exists.`);
+      }
       if (seq === this.openSeq && this.current.value === null) this.updateActiveTab({ path: null });
       return;
     }
@@ -3020,6 +3086,7 @@ export class Controller {
   async runAutomationButton(ruleId: string): Promise<void> {
     const cur = this.current.value;
     if (!cur) return;
+    if (!this.requireFreshIndex('running automations (they can use what other pages say)')) return;
     const key = `${ruleId}|${cur.path}`;
     if (this.runningButtons.has(key)) return;
     this.runningButtons.add(key);
@@ -4231,6 +4298,7 @@ export class Controller {
 
   /** Make the chosen replacements, after asking. The pages changed keep their old text in their history. */
   async applyReplace(): Promise<void> {
+    if (!this.requireFreshIndex('replacing text in many pages')) return;
     const r = this.replaceState.value;
     const ws = this.ws;
     if (!ws || !r.found) return;
@@ -4518,6 +4586,7 @@ export class Controller {
   }
 
   async renamePage(path: string): Promise<void> {
+    if (!this.requireFreshIndex('renaming pages')) return;
     const old = stripExt(path).split('/').pop() ?? '';
     this.dialog.value = {
       kind: 'prompt',
@@ -4545,6 +4614,7 @@ export class Controller {
   /** Move `path` under `newParent` (null = top level), e.g. after a drag and drop. */
   /** Move a page under another one (null = top level). Returns its new path, or null if nothing moved. */
   async movePage(path: string, newParent: string | null): Promise<string | null> {
+    if (!this.requireFreshIndex('moving pages or folders')) return null;
     if (this.tree.parentPath(path) === newParent) return null;
     // one move at a time: asking again while the first is still being planned only queues more work behind it
     if (this.movePlanning) {
@@ -4957,6 +5027,7 @@ export class Controller {
 
   /** Move several pages under one parent (null: top level), skipping any that would end up inside themselves. */
   async movePagesTo(paths: string[], parent: string | null): Promise<void> {
+    if (!this.requireFreshIndex('moving pages or folders')) return;
     const top = this.topmost(paths).filter((p) => parent === null || (p !== parent && !stripExt(parent).startsWith(`${stripExt(p)}/`)));
     for (const p of top) await this.movePage(p, parent);
     this.multi.value = [];
@@ -5142,6 +5213,7 @@ export class Controller {
 
   /** Set one attribute (null: take it away) on several pages. Returns how many were changed. */
   async setAttributeOnPages(paths: string[], key: string, value: AttrValue | null): Promise<number> {
+    if (!this.requireFreshIndex('changing many pages at once')) return 0;
     let done = 0;
     await this.inAttributeGroup(async () => {
       for (const p of paths) if (await this.setPageAttribute(p, key, value)) done++;

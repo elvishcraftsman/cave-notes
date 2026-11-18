@@ -494,6 +494,7 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
 .vb-check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .vb-note { margin: 0; padding: 14px; color: var(--dim-fg); }
 .vb-note.warn { color: var(--warning-color); padding: 6px 12px; }
+.vb-note.vb-stale { padding: 6px 12px; font-size: 0.85em; font-style: italic; }
 .vb-body.loading { opacity: 0.6; transition: opacity 0.2s ease 0.15s; }
 .vb-foot { padding: 4px 12px; font-size: 11px; color: var(--dim-fg); border-top: 1px solid var(--border); }
 .vb-open { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 600; color: var(--accent-color); cursor: pointer; text-align: left; }
@@ -921,8 +922,10 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
   .panes { position: relative; overflow: hidden; }
   .scrim { position: absolute; inset: 0; z-index: 15; background: rgba(0, 0, 0, 0.45); }
   .sidebar.drawer { position: absolute; top: 0; bottom: 0; z-index: 20; width: min(88vw, 22rem); box-shadow: 0 0 30px var(--shadow); }
-  .sidebar.drawer.left { left: 0; }
+  /* the one drawer (pages, outline, links, menu) comes in from the right, under the menu button, whichever sidebar it is made from */
+  .sidebar.drawer.left { left: auto; right: 0; border-right: 0; border-left: 1px solid var(--sidebar-border); }
   .sidebar.drawer.right { right: 0; }
+  .sidebar.drawer { animation: drawer-in 0.18s ease-out; }
   .headerbar-inner { gap: 2px; padding: 0 4px; }
   .hb-group, .hb-group.right { flex: none; }
   .tabbar { flex: 1; min-width: 0; }
@@ -1298,6 +1301,8 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 .busy-arc { stroke: var(--accent-bg, var(--accent-color, #3584e4)); transition: stroke-dasharray 0.25s ease; }
 .busy-ring.indeterminate { animation: busy-spin 1s linear infinite; }
 @keyframes busy-spin { to { transform: rotate(360deg); } }
+@keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .sidebar.drawer { animation: none !important; } }
 .busy-label { font-weight: 600; overflow-wrap: anywhere; }
 .busy-pct { color: var(--dim-fg); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { .busy-ring.indeterminate { animation-duration: 3s; } }

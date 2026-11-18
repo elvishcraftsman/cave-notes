@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_STYLES, cleanStyleSet, exportPage, parseDoc, renderHtml } from '../src/index';
+import { BUILTIN_STYLES, cleanStyleSet, countWords, exportPage, parseDoc, renderHtml } from '../src/index';
 
 const SAMPLE = `---
 status: draft
@@ -469,5 +469,52 @@ describe('page breaks (a line of +++)', () => {
     const content = await odt.file('content.xml')!.async('string');
     expect(content.match(/text:style-name="PageBreak"/g)).toHaveLength(2);
     expect(`${content}${await odt.file('styles.xml')!.async('string')}`).toContain('fo:break-after="page"');
+  });
+});
+
+describe('a right margin for block quotes', () => {
+  const MD = 'Before.\n\n> quoted text\n>\n> > nested\n';
+  const set = (r: number) => ({ ...BUILTIN_STYLES[0]!, blockquote: { ...BUILTIN_STYLES[0]!.blockquote, indentCm: 1, rightIndentCm: r } });
+  it('is read from and written to the style file', () => {
+    const { sets } = parseStyleSetsYaml('Mine:\n  base: Report\n  blockquote: { indent: 1cm, rightIndent: 2cm }\n');
+    expect(sets[0]!.blockquote.rightIndentCm).toBeCloseTo(2);
+    expect(parseStyleSetsYaml(stringifyStyleSets(sets)).sets[0]!.blockquote.rightIndentCm).toBeCloseTo(2);
+    expect(BUILTIN_STYLES.every((b) => b.blockquote.rightIndentCm === 0)).toBe(true);
+  });
+  it('moves quotes in from the right in html, docx and odt (once more for each level of quote)', async () => {
+    expect(renderHtml(parseDoc(MD), set(1.5), { title: 't' })).toContain('blockquote{margin:0 1.5cm');
+    const docx = await JSZip.loadAsync(await renderDocx(parseDoc(MD), set(1.5), { title: 't' }));
+    const xml = await docx.file('word/document.xml')!.async('string');
+    expect(xml).toMatch(/<w:ind [^>]*w:right="850"/); // 1.5 cm
+    expect(xml).toMatch(/<w:ind [^>]*w:right="1701"/); // 3 cm: the nested quote
+    const odt = await JSZip.loadAsync(await renderOdt(parseDoc(MD), set(1.5), { title: 't' }));
+    const all = `${await odt.file('styles.xml')!.async('string')}${await odt.file('content.xml')!.async('string')}`;
+    expect(all).toContain('fo:margin-right="1.5cm"');
+    expect(all).toContain('fo:margin-right="3cm"');
+  });
+  it('leaves the right edge alone when it is 0', async () => {
+    const docx = await JSZip.loadAsync(await renderDocx(parseDoc(MD), set(0), { title: 't' }));
+    expect(await docx.file('word/document.xml')!.async('string')).not.toMatch(/<w:ind [^>]*w:right=/);
+  });
+});
+
+describe('the count and nocount blocks', () => {
+  const NOTES = 'Body text here.[^1][^2]\n\n::: count\n[^1]: First note has five words.\n:::\n\n[^2]: Second note is not counted.\n';
+  it('counts a footnote that is written inside a count block, and no other', () => {
+    expect(countWords(NOTES)).toBe(3 + 5);
+    expect(countWords('Body text here.[^1]\n\n[^1]: A note of four words.')).toBe(3);
+  });
+  it('is not changed by a nocount block, and a count block inside a nocount block is counted', () => {
+    expect(countWords('::: nocount\nnot counted\n\n::: count\ncounted words\n:::\n:::\n\nand more')).toBe(2 + 2);
+    expect(countWords('::: nocount\nnot counted\n:::\nbut this')).toBe(2);
+  });
+  it('leaves the footnotes in the document (the block around them prints nothing)', async () => {
+    const blocks = parseDoc(NOTES);
+    const notes = blocks.find((b) => b.t === 'notes') as { items: unknown[]; counted?: boolean[] };
+    expect(notes.items).toHaveLength(2);
+    expect(notes.counted).toEqual([true, false]);
+    expect(renderHtml(blocks, BUILTIN_STYLES[0]!, { title: 't' })).toContain('Second note is not counted');
+    await renderDocx(blocks, BUILTIN_STYLES[0]!, { title: 't' });
+    await renderOdt(blocks, BUILTIN_STYLES[0]!, { title: 't' });
   });
 });

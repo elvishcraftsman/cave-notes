@@ -70,6 +70,8 @@ export interface WorkspaceInfo {
   config?: boolean;
   /** the built-in documentation: a lightweight workspace over the bundled docs folder, read only and shown fully rendered */
   docs?: boolean;
+  /** opened from the index saved last time, which has not yet been checked against the files: it can be out of date until the next `index:status` that is not stale */
+  stale?: boolean;
 }
 
 export interface PageData {
@@ -445,6 +447,8 @@ export interface WorkerApi {
   rescan(): Promise<void>;
   /** Look for changes made outside the app and update the index; the tree and the pages are not touched. */
   refreshIndex(): Promise<void>;
+  /** index these pages first (the ones open in tabs): a few files, quick */
+  prioritizePages(paths: string[]): Promise<void>;
   /** The automations of this workspace: its rules, problems found in the rules file, and what waits its turn. */
   automationStatus(): Promise<AutomationStatus>;
   /** The rules whose criteria this page meets. */
@@ -885,7 +889,7 @@ export interface WorkerEvents {
   'page:changed': { path: string; hash: string | null };
   /** The index has new data for this page (after a save or a change on disk). */
   'index:updated': { path: string | null };
-  'index:status': { state: 'indexing' | 'ready'; pages: number; files?: number; ms?: number; /** 0-100 while indexing, 100 when ready */ percent?: number; /** what the index is doing now */ phase?: 'scan' | 'parse' | 'finish' | 'ready' };
+  'index:status': { state: 'indexing' | 'ready'; pages: number; files?: number; ms?: number; /** 0-100 while indexing, 100 when ready */ percent?: number; /** what the index is doing now */ phase?: 'scan' | 'parse' | 'finish' | 'ready'; /** ready, but only as of the index saved last time: the files have not been looked at yet */ stale?: boolean };
   /** A page file was moved or renamed on disk (same content, new place). */
   'page:moved': { from: string; to: string; hash: string };
   /** Sync conflict copies were found and the setting says to ask first: the pages they belong to. */
@@ -986,7 +990,7 @@ export const MAIN_METHODS = [
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [
-  'openWorkspace', 'closeWorkspace', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'evaluateExpression', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
+  'openWorkspace', 'closeWorkspace', 'prioritizePages', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'evaluateExpression', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
   'planMove', 'applyPlan', 'undoLast', 'lastMove', 'deleteInfo', 'afterDelete', 'pageInfo', 'links', 'backlinks',
   'resolveLink', 'suggestPages', 'findPagePaths', 'getInheritedExportStyles', 'search', 'replaceFind', 'replaceApply', 'attributeKeys', 'attributeValues', 'queryView', 'savedQueries', 'saveQuery', 'setAttribute', 'setFileAttributes', 'moveFile', 'mergeTemplateInto', 'templateAttributes', 'editRelation', 'relationCandidates', 'setPageTitle', 'stats', 'getState', 'setState',
   'absolutePath', 'importFile', 'fileInPage', 'importExternal', 'setSyncOptions', 'mergeConflictCopies', 'historyList', 'historyRead', 'snapshot', 'historyTexts',

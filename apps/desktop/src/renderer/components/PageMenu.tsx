@@ -24,6 +24,8 @@ export function PageMenuHost({ ctl }: { ctl: Controller }): JSX.Element | null {
     );
   }
   if (!menu) return null;
+  // renaming and moving rewrite links from the index: they wait until it is complete (grayed out until then)
+  const blocked = !ctl.indexFresh.value;
   const close = (): void => {
     ctl.pageMenu.value = null;
   };
@@ -40,10 +42,10 @@ export function PageMenuHost({ ctl }: { ctl: Controller }): JSX.Element | null {
       <FloatingMenu x={menu.x} y={menu.y} onClose={close}>
         <MenuItem icon="page" label={`${ps.length} pages selected`} onClick={close} />
         <div class="menu-separator" />
-        <MenuItem icon="rename" label="Rename…" onClick={run(() => ctl.renamePages(ps))} />
+        <MenuItem icon="rename" label="Rename…" disabled={blocked} onClick={run(() => ctl.renamePages(ps))} />
         <MenuItem icon="page" label="Apply Template…" onClick={run(() => void ctl.applyTemplateToPages(ps))} />
         <MenuItem icon="copy" label="Duplicate" onClick={run(() => void ctl.duplicatePages(ps))} />
-        <MenuItem icon="back" label="Move to…" onClick={run(() => ctl.openTransfer(ps, 'move'))} />
+        <MenuItem icon="back" label="Move to…" disabled={blocked} onClick={run(() => ctl.openTransfer(ps, 'move'))} />
         <MenuItem icon="copy" label="Copy to…" onClick={run(() => ctl.openTransfer(ps, 'copy'))} />
         <div class="menu-separator" />
         <MenuItem icon="page" label="Clear Selection" onClick={run(() => { ctl.multi.value = []; })} />
@@ -66,14 +68,14 @@ export function PageMenuHost({ ctl }: { ctl: Controller }): JSX.Element | null {
     <FloatingMenu x={menu.x} y={menu.y} onClose={close}>
       <MenuItem icon="plus" label="New Page Inside" onClick={on((p) => void ctl.newPageIn(p))} />
       <MenuItem icon="page" label="Open in New Tab" onClick={on((p) => void ctl.openInNewTab(p))} />
-      <MenuItem icon="rename" label="Rename…" shortcut="F2" onClick={on((p) => void ctl.renamePage(p))} />
+      <MenuItem icon="rename" label="Rename…" shortcut="F2" disabled={blocked} onClick={on((p) => void ctl.renamePage(p))} />
       <MenuItem icon="gallery" label="Set Icon…" onClick={on((p) => ctl.openPageIcon(p))} />
       {ctl.tree.rows.find((r) => r.path === menu.path)?.indicatorsIgnored && <MenuItem icon="page" label="Show Indicators Again" onClick={on((p) => void ctl.unignoreIndicators(p))} />}
       <MenuItem icon="page" label="Apply Template…" onClick={on((p) => void ctl.applyTemplate(p))} />
       <MenuItem icon="copy" label="Duplicate" onClick={on((p) => void ctl.duplicatePages([p]))} />
-      <MenuItem icon="back" label="Move to…" onClick={on((p) => ctl.openTransfer([p], 'move'))} />
+      <MenuItem icon="back" label="Move to…" disabled={blocked} onClick={on((p) => ctl.openTransfer([p], 'move'))} />
       <MenuItem icon="copy" label="Copy to…" onClick={on((p) => ctl.openTransfer([p], 'copy'))} />
-      {menu.path.includes('/') && <MenuItem icon="back" label="Move to Top Level" onClick={on((p) => void ctl.movePage(p, null))} />}
+      {menu.path.includes('/') && <MenuItem icon="back" label="Move to Top Level" disabled={blocked} onClick={on((p) => void ctl.movePage(p, null))} />}
       <div class="menu-separator" />
       {ctl.caps.systemFileActions && <MenuItem icon="folder" label="Reveal in File Explorer" onClick={on((p) => void ctl.revealPage(p))} />}
       <MenuItem icon="cave" label="Make Workspace…" onClick={on((p) => void ctl.promotePage(p))} />

@@ -90,7 +90,7 @@ export function styleSetFromYaml(name: string, raw: unknown, base: StyleSet = BU
     body: { font: body.font, sizePt: def(lengthToPt(body.size)), color: body.color, lineHeight: body.lineHeight, justify: body.justify, paragraphAfter: def(lengthToPt(body.spaceAfter)), firstLineIndentCm: def(lengthToCm(body.firstLineIndent ?? body.indent, units)), indentAfterHeading: body.indentAfterHeading },
     headings: [0, 1, 2, 3, 4, 5].map(heading),
     code: { font: code.font, sizePt: def(lengthToPt(code.size)), color: code.color, background: code.background },
-    blockquote: { color: bq.color, italic: bq.italic, indentCm: def(lengthToCm(bq.indent, units)), bar: bq.bar },
+    blockquote: { color: bq.color, italic: bq.italic, indentCm: def(lengthToCm(bq.indent, units)), rightIndentCm: def(lengthToCm(bq.rightIndent, units)), bar: bq.bar },
     link: { color: link.color, underline: link.underline },
     listIndentCm: def(lengthToCm(list.indent, units)),
     table: { headerBackground: table.headerBackground, border: table.border },
@@ -129,7 +129,7 @@ export function styleSetToYaml(s: StyleSet): Record<string, unknown> {
     out[`h${i + 1}`] = { font: h.font, size: `${h.sizePt}pt`, color: h.color, bold: h.bold, italic: h.italic, before: `${h.before}pt`, after: `${h.after}pt`, lineHeight: h.lineHeight };
   });
   out.code = { font: s.code.font, size: `${s.code.sizePt}pt`, color: s.code.color, background: s.code.background };
-  out.blockquote = { color: s.blockquote.color, italic: s.blockquote.italic, indent: lenOut(s.blockquote.indentCm, u), bar: s.blockquote.bar };
+  out.blockquote = { color: s.blockquote.color, italic: s.blockquote.italic, indent: lenOut(s.blockquote.indentCm, u), rightIndent: lenOut(s.blockquote.rightIndentCm, u), bar: s.blockquote.bar };
   out.link = { color: s.link.color, underline: s.link.underline };
   out.list = { indent: lenOut(s.listIndentCm, u) };
   out.table = { headerBackground: s.table.headerBackground, border: s.table.border };

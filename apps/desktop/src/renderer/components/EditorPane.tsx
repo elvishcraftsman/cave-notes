@@ -167,6 +167,7 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       onDropFiles: (files, pos) => void ctl.dropFiles(files, pos),
       onDropPage: (path, pos, root) => void ctl.dropPageInEditor(path, pos, root),
       onDropFile: (path, pos, root) => void ctl.dropWorkspaceFileInEditor(path, pos, root),
+      ...(ctl.caps.exportDocuments ? { onExportTable: (format: 'csv' | 'xlsx' | 'ods', table: { head: string[]; rows: string[][] }) => void ctl.exportTable(format, table) } : {}),
       onSave: () => void ctl.flush(),
       onLineChange: () => ctl.onEditorLineChange(),
       onBlur: () => ctl.onEditorBlur(),

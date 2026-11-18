@@ -1,0 +1,59 @@
+# Shipped with Cave Notes. Edit it freely: your changes are kept when the app updates.
+# To remove it, delete this file or use Plugins > All plugins.
+# Needs "Let automations run JavaScript" (Preferences > Automations).
+rules:
+  - id: join-wrapped-lines
+    name: Join wrapped lines
+    icon: list-collapse
+    description: |
+      Joins the lines of a paragraph that was broken into short lines, as text
+      copied from a PDF or a license usually is. Blank lines are left alone, so
+      the paragraphs stay apart.
+
+      Works on the selected text, or on the whole page when nothing is selected.
+      Headings, tables, code blocks, the frontmatter and the start of a list item
+      or a quote are never joined to the line before them. A line that ends with
+      two spaces or a backslash (a deliberate line break) keeps its break.
+      A word split by a hyphen at the end of a line is joined without a space and
+      keeps its hyphen ("exam-" and "ple" become "exam-ple"), since the plugin
+      cannot tell it from a compound word.
+    on: { plugin: "Join wrapped lines" }
+    do:
+      - run_js:
+          code: |
+            // lines that are never joined to the line after them (or before them): headings, table rows, fences, rules, :::, +++, html, link definitions
+            const ALONE = /^(#{1,6}(\s|$)|\||```|~~~|(?:[-*_]\s*){3,}$|={3,}\s*$|:{3,}|\+\+\+\s*$|<[A-Za-z!\/]|\[[^\]]+\]:\s)/;
+            // lines that start something new, so they are not joined to the line before them
+            const OPENS = /^([-*+]\s|\d+[.)]\s|>|\[\^[^\]]+\]:)/;
+
+            // the frontmatter and fenced code are left as they are
+            const skip = fences(text);
+            const front = frontmatter(text);
+            if (front) skip.push(front);
+            const inSkip = (pos) => skip.some((r) => pos >= r.start && pos <= r.end);
+
+            const lines = text.split("\n");
+            const starts = [];
+            let at = 0;
+            for (const l of lines) { starts.push(at); at += l.length + 1; }
+
+            const edits = [];
+            for (let i = 0; i < lines.length - 1; i++) {
+              const a = lines[i];
+              const b = lines[i + 1];
+              if (!a.trim() || !b.trim()) continue;                       // a blank line ends the paragraph
+              if (inSkip(starts[i]) || inSkip(starts[i + 1])) continue;
+              if (/( {2,}|\\)$/.test(a)) continue;                        // a deliberate line break
+              const aText = a.trimStart();
+              const bText = b.trimStart();
+              if (ALONE.test(aText) || ALONE.test(bText) || OPENS.test(bText)) continue;
+              const end = a.trimEnd();
+              const hyphen = /[A-Za-z\u00C0-\u024F]-$/.test(end) && /^[a-z\u00DF-\u00FF]/.test(bText);
+              edits.push({
+                from: starts[i] + end.length,
+                to: starts[i + 1] + (b.length - bText.length),
+                insert: hyphen ? "" : " ",
+              });
+            }
+            if (edits.length === 0) return null;
+            return applyEdits(text, edits).text;

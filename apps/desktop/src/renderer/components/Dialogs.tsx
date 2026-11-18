@@ -1894,6 +1894,7 @@ function StyleEditor({ set, onChange }: { set: StyleSet; onChange: (s: StyleSet)
       <Color label="Colour" value={set.blockquote.color} on={(c) => upd({ blockquote: { ...set.blockquote, color: c } })} />
       <Color label="Bar" value={set.blockquote.bar} on={(c) => upd({ blockquote: { ...set.blockquote, bar: c } })} />
       <Len label="Indent" cm={set.blockquote.indentCm} on={(cm) => upd({ blockquote: { ...set.blockquote, indentCm: cm } })} />
+      <Len label="Right indent" cm={set.blockquote.rightIndentCm} on={(cm) => upd({ blockquote: { ...set.blockquote, rightIndentCm: cm } })} />
       <Check label="Italic" value={set.blockquote.italic} on={(b) => upd({ blockquote: { ...set.blockquote, italic: b } })} />
       <h4>Footnotes</h4>
       <label class="se-field"><span>Place notes</span>

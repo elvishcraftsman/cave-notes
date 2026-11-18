@@ -35,9 +35,9 @@ afterEach(() => {
   resetFs();
 });
 
-async function start(mem: ReturnType<typeof createMemFs>): Promise<WebWorkerHost> {
+async function start(mem: ReturnType<typeof createMemFs>, extra: { snapshotAfterIndexMs?: number } = {}): Promise<WebWorkerHost> {
   const channel = new MessageChannel();
-  const stop = startWebWorker(channel.port2 as never, { initSqlite: () => sqlite3InitModule(), snapshotEveryMs: 60_000 });
+  const stop = startWebWorker(channel.port2 as never, { initSqlite: () => sqlite3InitModule(), snapshotEveryMs: 60_000, ...extra });
   const host = createWebWorkerHost({
     worker: Object.assign(channel.port1, { terminate: () => channel.port1.close() }) as never,
     fs: mem as never,
@@ -95,6 +95,19 @@ describe('the service in a worker, over messages', () => {
     await expect(host.api.openWorkspace('/nowhere', { dataDir: '/data' })).rejects.toMatchObject({ code: 'NOT_A_FOLDER' });
   });
 
+  it('saves the index soon after indexing finishes, without waiting for the app to close or go to the background', async () => {
+    const mem = await phone();
+    const host = await start(mem, { snapshotAfterIndexMs: 20 });
+    await openAndIndex(host);
+    // the app is never told to save and the workspace is not closed (a phone can stop it at any moment)
+    let size = 0;
+    for (let i = 0; i < 100 && size === 0; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      size = await mem.stat('/data/index.db').then((s) => s.size, () => 0);
+    }
+    expect(size).toBeGreaterThan(8 * 1024);
+  });
+
   it('saves the search index to storage when the workspace closes, and a later start restores it', async () => {
     const mem = await phone();
     const first = await start(mem);
@@ -111,6 +124,38 @@ describe('the service in a worker, over messages', () => {
     await openAndIndex(second);
     expect(reads).toContain('/data/index.db');
     expect((await second.api.search('alpha')).results[0]?.path).toBe('Projects/Alpha.md');
+  });
+
+  it('opens from the saved index at once, says it is stale, and brings the open pages up to date before the rest', async () => {
+    const mem = await phone();
+    const first = await start(mem);
+    await openAndIndex(first);
+    await first.api.closeWorkspace();
+    await first.saveIndex();
+    // changed while the app was closed (a sync tool): the saved index does not know
+    await mem.writeFile('/ws/Projects/Beta.md', '# Beta\nZebrafish arrived from the desktop.\n');
+    await mem.writeFile('/ws/Projects/Alpha.md', '# Alpha\nQuokka arrived from the desktop.\n');
+
+    const second = await start(mem);
+    const events: Array<{ state?: string; stale?: boolean }> = [];
+    second.onEvent((event, payload) => {
+      if (event === 'index:status') events.push(payload as { state?: string; stale?: boolean });
+    });
+    const info = await second.api.openWorkspace('/ws', { dataDir: '/data', deferIndexing: true });
+    expect(info.stale).toBe(true);
+    // usable from the saved index, which still has the old text
+    expect((await second.api.search('alpha')).results[0]?.path).toBe('Projects/Alpha.md');
+    expect((await second.api.search('zebrafish')).results).toHaveLength(0);
+    // the page open in a tab is brought up to date first; the rest is still as it was
+    await second.api.prioritizePages(['Projects/Beta.md']);
+    expect((await second.api.search('zebrafish')).results[0]?.path).toBe('Projects/Beta.md');
+    expect((await second.api.search('quokka')).results).toHaveLength(0);
+    // then the look at everything else, and the status is no longer stale
+    await second.api.refreshIndex();
+    expect((await second.api.search('quokka')).results[0]?.path).toBe('Projects/Alpha.md');
+    expect(events[0]).toMatchObject({ state: 'ready', stale: true });
+    expect(events.at(-1)).toMatchObject({ state: 'ready' });
+    expect(events.at(-1)?.stale).toBeUndefined();
   });
 
   it('saveIndex writes the snapshot on request (the app is going to the background)', async () => {

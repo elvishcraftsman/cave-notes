@@ -1,5 +1,5 @@
 import { describe as suite, expect, it } from 'vitest';
-import { NoteEditor, blankTable, cellsToHtml, cellsToTsv, insertTable, parseTsv, readTable, serializeTable, tableMetaLine } from '../src/index';
+import { NoteEditor, blankTable, cellsToHtml, cellsToTsv, insertTable, parseTsv, readTable, serializeTable, sortTable, sortedRowOrder, tableMetaLine, type TableExportFormat } from '../src/index';
 
 function make(text: string, cursor?: number): { ed: NoteEditor; el: HTMLElement } {
   const el = document.createElement('div');
@@ -163,5 +163,66 @@ suite('the table grid', () => {
     insertTable(ed.view);
     expect(ed.text()).toBe('Hello\n\n| Column 1 | Column 2 |\n| -------- | -------- |\n|          |          |\n\n');
     expect(el.querySelectorAll('.cm-table-cell')).toHaveLength(4);
+  });
+});
+
+suite('sorting a table by a column', () => {
+  const col = (cells: string[]): string[][] => cells.map((c) => [c]);
+  it('puts numbers in order of value, not of spelling', () => {
+    const rows = col(['10', '9', '1,200', '$3.50', '(2)', '12%']);
+    expect(sortedRowOrder(rows, 0, 'asc').map((i) => rows[i]![0])).toEqual(['(2)', '12%', '$3.50', '9', '10', '1,200']);
+    expect(sortedRowOrder(rows, 0, 'desc').map((i) => rows[i]![0])).toEqual(['1,200', '10', '9', '$3.50', '12%', '(2)']);
+  });
+  it('puts dates in order of time, in any of the written forms', () => {
+    const rows = col(['4 Mar 2026', '2025-12-31', 'January 5, 2026']);
+    expect(sortedRowOrder(rows, 0, 'asc').map((i) => rows[i]![0])).toEqual(['2025-12-31', 'January 5, 2026', '4 Mar 2026']);
+  });
+  it('sorts words without regard to case or accents, and numbers inside words in their natural order', () => {
+    const rows = col(['banana', 'Apple', 'élan', 'item 10', 'item 9', 'cherry']);
+    expect(sortedRowOrder(rows, 0, 'asc').map((i) => rows[i]![0])).toEqual(['Apple', 'banana', 'cherry', 'élan', 'item 9', 'item 10']);
+  });
+  it('does not read a code with a leading zero as a number, but still sorts it in natural order', () => {
+    const rows = col(['10001', '02134', '9']);
+    expect(sortedRowOrder(rows, 0, 'asc').map((i) => rows[i]![0])).toEqual(['9', '02134', '10001']);
+  });
+  it('leaves empty cells last whichever way it goes, and rows that tie where they were', () => {
+    const rows = [['b', '1'], ['', '2'], ['a', '3'], ['b', '4'], ['', '5']];
+    expect(sortedRowOrder(rows, 0, 'asc')).toEqual([2, 0, 3, 1, 4]);
+    expect(sortedRowOrder(rows, 0, 'desc')).toEqual([0, 3, 2, 1, 4]);
+  });
+  it('keeps the header first and the heights of rows with their rows', () => {
+    const m = readTable('| N | V |\n| - | - |\n| c | 3 |\n| a | 1 |\n| b | 2 |\n<!-- cave-table: rows=,30,,50 -->')!;
+    sortTable(m, 0, 'asc');
+    expect(m.head).toEqual(['N', 'V']);
+    expect(m.rows.map((r) => r[0])).toEqual(['a', 'b', 'c']);
+    expect(m.heights).toEqual([null, null, 50, 30]);
+  });
+  it('is in the column menu and written to the page', () => {
+    const { ed, el } = make('| N | V |\n| - | - |\n| c | 3 |\n| a | 1 |\n| b | 2 |\n');
+    el.querySelectorAll<HTMLElement>('[data-grip="col"] button')[1]!.click();
+    [...document.querySelectorAll<HTMLElement>('.cm-table-menu-item')].find((b) => b.textContent?.startsWith('Sort descending'))!.click();
+    expect(ed.text().split('\n').filter((l) => /^\| [abc]/.test(l)).map((l) => l[2])).toEqual(['c', 'b', 'a']);
+  });
+});
+
+suite('exporting a table', () => {
+  it('has export entries only when the app says how, and hands over plain cells', () => {
+    const plain = make(DOC);
+    plain.el.querySelectorAll<HTMLElement>('[data-grip="col"] button')[0]!.click();
+    expect([...document.querySelectorAll('.cm-table-menu-item')].some((b) => /Export/.test(b.textContent ?? ''))).toBe(false);
+    plain.ed.destroy();
+
+    const got: Array<[TableExportFormat, string[], string[][]]> = [];
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    const ed = new NoteEditor({ parent: el, onExportTable: (f, t) => got.push([f, t.head, t.rows]) });
+    ed.load('| **Name** | [Link](http://x.y) |\n| --- | --- |\n| *a* | 2 |\n');
+    ed.view.dispatch({ selection: { anchor: 0 } });
+    el.querySelectorAll<HTMLElement>('[data-grip="col"] button')[0]!.click();
+    [...document.querySelectorAll<HTMLElement>('.cm-table-menu-item')].find((b) => b.textContent?.includes('(.xlsx)'))!.click();
+    expect(got).toHaveLength(1);
+    expect(got[0]![0]).toBe('xlsx');
+    expect(got[0]![1]).toEqual(['Name', 'Link']);
+    expect(got[0]![2]).toEqual([['a', '2']]);
   });
 });

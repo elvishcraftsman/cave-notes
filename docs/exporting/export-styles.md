@@ -82,6 +82,7 @@ So `after` and `spaceAfter` are the same kind of gap on different things: `space
 | `code.font`, `code.size`, `code.color` | The type of code, inline and in blocks. |
 | `code.background` | The shading behind code blocks. |
 | `blockquote.indent` | How far each level of quote is moved in from the left margin. |
+| `blockquote.rightIndent` | How far each level of quote is moved in from the right margin (the default, `0`, leaves the right edge where the text's is). |
 | `blockquote.bar` | The colour of the vertical bar down the quote's left edge. |
 | `blockquote.color`, `blockquote.italic` | The quote's text colour and whether it is slanted. |
 | `link.color`, `link.underline` | How links look. |
@@ -175,7 +176,20 @@ Aquinas, Thomas. *Summa Theologiae*. Notre Dame: Ave Maria Press, 1981.
 ::: :::
 ```
 
-Each line of colons closes the innermost block that is open. A line of **several** (`::: :::`) closes that many at once, innermost first, so the two blocks above end on one line. `nocount` itself changes nothing on the page: it only says what is not counted. Footnotes are never counted.
+Each line of colons closes the innermost block that is open. A line of **several** (`::: :::`) closes that many at once, innermost first, so the two blocks above end on one line. `nocount` itself changes nothing on the page: it only says what is not counted.
+
+Footnotes are not counted either, unless you ask. A block named **`count`** counts everything in it, even inside a `nocount` block, and footnotes whose notes are **written inside it** are counted too:
+
+```
+Some text with a note.[^1] And another.[^2]
+
+::: count
+[^1]: This note is counted.
+[^2]: So is this one.
+:::
+```
+
+A footnote that stays outside the block is left out of the count, as before. The block prints nothing itself, and the notes still appear where the style puts them.
 
 Built-in styles: `hanging` (a 1.27 cm hanging indent), `noindent`, `center` and `right`. Change them or add your own under `styles:` in a set, or once for the whole workspace in a `styles:` section of any file in `.cave-notes` (a set's own definition wins; bare lengths in a workspace's `styles:` count in cm, so write units):
 

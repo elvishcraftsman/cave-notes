@@ -419,8 +419,10 @@ export function PropsPanel({ shown, available, onChange }: { shown: string[]; av
 // ---------------------------------------------------------------- bulk actions
 
 /** What can be done to the rows that are ticked: duplicate, move, delete, or set one attribute on all of them. */
-export function SelectionBar({ count, keys, onDuplicate, onMove, onDelete, onSet, onClear }: {
+export function SelectionBar({ count, keys, blocked, onDuplicate, onMove, onDelete, onSet, onClear }: {
   count: number;
+  /** the index is not complete yet: moving and setting a value on many pages wait */
+  blocked?: boolean;
   keys: AttributeKey[];
   onDuplicate: () => void;
   onMove: () => void;
@@ -443,7 +445,7 @@ export function SelectionBar({ count, keys, onDuplicate, onMove, onDelete, onSet
     <div class="vb-selection" role="toolbar" aria-label="Selected pages">
       <strong>{count} selected</strong>
       <button class="pill-button small" onClick={onDuplicate}>Duplicate</button>
-      <button class="pill-button small" onClick={onMove}>Move…</button>
+      <button class="pill-button small" disabled={blocked} title={blocked ? 'Available when the index is up to date' : undefined} onClick={onMove}>Move…</button>
       <button class="pill-button small destructive" onClick={onDelete}>Delete</button>
       <span class="vb-set">
         <select aria-label="Attribute to set" value={key} onChange={(e) => { setKey((e.currentTarget as HTMLSelectElement).value); setValue(''); }}>
@@ -457,8 +459,8 @@ export function SelectionBar({ count, keys, onDuplicate, onMove, onDelete, onSet
         ) : (
           <input aria-label="Value" type={info?.type === 'date' ? 'date' : info?.type === 'number' ? 'number' : 'text'} placeholder={info?.list ? 'a, b, c' : 'value'} value={value} onInput={(e) => setValue((e.currentTarget as HTMLInputElement).value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') apply(false); }} />
         ))}
-        {key && <button class="pill-button small" onClick={() => apply(false)}>Apply</button>}
-        {key && <button class="pill-button small" title="Take the attribute away from every selected page" onClick={() => apply(true)}>Remove</button>}
+        {key && <button class="pill-button small" disabled={blocked} title={blocked ? 'Available when the index is up to date' : undefined} onClick={() => apply(false)}>Apply</button>}
+        {key && <button class="pill-button small" disabled={blocked} title={blocked ? 'Available when the index is up to date' : 'Take the attribute away from every selected page'} onClick={() => apply(true)}>Remove</button>}
       </span>
       <button class="pill-button small flat" onClick={onClear}>Clear selection</button>
     </div>

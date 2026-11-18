@@ -123,7 +123,7 @@ export async function renderDocx(blocks: Block[], style: StyleSet, opts: { title
           out.push(new Paragraph({
             alignment: align,
             spacing: { ...spacing(nm?.after ?? body.paragraphAfter), ...(nm?.before !== undefined ? { before: Math.round(nm.before * 20) } : {}), ...(nm?.lineHeight ? { line: Math.round(nm.lineHeight * 240) } : {}) },
-            indent: ctx.quote > 0 || ctx.hang ? { left: twip(style.blockquote.indentCm * ctx.quote + style.listIndentCm * (ctx.hang ?? 0)) } : named?.indent ?? (!ctx.named && indentsFirstLine(b, bs[bi - 1], ctx) ? { firstLine: twip(body.firstLineIndentCm) } : undefined),
+            indent: ctx.quote > 0 || ctx.hang ? { left: twip(style.blockquote.indentCm * ctx.quote + style.listIndentCm * (ctx.hang ?? 0)), ...(ctx.quote > 0 && style.blockquote.rightIndentCm > 0 ? { right: twip(style.blockquote.rightIndentCm * ctx.quote) } : {}) } : named?.indent ?? (!ctx.named && indentsFirstLine(b, bs[bi - 1], ctx) ? { firstLine: twip(body.firstLineIndentCm) } : undefined),
             shading: named?.shading as never,
             border: ctx.quote > 0 ? { left: { style: BorderStyle.SINGLE, size: 18, space: 8, color: hex(style.blockquote.bar) } } : undefined,
             children: runs(b.inlines, ctx.quote > 0 ? { color: hex(style.blockquote.color), italics: style.blockquote.italic } : nm ? { ...(nm.font ? { font: nm.font } : {}), ...(nm.sizePt ? { size: Math.round(nm.sizePt * 2) } : {}), ...(nm.color ? { color: hex(nm.color) } : {}), ...(nm.bold !== undefined ? { bold: nm.bold } : {}), ...(nm.italic !== undefined ? { italics: nm.italic } : {}) } : {}),

@@ -136,3 +136,12 @@ describe('presenter notes', () => {
     expect([0, 1, 25, 26, 27, 51, 52].map(noteLetter)).toEqual(['a', 'b', 'z', 'aa', 'ab', 'az', 'ba']);
   });
 });
+
+describe('+++ in a presentation', () => {
+  it('ends a slide, like a rule does, except in code or inside a block', () => {
+    const md = '# One\ntext\n+++\n# Two\n\n```\n+++\n```\n\n::: left\nside\n+++\nmore\n:::\n\n---\nThree\n';
+    const segs = splitSlides(md);
+    expect(segs.map((s) => s.text.split('\n')[0])).toEqual(['# One', '# Two', 'Three']);
+    expect(segs[0]!.text).not.toContain('+++');
+  });
+});

@@ -224,6 +224,8 @@ export function SearchPanel({ ctl }: { ctl: Controller }): JSX.Element {
         )}
       </div>
 
+      {query && !ctl.indexFresh.value && <p class="search-note" role="status">The index is still being brought up to date, so some pages may be missing or out of date.</p>}
+
       {cs.length > 0 && (
         <div class="chip-row" aria-label="Active filters">
           {cs.map((c) => (
