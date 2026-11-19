@@ -121,7 +121,7 @@ export interface StyleSet {
   code: { font: string; sizePt: number; color: string; background: string };
   blockquote: { color: string; italic: boolean; indentCm: number; /** how far each level of quote is moved in from the right margin (0: not at all) */ rightIndentCm: number; bar: string };
   table: { headerBackground: string; border: string };
-  /** `endnotes`: the notes are collected at the end of the document instead of at the foot of each page (always the case in PDF and HTML) */
+  /** `endnotes`: the notes are collected at the end of the document instead of at the foot of each page (in PDF too; HTML always has them at the end) */
   footnotes: { sizePt: number; color: string; italic: boolean; endnotes: boolean };
   link: { color: string; underline: boolean };
   listIndentCm: number;

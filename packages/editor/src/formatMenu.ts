@@ -760,9 +760,18 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
       const view = u.view;
       clearTimeout(settle);
       // on a touch screen the menu is there whenever the editor has the focus (and so the keyboard is up), not only for a selection
-      if (view.state.readOnly || !view.hasFocus) {
+      if (view.state.readOnly) {
         settlePending = false;
         if (open?.dock) closeFormatMenu();
+        return;
+      }
+      if (!view.hasFocus) {
+        settlePending = false;
+        // A tap in the text can lose the focus for a moment and give it back at once. Taking the menu away then, and putting it
+        // back, made it blink and sometimes land over the line being edited: only a focus that stays lost takes it away.
+        settle = setTimeout(() => {
+          if (!view.hasFocus && open?.dock) closeFormatMenu();
+        }, 500);
         return;
       }
       if (!settlePending) burstStart = u.startState.selection.main;

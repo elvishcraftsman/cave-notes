@@ -186,6 +186,27 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
     });
     ctl.attachEditor(ed);
     const scroller = ed.view.scrollDOM;
+    // Pressing on the scrollbar (or the margin beside the text) must not take the focus from the text: with the focus on the
+    // scrolling box, arrow keys only scroll or highlight the box and the cursor is lost.
+    const keepFocus = (e: MouseEvent): void => {
+      if (e.target === scroller && ed.hasFocus()) e.preventDefault();
+    };
+    scroller.addEventListener('mousedown', keepFocus);
+    // If the focus did end up on the editor's box rather than in the text, an arrow or typing key goes back to the cursor
+    const pane0 = el.parentElement;
+    const keyBack = (e: KeyboardEvent): void => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      const a = document.activeElement;
+      if (!a || (a !== scroller && a !== ed.view.dom && a !== el && a !== pane0)) return;
+      if (ctl.dialog.value || !ctl.current.value?.exists) return;
+      const nav = e.key.startsWith('Arrow') || ['Home', 'End', 'PageUp', 'PageDown'].includes(e.key);
+      const typing = e.key.length === 1 || ['Enter', 'Backspace', 'Delete'].includes(e.key);
+      if (!nav && !typing) return;
+      ed.focus();
+      ed.revealCursor();
+      if (nav) e.preventDefault(); // the first press only brings you back to the cursor
+    };
+    document.addEventListener('keydown', keyBack, true);
     let raf = 0;
     const onScroll = (): void => {
       cancelAnimationFrame(raf);
@@ -242,6 +263,8 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       barWatch?.disconnect();
       ro?.disconnect();
       scroller.removeEventListener('scroll', onScrollAll);
+      scroller.removeEventListener('mousedown', keepFocus);
+      document.removeEventListener('keydown', keyBack, true);
       ed.destroy();
     };
   }, [ctl]);

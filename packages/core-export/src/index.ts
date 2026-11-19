@@ -23,5 +23,5 @@ export { SLIDE_KINDS, DEFAULT_RULES, buildSlides, chooseLayout, cleanRules, rule
 export * from './slideImages';
 export { BUILTIN_THEMES, SLIDE_PT, cleanTheme, themeToYaml, themeWarnings, themesFromConfig, type Layout, type Region, type SlideTheme } from './slideThemes';
 export { gridCells, fitSize, placeSlide, renderSlidesHtml, slideCss, type PlacedSlide, type RenderOptions } from './slidesHtml';
-export { paginate, applyPageBreaks, pageMetrics, pagedCss, countWords, cmToPx } from './paginate';
+export { paginate, sheetPrintCss, applyPageBreaks, pageMetrics, pagedCss, countWords, cmToPx } from './paginate';
 export { cellDate, cellNumber, tableToCsv, tableToOds, tableToXlsx, typedCell, type Cell } from './tableExport';

@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_STYLES, cleanStyleSet, countWords, exportPage, parseDoc, renderHtml } from '../src/index';
+import { separateNumberedLists } from '../src/doc';
 
 const SAMPLE = `---
 status: draft
@@ -516,5 +517,20 @@ describe('the count and nocount blocks', () => {
     expect(renderHtml(blocks, BUILTIN_STYLES[0]!, { title: 't' })).toContain('Second note is not counted');
     await renderDocx(blocks, BUILTIN_STYLES[0]!, { title: 't' });
     await renderOdt(blocks, BUILTIN_STYLES[0]!, { title: 't' });
+  });
+});
+
+describe('numbered lists that follow a line of text', () => {
+  it('reads "3." straight under a paragraph as a list starting at 3', () => {
+    const blocks = parseDoc('Steps so far:\n3. third\n4. fourth\n');
+    const list = blocks.find((b) => b.t === 'list');
+    expect(list).toBeTruthy();
+    expect(list && list.t === 'list' ? list.start : 0).toBe(3);
+    expect(list && list.t === 'list' ? list.items.length : 0).toBe(2);
+  });
+  it('leaves code blocks and list continuations alone', () => {
+    expect(separateNumberedLists('```\ntext\n3. not a list\n```')).toBe('```\ntext\n3. not a list\n```');
+    expect(separateNumberedLists('1. one\n2. two\n3. three')).toBe('1. one\n2. two\n3. three');
+    expect(separateNumberedLists('- item\n  more text\n  3. nested')).toBe('- item\n  more text\n  3. nested');
   });
 });

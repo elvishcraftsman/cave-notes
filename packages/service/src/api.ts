@@ -863,7 +863,9 @@ export interface MainApi {
   getDisplays(): Promise<Array<{ id: string; label: string; primary: boolean; width: number; height: number; hasApp: boolean }>>;
   /** Show a presentation full screen in its own window (and the presenter's window, if asked for). Resolves when it is closed. */
   presentStart(req: { html: string; presenterHtml: string | null; screen: string; presenterScreen: string }): Promise<void>;
-  exportPresentation(req: { html: string; format: 'pdf' | 'html'; defaultName: string }): Promise<string | null>;
+  exportPresentation(req: { html: string; format: 'pdf' | 'html'; defaultName: string; /** the title of the save dialog (default: Export Presentation) */ title?: string }): Promise<string | null>;
+  /** Ask where to save some bytes (a table as CSV, Excel or OpenDocument) and write them there; null if cancelled. */
+  saveDataFile(req: { title: string; defaultName: string; extension: string; label: string; data: string | Uint8Array }): Promise<string | null>;
   exportDocument(req: { format: 'docx' | 'odt' | 'pdf'; markdown: string; title: string; style: Record<string, unknown>; defaultName: string }): Promise<string | null>;
   /** Ask for a settings file and apply it. Returns what was applied, or null if cancelled. Throws if the file is not a settings file. */
   importSettings(): Promise<Partial<Settings> | null>;
@@ -986,7 +988,7 @@ export interface RawBridge {
 
 export const MAIN_METHODS = [
   'chooseWorkspace', 'getSettings', 'setSettings', 'attachWorkspace', 'detachWorkspace', 'openPath', 'appConfigFolder', 'showInFolder', 'openExternal', 'updateStatus', 'checkForUpdate', 'installUpdate', 'restartApp',
-  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
+  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'saveDataFile', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [

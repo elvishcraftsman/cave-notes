@@ -227,17 +227,17 @@ export const formatMenuCss = `
 .cm-format-sub-label { flex: 1; }
 .cm-spell-list { min-width: 170px; }
 /* touch: the selection menu sits along the bottom edge (above the keyboard), out of the way of the selection handles and the system's own cut/copy/paste bar */
-.cm-format-dock { left: 0; right: 0; bottom: 0; top: auto; max-width: none; align-items: stretch; gap: 4px; overflow-x: auto; border-radius: 14px 14px 0 0; border-bottom: 0;
-  padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px)); }
+.cm-format-dock { left: 0; right: 0; bottom: 0; top: auto; max-width: none; align-items: stretch; gap: 4px; overflow-x: auto; border-radius: 0; border-bottom: 0;
+  padding: 3px 4px calc(3px + env(safe-area-inset-bottom, 0px)); }
 .cm-format-dock .cm-format-row { flex-wrap: nowrap; flex: 1 1 auto; justify-content: space-around; }
 .cm-format-dock { flex-direction: row; scrollbar-width: none; }
 .cm-format-dock::-webkit-scrollbar { display: none; }
-.cm-format-dock .cm-dock-launch { flex-direction: column; gap: 1px; min-width: 56px; height: 52px; padding: 4px 8px; }
+.cm-format-dock .cm-dock-launch { flex-direction: column; gap: 1px; min-width: 56px; height: 42px; padding: 4px 8px; }
 .cm-dock-face { display: inline-flex; align-items: center; justify-content: center; height: 22px; font-size: 18px; font-weight: 800; line-height: 1; }
 .cm-dock-name { font-size: 11px; line-height: 1; opacity: .8; }
-.cm-dock-panel { position: fixed; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: 14px 14px 0 0; max-height: 50vh; overflow-y: auto; box-shadow: 0 -4px 18px rgba(0,0,0,.22); }
+.cm-dock-panel { position: fixed; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; border-radius: 0; max-height: 50vh; overflow-y: auto; box-shadow: 0 -4px 18px rgba(0,0,0,.22); }
 .cm-dock-panel .cm-format-group { flex-wrap: wrap; }
-.cm-format-dock .cm-format-btn { min-width: 44px; height: 44px; flex: none; }
+.cm-format-dock .cm-format-btn { min-width: 44px; height: 42px; flex: none; }
 .cm-format-dock .cm-format-caret { min-width: 28px; width: 28px; }
 .cm-format-dock .cm-glyph { font-size: 18px; }
 .cm-format-dock .cm-format-sub-item { min-height: 44px; }

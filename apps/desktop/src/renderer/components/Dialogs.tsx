@@ -1723,7 +1723,7 @@ function ExportDialog({ ctl, markdown, title, path }: { ctl: Controller; markdow
             <button class="pill-button" onClick={() => ctl.openExportStyles()}>Edit Styles…</button>
           </div>
           {pages !== null && <p class="pref-hint export-pages">{pages === 1 ? '1 page' : `${pages} pages`}{format === 'pdf' ? '' : ' (Word and LibreOffice may break a page or two differently)'}</p>}
-          {chosen.footnotes.endnotes || format === 'pdf' ? <p class="pref-hint">{format === 'pdf' ? 'In a PDF the notes are collected after the text.' : 'This style puts the notes at the end of the document.'}</p> : null}
+          {chosen.footnotes.endnotes ? <p class="pref-hint">This style puts the notes at the end of the document.</p> : null}
         </div>
         <PagePreview html={html} style={chosen} title={title} onPages={setPages} />
       </div>

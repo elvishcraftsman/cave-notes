@@ -361,11 +361,45 @@ function blocks(input: Node[] | undefined, markers: Map<number, Marker>): Block[
   return out;
 }
 
+/**
+ * In Markdown only a list that starts at 1 may follow a line of text without a blank line between; "3. next" right under a
+ * paragraph is more of the paragraph. The editor shows such a line as a list item, so the export does too: a blank line is put
+ * before a numbered line that starts at another number when it comes straight after a line of plain text. Code blocks, the
+ * front matter, and lines that continue a list item or a quote are left alone.
+ */
+export function separateNumberedLists(markdown: string): string {
+  const lines = markdown.split('\n');
+  const out: string[] = [];
+  let fence: string | null = null;
+  let front = lines[0] !== undefined && /^---[ \t]*$/.test(lines[0]) && lines.slice(1).some((l) => /^(---|\.\.\.)[ \t]*$/.test(l));
+  lines.forEach((line, i) => {
+    if (front) {
+      if (i > 0 && /^(---|\.\.\.)[ \t]*$/.test(line)) front = false;
+      out.push(line);
+      return;
+    }
+    const f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    if (f) {
+      if (fence === null) fence = f[1]![0]!;
+      else if (f[1]![0] === fence) fence = null;
+      out.push(line);
+      return;
+    }
+    if (fence === null) {
+      const m = /^( {0,3})(\d{1,9})[.)][ \t]+\S/.exec(line);
+      const prev = out[out.length - 1];
+      if (m && Number(m[2]) !== 1 && prev !== undefined && prev.trim() !== '' && !/^(\s*([-*+]|\d{1,9}[.)])[ \t]|\s*>|\s*\||\s*#|\t| {2,}\S)/.test(prev) && !/^\s*(---+|\*\*\*+|<!--)/.test(prev)) out.push('');
+    }
+    out.push(line);
+  });
+  return out.join('\n');
+}
+
 /** Read Markdown (frontmatter, lists of every kind, tables, task items) into blocks. */
 export function parseDoc(markdown: string, opts: { splitImages?: boolean } = {}): Block[] {
   splitImages = opts.splitImages === true;
   // characters that cannot be written in XML (and would make Word report a damaged file) are dropped
-  const clean = markdown.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+  const clean = separateNumberedLists(markdown.replace(/\r\n?/g, '\n')).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
   // a page that begins with a horizontal rule is not front matter: the rule needs a closing fence and a non-blank line after it
   const lead = /^---[ \t]*\n([^\n]*)/.exec(clean);
   const hasFence = /^---[ \t]*\n(?:[\s\S]*?\n)?(?:---|\.\.\.)[ \t]*(?:\n|$)/.test(clean);

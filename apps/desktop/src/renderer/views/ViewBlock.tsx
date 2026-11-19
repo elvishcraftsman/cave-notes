@@ -179,14 +179,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
       if (r.rows.length < 1000 || (r.total !== null && all.length >= r.total)) break;
     }
     const columns = pickColumns(config.columns, all, 4, relationAliases(saved.relations));
-    const blob = new Blob(['\ufeff', toCsv(all, columns)], { type: 'text/csv;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `${(config.title ?? 'view').replace(/[\\/:*?"<>|]+/g, '-')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    await ctl.saveDataFile({ data: toCsv(all, columns), base: (config.title ?? 'view').replace(/[\\/:*?"<>|]+/g, '-'), extension: 'csv' });
   };
 
   const panelButton = (id: 'filter' | 'props' | 'sort' | 'colors', content: JSX.Element): JSX.Element => (

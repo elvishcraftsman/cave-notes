@@ -903,6 +903,10 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 /* A finger as the main pointer: 44px targets, and nothing that only shows on hover. */
 @media (pointer: coarse) {
   .headerbar { height: 52px; }
+  /* the header's text and symbols a quarter larger on a touch screen */
+  .headerbar .icon-button svg { scale: 1.25; }
+  .headerbar .tab-title, .headerbar .hb-title .title { font-size: 1.25em; }
+  .headerbar .hb-title .subtitle { font-size: 15px; }
   .icon-button { width: 44px; height: 44px; }
   .icon-button.small { width: 40px; height: 40px; }
   .chevron { width: 36px; height: 36px; }

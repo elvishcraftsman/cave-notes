@@ -1161,6 +1161,16 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
       const done = await new Promise<boolean>((resolve) => execFile('fc-cache', ['-f', dir], (err) => resolve(!err)));
       return done ? `Installed in ${dir}. Programs you already have open may need a restart to see them.` : `Copied to ${dir}, but the font cache could not be refreshed; log out and in, or run fc-cache.`;
     },
+    async saveDataFile(req) {
+      const ext = String(req.extension).replace(/[^a-z0-9]/gi, '');
+      const base = String(req.defaultName).replace(/[\\/:*?"<>|]+/g, '-').trim() || 'export';
+      const opts = { title: String(req.title), defaultPath: `${base}.${ext}`, filters: [{ name: String(req.label), extensions: [ext] }] };
+      const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts);
+      if (r.canceled || !r.filePath) return null;
+      const bytes = typeof req.data === 'string' ? req.data : Buffer.from(req.data as Uint8Array);
+      await fs.promises.writeFile(r.filePath, bytes);
+      return r.filePath;
+    },
     async exportDocument(req) {
       const style = cleanStyleSet(req.style);
       const ext = req.format;
@@ -1198,7 +1208,7 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
     },
     async exportPresentation(req) {
       const base = req.defaultName.replace(/[\\/:*?"<>|]+/g, '-').trim() || 'presentation';
-      const opts = { title: 'Export Presentation', defaultPath: `${base}.${req.format}`, filters: [{ name: req.format === 'pdf' ? 'PDF' : 'HTML page', extensions: [req.format] }] };
+      const opts = { title: req.title ? String(req.title) : 'Export Presentation', defaultPath: `${base}.${req.format}`, filters: [{ name: req.format === 'pdf' ? 'PDF' : 'HTML page', extensions: [req.format] }] };
       const r = w ? await dialog.showSaveDialog(w, opts) : await dialog.showSaveDialog(opts);
       if (r.canceled || !r.filePath) return null;
       const html = inlineAssets(req.html);

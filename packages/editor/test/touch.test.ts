@@ -122,7 +122,28 @@ suite('touch selection menu', () => {
     expect(menu()).not.toBeNull();
     ed.view.contentDOM.blur();
     ed.view.dispatch({ selection: { anchor: 4 } });
+    // a focus lost for an instant (a tap in the text) does not take the menu away: only one that stays lost does
+    expect(menu()).not.toBeNull();
+    vi.advanceTimersByTime(600);
     expect(menu()).toBeNull();
+  });
+
+  it('a tap that drops the focus for an instant and gives it back keeps the docked menu in place', () => {
+    vi.useFakeTimers();
+    const ed = make('hello world');
+    ed.view.focus();
+    pointer(ed, 'touch');
+    ed.view.dispatch({ selection: { anchor: 0, head: 5 } });
+    vi.advanceTimersByTime(400);
+    const before = menu();
+    expect(before).not.toBeNull();
+    ed.view.contentDOM.blur();
+    ed.view.dispatch({ selection: { anchor: 4 } });
+    vi.advanceTimersByTime(100);
+    ed.view.focus();
+    ed.view.dispatch({ selection: { anchor: 6 } });
+    vi.advanceTimersByTime(700);
+    expect(menu()).not.toBeNull();
   });
 
   it('a mouse selection does not bring up the docked menu', () => {

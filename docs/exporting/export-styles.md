@@ -216,7 +216,7 @@ The `blockquote` entry styles text that starts with `>` (older files that say `q
 
 ### Footnotes
 
-`placement: footnotes` puts the notes at the foot of the page, `endnotes` collects them at the end. Word and OpenDocument files get real footnotes (and real endnotes in OpenDocument). **PDF and the preview always collect the notes after the text**, because the printing engine cannot place notes per page. In Word, endnotes are written as a numbered *Notes* list at the end.
+`placement: footnotes` puts the notes at the foot of the page, `endnotes` collects them at the end. Word and OpenDocument files get real footnotes (and real endnotes in OpenDocument). The preview and PDF follow the choice too: with `footnotes`, each page shows the notes it refers to at its foot. The printing engine cannot place notes per page by itself, so the page is cut into sheets first and the sheets are printed. Each page keeps just the room its own notes need: lines are added to a page for as long as its notes still fit under them. A paragraph may be split between pages (never leaving a single line alone), and a heading is not left alone at the foot of a page. HTML always has the notes at the end. In Word, endnotes are written as a numbered *Notes* list at the end.
 
 ### Page breaks
 

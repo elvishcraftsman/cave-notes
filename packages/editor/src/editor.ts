@@ -643,6 +643,11 @@ export class NoteEditor {
     this.view.focus();
   }
 
+  /** Scroll to where the cursor is (after the reader has scrolled away from it). */
+  revealCursor(): void {
+    this.view.dispatch({ effects: EditorView.scrollIntoView(this.view.state.selection.main.head, { y: 'center' }) });
+  }
+
   focus(): void {
     const cv = canvasViewOf(this.view);
     if (cv) cv.root.focus({ preventScroll: true });

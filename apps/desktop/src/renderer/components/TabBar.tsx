@@ -81,7 +81,7 @@ export function TabBar({ ctl }: { ctl: Controller }): JSX.Element {
             style={tabVars(ctl.theme.value, accent, active)}
             title={tip(t, active)}
             draggable
-            onClick={() => void ctl.activateTab(t.id)}
+            onClick={() => void ctl.activateTab(t.id, { focusTree: true })}
             onAuxClick={(e) => {
               if (e.button !== 1) return;
               e.preventDefault();
@@ -233,7 +233,7 @@ function TabSwitcher({ ctl, title, onClose }: { ctl: Controller; title: (t: Tab)
               style={tabVars(ctl.theme.value, accent, true)}
               role="button"
               tabIndex={0}
-              onClick={() => { onClose(); void ctl.activateTab(t.id); }}
+              onClick={() => { onClose(); void ctl.activateTab(t.id, { focusTree: true }); }}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); void ctl.activateTab(t.id); } }}
             >
               <div class="tab-card-head">

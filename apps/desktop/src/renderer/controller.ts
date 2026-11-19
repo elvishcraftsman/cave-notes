@@ -9,7 +9,7 @@ import { SearchSession, setSort, toggleToken, type SessionState } from '@cave-no
 import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-notes/ui-tree';
 import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
 import YAML from 'yaml';
-import { BUILTIN_STYLES, countWords, tableToCsv, tableToOds, tableToXlsx, imagesInLines, paginate, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
+import { BUILTIN_STYLES, countWords, tableToCsv, tableToOds, tableToXlsx, imagesInLines, paginate, sheetPrintCss, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
 import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, ImportRequest, ImportResult } from '../shared/api';
 import { type Deps, capabilitiesOf, explain } from './bridge';
 import { accentRoles, headerColorFor } from './color';
@@ -552,6 +552,7 @@ export class Controller {
     // a .caveignore may have changed while the app was somewhere else
     const refocus = (): void => void this.refreshIgnoredWorkspaces();
     window.addEventListener('focus', refocus);
+    this.watchPointer();
     this.disposers.push(() => window.removeEventListener('focus', refocus));
     this.watchKeyboard();
 
@@ -798,10 +799,13 @@ export class Controller {
     let settle = 0;
     const focus = (): void => {
       window.clearTimeout(settle);
+      // leaving the editor is confirmed more slowly than entering it: a tap in the text can drop the focus for an instant,
+      // and the format bar and sub-page bar must not blink (or move the text under the finger) because of that
+      const gone = !inEditor(document.activeElement);
       settle = window.setTimeout(() => {
         const now = inEditor(document.activeElement);
         if (this.editorFocused.value !== now) this.editorFocused.value = now;
-      }, 120);
+      }, gone ? 450 : 120);
     };
     document.addEventListener('focusin', focus);
     document.addEventListener('focusout', focus);
@@ -1054,19 +1058,34 @@ export class Controller {
     try {
       const page = this.current.value?.path.replace(/^.*\//, '').replace(/\.[^.]*$/, '') || 'table';
       const base = `${page} table`.replace(/[\\/:*?"<>|]+/g, '-');
-      const mime = { csv: 'text/csv;charset=utf-8', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ods: 'application/vnd.oasis.opendocument.spreadsheet' }[format];
-      const data: BlobPart = format === 'csv' ? tableToCsv(table.head, table.rows) : format === 'xlsx' ? ((await tableToXlsx(table.head, table.rows, { sheet: page })) as BlobPart) : ((await tableToOds(table.head, table.rows, { sheet: page })) as BlobPart);
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([data], { type: mime }));
-      a.download = `${base}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      this.toast(`Exporting ${a.download}\u2026`);
+      const data: string | Uint8Array = format === 'csv' ? tableToCsv(table.head, table.rows) : format === 'xlsx' ? ((await tableToXlsx(table.head, table.rows, { sheet: page })) as Uint8Array) : ((await tableToOds(table.head, table.rows, { sheet: page })) as Uint8Array);
+      await this.saveDataFile({ data, base, extension: format });
     } catch (e) {
       this.toast(`The table could not be exported: ${explain(e)}`);
     }
+  }
+
+  /**
+   * Save generated data as a file. Where the system has a save dialog (the desktop) it asks where to put it and then offers to
+   * show or open the result; elsewhere the browser's download is used.
+   */
+  async saveDataFile(f: { data: string | Uint8Array; base: string; extension: 'csv' | 'xlsx' | 'ods' }): Promise<void> {
+    const labels = { csv: 'CSV file', xlsx: 'Excel workbook', ods: 'OpenDocument spreadsheet' } as const;
+    if (this.caps.systemFileActions) {
+      const data = f.extension === 'csv' && typeof f.data === 'string' ? `\ufeff${f.data}` : f.data;
+      const saved = await this.main.saveDataFile({ title: 'Export', defaultName: f.base, extension: f.extension, label: labels[f.extension], data });
+      if (saved) this.exportDone(saved);
+      return;
+    }
+    const mime = { csv: 'text/csv;charset=utf-8', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ods: 'application/vnd.oasis.opendocument.spreadsheet' }[f.extension];
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([f.extension === 'csv' && typeof f.data === 'string' ? '\ufeff' : '', f.data as BlobPart], { type: mime }));
+    a.download = `${f.base}.${f.extension}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    this.toast(`Exporting ${a.download}\u2026`);
   }
 
   openExport(): void {
@@ -1170,7 +1189,17 @@ export class Controller {
 
   async exportPage(req: { format: 'docx' | 'odt' | 'pdf'; markdown: string; title: string; style: Record<string, unknown> }): Promise<boolean> {
     try {
-      const saved = await this.main.exportDocument({ ...req, style: this.withWorkspaceStyles(req.style as unknown as StyleSet) as unknown as Record<string, unknown>, defaultName: req.title });
+      const style = this.withWorkspaceStyles(req.style as unknown as StyleSet);
+      if (req.format === 'pdf' && !style.footnotes.endnotes && /\[\^[^\]\s]+\]/.test(req.markdown)) {
+        // footnotes at the foot of each page: the text is cut into pages here (as in the preview) and those pages are printed
+        const html = await this.paginatedPrintHtml(req.markdown, style, req.title);
+        if (html) {
+          const saved = await this.main.exportPresentation({ html, format: 'pdf', defaultName: req.title, title: 'Export Page' });
+          if (saved) this.exportDone(saved);
+          return saved !== null;
+        }
+      }
+      const saved = await this.main.exportDocument({ ...req, style: style as unknown as Record<string, unknown>, defaultName: req.title });
       if (saved) this.exportDone(saved);
       return saved !== null;
     } catch (e) {
@@ -1645,7 +1674,7 @@ export class Controller {
     const next = [...this.tabs.value];
     next.splice(at + 1, 0, tab);
     this.tabs.value = next;
-    await this.activateTab(tab.id);
+    await this.activateTab(tab.id, { focusTree: true });
   }
 
   /**
@@ -1721,7 +1750,7 @@ export class Controller {
     }
   }
 
-  async activateTab(id: string, opts: { force?: boolean } = {}): Promise<void> {
+  async activateTab(id: string, opts: { force?: boolean; focusTree?: boolean } = {}): Promise<void> {
     const tab = this.tabs.value.find((t) => t.id === id);
     if (!tab) return;
     if (this.activeTabId.value === id && !opts.force) return;
@@ -1763,6 +1792,25 @@ export class Controller {
     void this.main.setTitle(tab.path ? (stripExt(tab.path).split('/').pop() ?? '') : sess.info.name);
     this.navTick.value++;
     if (tab.path) await this.openPage(tab.path, { force: true, nav: 'skip' });
+    if (opts.focusTree) this.focusTree();
+  }
+
+  /**
+   * Put the keyboard in the file tree (arrow keys walk the pages, typing finds one). Done after a tab is clicked or opened,
+   * once the page has loaded, because loading a page can move the focus into the editor. Not on a phone, where focus means a
+   * keyboard coming up, and not when the tree is hidden or the search pane is shown instead.
+   */
+  focusTree(): void {
+    if (this.caps.softKeyboard) return;
+    const go = (late: boolean): void => {
+      if (!this.settings.value.showLeft || this.searchOpen.value || this.dialog.value) return;
+      const a = document.activeElement as HTMLElement | null;
+      const idle = !a || a === document.body || !!a.closest('.cm-editor, .tabbar, .tree');
+      if (late && !idle) return; // the user went somewhere else in the meantime
+      document.querySelector<HTMLElement>('.sidebar.left .tree')?.focus({ preventScroll: true });
+    };
+    requestAnimationFrame(() => go(false));
+    setTimeout(() => go(true), 250);
   }
 
   /** Ask about settings other workspaces offer to every workspace, when this one has not been asked yet. */
@@ -2544,6 +2592,34 @@ export class Controller {
   }
 
   /** How many pages the text makes in a style: laid out out of sight with the engine that prints, so it is what a PDF gets. */
+  /**
+   * The page cut into sheets (what the preview shows, with the footnotes at the foot of their pages) as an HTML document that
+   * prints one sheet to a paper page. Null when the page could not be laid out.
+   */
+  private async paginatedPrintHtml(markdown: string, style: StyleSet, title: string): Promise<string | null> {
+    await this.loadFonts();
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-same-origin');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:1400px;height:900px;border:0;visibility:hidden;pointer-events:none';
+    frame.srcdoc = renderHtml(parseDoc(markdown), style, { title, paged: true, css: this.fontCss.value });
+    const loaded = new Promise<void>((resolve) => frame.addEventListener('load', () => resolve(), { once: true }));
+    document.body.append(frame);
+    try {
+      await Promise.race([loaded, new Promise<void>((r) => setTimeout(r, 5000))]);
+      const doc = frame.contentDocument;
+      if (!doc) return null;
+      await doc.fonts.ready.catch(() => undefined);
+      paginate(doc, style, title, { maxSheets: 5000 });
+      const css = doc.createElement('style');
+      css.textContent = sheetPrintCss(style);
+      doc.head.append(css);
+      return `<!doctype html>${doc.documentElement.outerHTML}`;
+    } finally {
+      frame.remove();
+    }
+  }
+
   private async countPages(markdown: string, style: StyleSet, title: string): Promise<number | null> {
     await this.loadFonts();
     const frame = document.createElement('iframe');
@@ -3902,17 +3978,57 @@ export class Controller {
     if (!name || name === old) return;
     this.asking.rename = true;
     try {
+      // Leaving the editor with the mouse or a finger (Back, a tab, a tree row): let that click finish first, so the dialog
+      // does not swallow it. The question is then about the page that was left, even if the click moved to another one.
+      if (blur) await this.afterPointerRelease();
+      if (this.dialog.value) return;
       const ok = await this.confirm({
         title: 'Rename the page to match?',
         body: `The title is now “${h.text}”. Rename the page “${old}” to “${name}” too? Links to it are updated.`,
         confirm: 'Rename',
       });
-      if (!ok || this.current.value?.path !== cur.path) return;
+      if (!ok) return;
       await this.renameTo(cur.path, name);
     } finally {
       this.asking.rename = false;
-      if (!blur) ed.focus();
+      if (!blur && this.current.value?.path === cur.path) ed.focus();
     }
+  }
+
+  private pointerIsDown = false;
+  private pointerWaiters: Array<() => void> = [];
+
+  /** Track whether a mouse button or finger is down, so a dialog never opens between the press and the release of a click. */
+  private watchPointer(): void {
+    const down = (): void => {
+      this.pointerIsDown = true;
+    };
+    const up = (): void => {
+      this.pointerIsDown = false;
+      const waiting = this.pointerWaiters.splice(0);
+      // the click itself is dispatched right after pointerup; give its handler (and a navigation it starts) a moment
+      if (waiting.length > 0) setTimeout(() => waiting.forEach((w) => w()), 150);
+    };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', up, true);
+  }
+
+  /** Resolves at once when nothing is pressed, otherwise just after the press ends. */
+  private afterPointerRelease(): Promise<void> {
+    if (!this.pointerIsDown) return new Promise((r) => setTimeout(r, 0));
+    return new Promise((resolve) => {
+      this.pointerWaiters.push(resolve);
+      setTimeout(() => {
+        // never wait forever (a release outside the window is not always reported)
+        this.pointerIsDown = false;
+        const i = this.pointerWaiters.indexOf(resolve);
+        if (i >= 0) {
+          this.pointerWaiters.splice(i, 1);
+          resolve();
+        }
+      }, 3000);
+    });
   }
 
   /** Rename a page's file (links to it are updated, as with Rename Page). */
