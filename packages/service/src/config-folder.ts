@@ -12,8 +12,8 @@ export const CONFIG_DIR_NAME = INFO_DIR;
 /** Which files the config folder shows as pages: the notes (templates) and the YAML settings. */
 export const CONFIG_NOTES = { exts: ['.md', '.txt', '.yaml', '.yml'], create: '.md' };
 
-/** The extension of a new page here: settings files at the top level are YAML; what goes inside `templates` stays Markdown. */
-export const configCreateExt = (parent: string | null): '.yaml' | '.md' => (parent === null || /^(plugins|styles)(\/|$)/.test(parent) ? '.yaml' : '.md');
+/** The extension of a new page here: everything is YAML (settings, plugins, styles, any other folder) except what goes inside `templates`, which stays Markdown. */
+export const configCreateExt = (parent: string | null): '.yaml' | '.md' => (parent !== null && /^templates(\/|\.|$)/i.test(parent) ? '.md' : '.yaml');
 
 export const isConfigRoot = (root: string): boolean => path.basename(path.resolve(root)) === CONFIG_DIR_NAME;
 

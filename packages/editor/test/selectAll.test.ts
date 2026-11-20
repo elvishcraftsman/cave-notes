@@ -1,3 +1,4 @@
+import { isViewportSelection } from '../src/selectAll';
 import { runScopeHandlers } from '@codemirror/view';
 import { describe as suite, expect, it } from 'vitest';
 import { NoteEditor, isHtmlSelection, selectAllAsHtml, selectAllAsText, showFormatMenu, closeFormatMenu } from '../src/index';
@@ -18,12 +19,27 @@ const copyEvent = (): { e: Event; data: Record<string, string> } => {
 };
 
 suite('select all', () => {
-  it('Ctrl+A selects all of the text', () => {
-    const ed = make('# T\n\nsome text');
-    runScopeHandlers(ed.view, new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }), 'editor');
-    const s = ed.state.selection.main;
+  const ctrlA = (ed: NoteEditor): void => void runScopeHandlers(ed.view, new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }), 'editor');
+
+  it('Ctrl+A selects the paragraph first, then all of the text', () => {
+    const text = '# T\n\nfirst line\nsecond line\n\nlast';
+    const ed = make(text);
+    const at = text.indexOf('second');
+    ed.view.dispatch({ selection: { anchor: at + 2 } });
+    ctrlA(ed);
+    let s = ed.state.selection.main;
+    expect([s.from, s.to]).toEqual([text.indexOf('first'), text.indexOf('\n\nlast')]);
+    ctrlA(ed);
+    s = ed.state.selection.main;
     expect([s.from, s.to]).toEqual([0, ed.text().length]);
     expect(isHtmlSelection(ed.view)).toBe(false);
+  });
+
+  it('Ctrl+A on a page that is one paragraph selects it all at once', () => {
+    const ed = make('only one paragraph\nof two lines');
+    ctrlA(ed);
+    const s = ed.state.selection.main;
+    expect([s.from, s.to]).toEqual([0, ed.text().length]);
   });
 
   it('as HTML copies the page as HTML and the Markdown as plain text', () => {
@@ -58,5 +74,15 @@ suite('select all', () => {
     const roLabels = [...document.querySelectorAll('.cm-format-menu .cm-format-btn')].map((b) => b.getAttribute('aria-label'));
     expect(roLabels).toEqual(['Copy', 'Select all text', 'Select all as HTML']);
     closeFormatMenu();
+  });
+});
+
+suite('the phone\u2019s own Select all on a long page', () => {
+  it('is told by a selection of exactly the drawn part, when the page goes on beyond it', () => {
+    expect(isViewportSelection({ from: 100, to: 900 }, { from: 100, to: 900 }, 5000)).toBe(true);
+    expect(isViewportSelection({ from: 0, to: 900 }, { from: 0, to: 900 }, 5000)).toBe(true);
+    expect(isViewportSelection({ from: 0, to: 5000 }, { from: 0, to: 5000 }, 5000)).toBe(false); // all is drawn already
+    expect(isViewportSelection({ from: 120, to: 900 }, { from: 100, to: 900 }, 5000)).toBe(false);
+    expect(isViewportSelection({ from: 100, to: 100 }, { from: 100, to: 100 }, 5000)).toBe(false);
   });
 });

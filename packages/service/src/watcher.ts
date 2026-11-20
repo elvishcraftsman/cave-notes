@@ -23,14 +23,14 @@ export interface WatchBatch {
  * Watches a workspace and reports batches of changed page paths, debounced so that a burst of
  * events (git checkout, a sync client, our own rename) arrives as one.
  */
-export function watchWorkspace(root: string, onBatch: (batch: WatchBatch) => void, debounceMs = 150, only?: string): () => Promise<void> {
+export function watchWorkspace(root: string, onBatch: (batch: WatchBatch) => void, debounceMs = 150, only?: string, globalIgnore?: () => string | null): () => Promise<void> {
   let files = new Set<string>();
   let folders = new Set<string>();
   let schema = false;
   let others = false;
   let automations = false;
   let ignores = false;
-  const ignoreRules = only ? null : createIgnoreSync(root, (f, enc) => fs.readFileSync(f, enc));
+  const ignoreRules = only ? null : createIgnoreSync(root, (f, enc) => fs.readFileSync(f, enc), { global: globalIgnore });
   let timer: NodeJS.Timeout | null = null;
 
   const rel = (abs: string): string | null => {

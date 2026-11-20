@@ -43,16 +43,20 @@ export function startWebWorker(scope: WorkerScope, deps: WorkerDeps): () => void
   const toWrite = new Map<string, Uint8Array>();
   let writing: Promise<void> = Promise.resolve();
   let writeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** how long the last snapshot took to reach storage (on a phone that, not the export, is the cost) */
+  let lastWriteMs = 0;
   const writeSnapshots = (): Promise<void> => {
     clearTimeout(writeTimer);
     writing = writing.then(async () => {
       for (const [file, bytes] of [...toWrite]) {
         toWrite.delete(file);
+        const t0 = Date.now();
         try {
           await fs.mkdir(path.dirname(file), { recursive: true });
           const tmp = `${file}.tmp`;
           await fs.writeFile(tmp, bytes);
           await fs.rename(tmp, file);
+          lastWriteMs = Date.now() - t0;
           log.debug(`index snapshot saved: ${file} (${Math.round(bytes.length / 1024)} KB)`);
         } catch (e) {
           log.warn(`could not save the index snapshot ${file} (it will be rebuilt next time)`, e);
@@ -122,7 +126,7 @@ export function startWebWorker(scope: WorkerScope, deps: WorkerDeps): () => void
         saved = snapshotAll();
       } finally {
         const took = Date.now() - t0;
-        if (!stopped) timer = setTimeout(tick, saved > 0 ? Math.max(every, took * 60) : every);
+        if (!stopped) timer = setTimeout(tick, saved > 0 ? Math.max(every, (took + lastWriteMs) * 60) : every);
       }
     };
     timer = setTimeout(tick, every);

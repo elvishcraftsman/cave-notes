@@ -478,9 +478,11 @@ describe('reordering', () => {
 describe('workspace appearance', () => {
   it('is saved in .cave-notes, validated, and merged', async () => {
     await open({ 'A.md': '# A' });
-    const none = { color: null, icon: null, fontStyle: null, fontSizes: { sans: null, serif: null, mono: null } };
+    const none = { color: null, icon: null, window: null, fontStyle: null, fontSizes: { sans: null, serif: null, mono: null } };
     expect(await svc.getAppearance()).toEqual(none);
     expect(await svc.setAppearance({ color: '#3584E4' })).toEqual({ ...none, color: '#3584e4' });
+    expect((await svc.setAppearance({ window: { left: false, width: 1100, height: 700 } })).window).toEqual({ left: false, width: 1100, height: 700 });
+    expect((await svc.setAppearance({ window: null })).window).toBeNull();
     expect(await svc.setAppearance({ icon: 'book' })).toEqual({ ...none, color: '#3584e4', icon: 'book' });
     expect(YAML.parse(await read('.cave-notes/workspace.yaml'))).toMatchObject({ color: '#3584e4', icon: 'book' });
     expect(await svc.setAppearance({ color: 'red; evil', icon: '../x' })).toEqual(none);

@@ -33,6 +33,12 @@ export function HeaderBar({ ctl }: { ctl: Controller }): JSX.Element {
     <header class={`headerbar ${ctl.headerColor.value ? 'tinted' : ''}`} style={ctl.headerColor.value ? { '--headerbar-bg': ctl.headerColor.value } : undefined}>
       <div class="headerbar-inner">
         <div class="hb-group">
+          {/* the menu (pages, outline, links) is the first thing at the top left, where the sidebar button is on a wide screen */}
+          {drawer && (
+            <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title="Pages, outline, links and menu" aria-label="Open the menu" aria-pressed={s.showLeft} onClick={() => { if (!s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
+              <Icon name="menu" />
+            </button>
+          )}
           {ctl.caps.keyboardAndMouse && (
             <div class="nav-buttons">
             <button class="icon-button" title="Back in this tab (Alt+Left)" aria-label="Back" disabled={!ctl.canGoBack.value} onClick={() => void ctl.stepHistory(-1)}>
@@ -82,11 +88,6 @@ export function HeaderBar({ ctl }: { ctl: Controller }): JSX.Element {
             </Popover>
           </div>}
           {narrow.value && <PhoneTabCount ctl={ctl} />}
-          {drawer && (
-            <button class={`icon-button ${s.showLeft ? 'active' : ''}`} title="Pages, outline, links and menu" aria-label="Open the menu" aria-pressed={s.showLeft} onClick={() => { if (!s.showLeft) drawerPane.value = 'pages'; ctl.toggleLeft(); }}>
-              <Icon name="menu" />
-            </button>
-          )}
           {!drawer && <div class="menu-anchor">
             <button class={`icon-button ${menu ? 'active' : ''}`} title="Main menu" aria-label="Main menu" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
               <Icon name="menu" />

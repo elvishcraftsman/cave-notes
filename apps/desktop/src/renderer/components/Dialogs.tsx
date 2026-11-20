@@ -3,7 +3,8 @@ import { frameObserver } from '@cave-notes/editor';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import YAML from 'yaml';
 import { PAGE_CM, SLIDE_PT, paginate, cropFractions, formatLen, parseDoc, pxToLen, type Fractions, type ImageRef, type Unit, parseStyleSetsYaml, renderHtml, stringifyStyleSets, type StyleSet } from '@cave-notes/core-export';
-import type { ConflictMerge, ExternalOpen, FontKind, FontSizes, FontStyle, HistoryEntry, LogSource, TreeItem, YamlSection } from '../../shared/api';
+import { logLinesOfDay } from '../logText';
+import type { ConflictMerge, ExternalOpen, FontKind, FontSizes, FontStyle, HistoryEntry, IgnoreFileInfo, LogSource, WindowDefaults, TreeItem, YamlSection } from '../../shared/api';
 import { AUTO_FONT_SIZE, type Controller, type DialogSpec, type HelpPage, type NewPageMode } from '../controller';
 import { HELP_TOPICS } from '../helpTopics';
 import { ACCENT_FAMILIES, familyColor, familyOf } from '../color';
@@ -430,6 +431,170 @@ function FolderList({ title, empty, folders, onAdd, onRemove }: { title: string;
   );
 }
 
+
+/** How a window starts when a workspace is opened fresh or pulled into a window of its own: the sidebars and (where there are windows) the size. */
+function WindowDefaultsEditor({ ctl, value, onChange, own }: { ctl: Controller; value: WindowDefaults | null | undefined; onChange: (next: WindowDefaults | null) => void; own: boolean }): JSX.Element {
+  const v = value ?? {};
+  const set = (patch: Partial<WindowDefaults>): void => {
+    const next: WindowDefaults = { ...v, ...patch };
+    for (const k of Object.keys(next) as Array<keyof WindowDefaults>) if (next[k] === undefined) delete next[k];
+    onChange(Object.keys(next).length ? next : null);
+  };
+  const side = (key: 'left' | 'right', label: string): JSX.Element => (
+    <label class="pref-row window-default">
+      <span class="pref-label">{label}</span>
+      <select value={v[key] === undefined ? 'follow' : v[key] ? 'open' : 'closed'} onChange={(e) => { const x = (e.currentTarget as HTMLSelectElement).value; set({ [key]: x === 'follow' ? undefined : x === 'open' } as Partial<WindowDefaults>); }}>
+        <option value="follow">{own ? 'As in the app' : 'As it was'}</option>
+        <option value="open">Open</option>
+        <option value="closed">Closed</option>
+      </select>
+    </label>
+  );
+  const num = (key: 'width' | 'height', label: string): JSX.Element => (
+    <label class="window-size">
+      {label}
+      <input type="number" min={300} max={10000} step={10} value={v[key] ?? ''} placeholder="auto" onChange={(e) => { const raw = (e.currentTarget as HTMLInputElement).value; set({ [key]: raw === '' ? undefined : Number(raw) } as Partial<WindowDefaults>); }} />
+    </label>
+  );
+  return (
+    <>
+      <h4 class="look-h">When it opens in a window</h4>
+      <p class="pref-hint">How the window starts when this is opened fresh, or pulled into a window of its own for the first time. It never changes a window that is brought back from last time, which keeps its own sidebars and size.</p>
+      {side('left', 'Page sidebar')}
+      {side('right', 'Outline sidebar')}
+      {ctl.caps.windows && (
+        <div class="pref-row window-sizes">
+          {num('width', 'Width')}
+          {num('height', 'Height')}
+          <button class="pill-button small" onClick={() => set({ width: Math.round(window.outerWidth), height: Math.round(window.outerHeight) })}>Use this window’s size</button>
+          <button class="pill-button small" disabled={!value} onClick={() => onChange(null)}>Reset</button>
+        </div>
+      )}
+      {!ctl.caps.windows && <button class="pill-button small" disabled={!value} onClick={() => onChange(null)}>Reset</button>}
+    </>
+  );
+}
+
+const IGNORE_SCOPE_LABEL: Record<IgnoreFileInfo['scope'], string> = { computer: 'Whole computer', workspace: 'This workspace', folder: 'A folder' };
+
+/** The `.caveignore` files: the whole computer's (in the app's config folder), the workspace's and those in any folder, found and edited here. */
+function IgnoreFilesPage({ ctl }: { ctl: Controller }): JSX.Element {
+  const [files, setFiles] = useState<IgnoreFileInfo[] | null>(null);
+  const [sel, setSel] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const escaped = useRef(false);
+
+  const load = async (keep?: string | null): Promise<IgnoreFileInfo[]> => {
+    const list = await ctl.listIgnoreFiles();
+    setFiles(list);
+    const pick = list.find((f) => f.file === (keep ?? sel)) ?? list[0] ?? null;
+    setSel(pick ? pick.file : null);
+    setDraft(pick ? pick.text : '');
+    return list;
+  };
+  useEffect(() => {
+    void load(null).catch(() => setFiles([]));
+  }, []);
+
+  const current = files?.find((f) => f.file === sel) ?? null;
+  const dirty = current !== null && draft !== current.text;
+  const choose = (f: IgnoreFileInfo): void => {
+    if (f.file === sel) return;
+    setSel(f.file);
+    setDraft(f.text);
+    setNote(null);
+  };
+  const save = async (): Promise<void> => {
+    if (!current) return;
+    setBusy(true);
+    try {
+      await ctl.saveIgnoreFile(current.file, draft);
+      await load(current.file);
+      setNote('Saved. What it hides is looked at again now.');
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (): Promise<void> => {
+    if (!current) return;
+    if (await ctl.deleteIgnoreFile(current.file)) {
+      await load(null);
+      setNote('Deleted.');
+    }
+  };
+  const add = async (): Promise<void> => {
+    const file = await ctl.addIgnoreFolder();
+    if (file) {
+      await load(file);
+      setNote(null);
+    }
+  };
+  const where = (f: IgnoreFileInfo): string => (f.scope === 'folder' ? f.folder : IGNORE_SCOPE_LABEL[f.scope]);
+
+  return (
+    <section class="ignore-files">
+      <h3>Ignore files</h3>
+      <p class="pref-hint">
+        A <code>.caveignore</code> tells Cave Notes to pretend that some files, folders or workspaces are not there. There can be one for the whole computer (kept in the app’s config folder), one at the top of a workspace, and one in any folder, inside or outside a workspace. They are all listed here. Changes take effect at once.
+      </p>
+      {files === null ? (
+        <p class="pref-hint">Looking for .caveignore files…</p>
+      ) : (
+        <div class="ignore-layout">
+          <div class="ignore-list" role="listbox" aria-label=".caveignore files">
+            {files.map((f) => (
+              <button key={f.file} role="option" aria-selected={f.file === sel} class={`ignore-row ${f.file === sel ? 'on' : ''}`} title={f.file} onClick={() => choose(f)}>
+                <span class="ignore-scope">{IGNORE_SCOPE_LABEL[f.scope]}{f.insideWorkspace ? ' · in this workspace' : ''}</span>
+                <span class="ignore-where">{where(f) === IGNORE_SCOPE_LABEL[f.scope] ? f.folder : where(f)}</span>
+                {!f.exists && <span class="ignore-new">not made yet</span>}
+              </button>
+            ))}
+            <button class="pill-button small" onClick={() => void add()}>Add for a Folder…</button>
+          </div>
+          {current && (
+            <div class="ignore-editor">
+              <span class="pref-label">{IGNORE_SCOPE_LABEL[current.scope]}</span>
+              <span class="pref-hint ignore-path">{current.file}</span>
+              <textarea
+                class="yaml-box tall"
+                spellcheck={false}
+                aria-label={`.caveignore of ${where(current)}`}
+                value={draft}
+                placeholder={'# one pattern per line\nnode_modules\n*.psd\n*/docs/.cave-notes\n!keep.md'}
+                onInput={(e) => { setDraft((e.currentTarget as HTMLTextAreaElement).value); setNote(null); }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === 'Escape') { escaped.current = true; return; }
+                  if (e.key !== 'Tab') { escaped.current = false; return; }
+                  if (escaped.current) { escaped.current = false; return; }
+                  e.preventDefault();
+                  const t = e.currentTarget as HTMLTextAreaElement;
+                  const r = indentSelection(t.value, t.selectionStart, t.selectionEnd, e.shiftKey);
+                  setDraft(r.value);
+                  requestAnimationFrame(() => { t.setSelectionRange(r.start, r.end); });
+                }}
+              />
+              <div class="dialog-actions start">
+                <button class="pill-button" disabled={busy || (!dirty && current.exists)} onClick={() => void save()}>{current.exists ? 'Save' : 'Create'}</button>
+                <button class="pill-button" disabled={!dirty} onClick={() => { setDraft(current.text); setNote(null); }}>Revert</button>
+                <button class="pill-button destructive" disabled={!current.exists || busy} onClick={() => void remove()}>Delete File</button>
+                {note && <span class="pref-hint" role="status">{note}</span>}
+              </div>
+              {current.scope === 'computer' && (
+                <p class="pref-hint">In this file a line is matched wherever it fits: <code>node_modules</code> and <code>*/docs/.cave-notes</code> work in every folder. Start a line with a slash to name one place on the disk, like <code>/home/me/Downloads</code>. A <code>.caveignore</code> in a workspace or folder can bring back what this one hides with a <code>!</code> line.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 interface PrefsPage {
   id: string;
   title: string;
@@ -549,6 +714,8 @@ function PreferencesDialog({ ctl, first, page }: { ctl: Controller; first: 'app'
               <input type="color" value={s.defaultAccent ?? '#3584e4'} onChange={(e) => ctl.setPreferences({ defaultAccent: (e.currentTarget as HTMLInputElement).value })} />
             </label>
           </div>
+          <WindowDefaultsEditor ctl={ctl} own={false} value={s.defaultWindow} onChange={(w) => ctl.setPreferences({ defaultWindow: w })} />
+          <p class="pref-hint">For other files, and for a workspace that has none of its own (set in Workspace Preferences).</p>
         </section>
         <section>
           <h3>Page text</h3>
@@ -735,6 +902,11 @@ function PreferencesDialog({ ctl, first, page }: { ctl: Controller; first: 'app'
         </section>
         </>
       ),
+    },
+    {
+      id: 'ignore',
+      title: 'Ignore Files',
+      body: <IgnoreFilesPage ctl={ctl} />,
     },
     {
       id: 'presentations',
@@ -1162,6 +1334,7 @@ function WorkspacePrefs({ ctl, root, appTypes }: { ctl: Controller; root: string
           <input type="color" value={look.color ?? '#3584e4'} onChange={(e) => void ctl.setWorkspaceLook(root, { color: (e.currentTarget as HTMLInputElement).value })} />
         </label>
       </div>
+      <WindowDefaultsEditor ctl={ctl} own value={look.window} onChange={(w) => void ctl.setWorkspaceLook(root, { window: w })} />
       <h4 class="look-h">Page text</h4>
       <FontControls
         style={look.fontStyle}
@@ -2038,6 +2211,17 @@ function LogsBody({ ctl }: { ctl: Controller }): JSX.Element {
         </select>
         <button class="pill-button" disabled={busy} onClick={() => void load(id)}>Refresh</button>
         <button class="pill-button" disabled={busy || text === ''} onClick={() => void copyToClipboard(text).then((ok) => ctl.toast(ok ? 'Log copied.' : 'The log could not be copied.'))}>Copy all</button>
+        <button
+          class="pill-button"
+          disabled={busy || text === ''}
+          onClick={() => {
+            const today = logLinesOfDay(text);
+            if (today === '') ctl.toast('There are no log lines from today.');
+            else void copyToClipboard(today + '\n').then((ok) => ctl.toast(ok ? 'Today\u2019s log copied.' : 'The log could not be copied.'));
+          }}
+        >
+          Copy today
+        </button>
         <button class="pill-button" disabled={dir === ''} onClick={() => void ctl.showFolder(dir)}>Open log folder</button>
       </div>
       <pre class="log-text" ref={box} tabIndex={0} aria-label="Log text">{text}</pre>

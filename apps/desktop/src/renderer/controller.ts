@@ -10,7 +10,7 @@ import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-
 import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
 import YAML from 'yaml';
 import { BUILTIN_STYLES, countWords, tableToCsv, tableToOds, tableToXlsx, imagesInLines, paginate, sheetPrintCss, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
-import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, ImportRequest, ImportResult } from '../shared/api';
+import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, ImportRequest, ImportResult, IgnoreFileInfo, WindowDefaults } from '../shared/api';
 import { type Deps, capabilitiesOf, explain } from './bridge';
 import { accentRoles, headerColorFor } from './color';
 import { drawerPane, narrow } from './layout';
@@ -128,9 +128,9 @@ export interface RelationMemory {
 export class Controller {
   // ---- UI state
   readonly settings = signal<Settings>({
-    theme: 'dark', recent: [], found: [], unlistedWorkspaces: [], scanFolders: [], scanIgnore: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
+    theme: 'dark', recent: [], found: [], unlistedWorkspaces: [], scanFolders: [], scanIgnore: [], ignoreFolders: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
     lastWorkspace: null, showLeft: true, showRight: true, leftWidth: 280, rightWidth: 300, rightTab: 'outline', childrenDocked: false, bounds: null, maximized: false,
-    autoCollapse: true, autoCollapseSeconds: 10, newPageDefault: 'nested', fontStyle: 'sans', fontSizes: { sans: null, serif: null, mono: null }, outlineOrderedLists: true, orderedListStyles: ['I.', 'A.', '1.', 'a.', 'i.', '1)', 'a)', 'i)'], bulletGlyphs: ['\u2022', '\u25E6', '\u25AA'], hierarchicalLists: true, wrapCode: false, dropAction: 'move', dropActionOtherDrive: 'same', exportStyles: [], exportStyle: 'Clean', exportFormat: 'docx', defaultAccent: null, conflictMerge: 'ask', automationShell: false, automationJs: false, automationJsAsk: true, automationBackground: false, deviceName: '', openExternal: 'tab', tabs: [], activeTab: 0, windows: [],
+    autoCollapse: true, autoCollapseSeconds: 10, newPageDefault: 'nested', fontStyle: 'sans', fontSizes: { sans: null, serif: null, mono: null }, outlineOrderedLists: true, orderedListStyles: ['I.', 'A.', '1.', 'a.', 'i.', '1)', 'a)', 'i)'], bulletGlyphs: ['\u2022', '\u25E6', '\u25AA'], hierarchicalLists: true, wrapCode: false, dropAction: 'move', dropActionOtherDrive: 'same', exportStyles: [], exportStyle: 'Clean', exportFormat: 'docx', defaultAccent: null, defaultWindow: null, conflictMerge: 'ask', automationShell: false, automationJs: false, automationJsAsk: true, automationBackground: false, deviceName: '', openExternal: 'tab', tabs: [], activeTab: 0, windows: [],
   });
   // ---- tabs and workspaces
   readonly tabs = signal<Tab[]>([]);
@@ -290,6 +290,8 @@ export class Controller {
   readonly searchFocusTick = signal(0);
   readonly searchState = signal<SessionState<SearchResult>>({ query: '', loading: false, results: [], total: null, errors: [], searched: false, failure: null });
   readonly facetKeys = signal<AttributeKey[]>([]);
+  /** the schema shown in frontmatter hints follows this list */
+  private readonly facetKeysWatch = this.facetKeys.subscribe(() => this.editorRef?.refreshHints());
 
   // ---- search and replace (the search pane's Replace part)
   /** what is being looked for and where; `found` is the preview, `picked` the matches that will be changed (`path`+NUL+id, or `path`+NUL+name) */
@@ -626,7 +628,12 @@ export class Controller {
     const look = (): void => void this.checkDiskNow();
     window.addEventListener('focus', look);
     document.addEventListener('visibilitychange', look);
-    const poll = setInterval(look, 4000);
+    // The timer is only a safety net, so it stays out of the way: not while you are typing (the save is busy enough, and a phone
+    // reads a long page slowly), and after a slow look it waits ten times as long as that look took.
+    const poll = setInterval(() => {
+      if (Date.now() - this.lastEditAt < 10_000 || this.saveState.value === 'dirty' || this.saveState.value === 'saving' || Date.now() < this.nextDiskCheckAt) return;
+      void this.checkDiskNow();
+    }, 4000);
     this.disposers.push(() => {
       window.removeEventListener('focus', look);
       document.removeEventListener('visibilitychange', look);
@@ -1271,7 +1278,7 @@ export class Controller {
   }
 
   /** Change one or more preferences (from the preferences dialog). */
-  setPreferences(patch: Partial<Pick<Settings, 'autoCollapse' | 'autoCollapseSeconds' | 'newPageDefault' | 'fontStyle' | 'fontSizes' | 'outlineOrderedLists' | 'exportStyles' | 'exportStyle' | 'exportFormat' | 'orderedListStyles' | 'bulletGlyphs' | 'hierarchicalLists' | 'wrapCode' | 'dropAction' | 'dropActionOtherDrive' | 'defaultAccent' | 'openExternal' | 'showNestedWorkspaces' | 'hideBareFolders' | 'nestedInNewTab' | 'scanAuto' | 'scanFolders' | 'scanIgnore' | 'automationShell' | 'automationJs' | 'automationJsAsk' | 'automationBackground' | 'deviceName' | 'firstDayOfWeek' | 'tableWordLimit' | 'globalsEnabled' | 'spellcheck' | 'synonyms' | 'indexAllWorkspaces' | 'fixCapitals' | 'dictionary' | 'disabledPlugins' | 'updateMode' | 'updateUrl' | 'presentScreen' | 'presenterWindow' | 'presenterScreen'>>): void {
+  setPreferences(patch: Partial<Pick<Settings, 'autoCollapse' | 'autoCollapseSeconds' | 'newPageDefault' | 'fontStyle' | 'fontSizes' | 'outlineOrderedLists' | 'exportStyles' | 'exportStyle' | 'exportFormat' | 'orderedListStyles' | 'bulletGlyphs' | 'hierarchicalLists' | 'wrapCode' | 'dropAction' | 'dropActionOtherDrive' | 'defaultAccent' | 'defaultWindow' | 'openExternal' | 'showNestedWorkspaces' | 'hideBareFolders' | 'nestedInNewTab' | 'scanAuto' | 'scanFolders' | 'scanIgnore' | 'automationShell' | 'automationJs' | 'automationJsAsk' | 'automationBackground' | 'deviceName' | 'firstDayOfWeek' | 'tableWordLimit' | 'globalsEnabled' | 'spellcheck' | 'synonyms' | 'indexAllWorkspaces' | 'fixCapitals' | 'dictionary' | 'disabledPlugins' | 'updateMode' | 'updateUrl' | 'presentScreen' | 'presenterWindow' | 'presenterScreen'>>): void {
     const next = { ...patch };
     if (next.autoCollapseSeconds !== undefined) next.autoCollapseSeconds = Math.max(1, Math.min(3600, Math.round(Number(next.autoCollapseSeconds)) || 10));
     if (next.globalsEnabled !== undefined && next.globalsEnabled !== this.settings.value.globalsEnabled) {
@@ -1388,6 +1395,12 @@ export class Controller {
     progress(0.97);
     this.sessions.set(info.root, sess);
     if (info.root !== rootArg) this.sessions.set(rootArg, sess);
+    for (const key of new Set([info.root, rootArg])) {
+      const early = this.earlyIndexStatus.get(key);
+      if (!early) continue;
+      this.earlyIndexStatus.delete(key);
+      this.onIndexStatus(early, key);
+    }
     this.indexTick.value++;
     const look = await ws.getAppearance().catch(() => EMPTY_LOOK);
     this.looks.value = { ...this.looks.value, [info.root]: look };
@@ -1503,14 +1516,19 @@ export class Controller {
     let shown = false;
     const failed: string[] = [];
     for (const i of order) {
+      // Only the tab that is shown is opened now. The others open when they are clicked (activateTab opens a workspace that is
+      // not open yet), so a phone with two workspaces does not list and index both before it lets you type.
+      if (shown) break;
       const tab = tabs[i]!;
       try {
         const sess = await this.ensureSession(tab.root);
         this.tabs.value = this.tabs.value.map((t) => (t.id === tab.id ? { ...t, root: sess.root } : t));
-        if (!shown) {
-          shown = true;
-          await this.activateTab(tab.id, { force: true });
+        shown = true;
+        // a window made for a tab just opened or pulled out starts the way the workspace says; a restored session keeps what it had
+        if (init.fresh) {
+          this.applyWindowDefaults(tab.id, sess.root, !!tab.single);
         }
+        await this.activateTab(tab.id, { force: true });
       } catch (e) {
         const err = e as { code?: string; message?: string };
         console.warn(`[restore] could not reopen ${tab.root}: ${err.code ?? ''} ${err.message ?? e}`);
@@ -1543,6 +1561,7 @@ export class Controller {
       const st = await sess.ws.getState();
       const tab = this.makeTab(sess.root, st.lastPage);
       this.tabs.value = [...this.tabs.value, tab];
+      this.applyWindowDefaults(tab.id, sess.root);
       await this.activateTab(tab.id);
     } catch (e) {
       if (!quiet) this.toast(explain(e));
@@ -1928,6 +1947,26 @@ export class Controller {
     this.persistTabs();
   }
 
+  /** How a window starts for a workspace (or a file on its own): the workspace's own `window:`, else the app's preference. */
+  windowDefaultsFor(root: string, single = false): WindowDefaults {
+    const own = single ? null : this.looks.value[root]?.window;
+    return { ...(this.settings.value.defaultWindow ?? {}), ...(own ?? {}) };
+  }
+
+  /** The size a window of its own starts with, when there is one to say. */
+  private windowSizeFor(root: string, single: boolean): { width: number; height: number } | null {
+    const d = this.windowDefaultsFor(root, single);
+    return d.width && d.height ? { width: d.width, height: d.height } : null;
+  }
+
+  /** A tab opened fresh starts with the sidebars its workspace says (what the window remembers for tabs it already had is not touched). */
+  private applyWindowDefaults(tabId: string, root: string, single = false): void {
+    const d = this.windowDefaultsFor(root, single);
+    if (d.left === undefined && d.right === undefined) return;
+    const { showLeft, showRight, leftWidth, rightWidth } = this.settings.value;
+    this.tabSidebars.set(tabId, { showLeft: d.left ?? showLeft, showRight: d.right ?? showRight, leftWidth, rightWidth });
+  }
+
   /**
    * Move a tab to another window: the Cave Notes window under the pointer when it is dropped on one (screen
    * position given), or a new window. Does nothing for the only tab of a window.
@@ -1938,8 +1977,9 @@ export class Controller {
     await this.flush(); // only the shown page can have unsaved changes
     const target = { root: tab.root, path: tab.path, ...(tab.single ? { single: true } : {}) };
     try {
-      if (screenX === undefined || screenY === undefined) await this.main.newWindow(target);
-      else await this.main.moveTabToWindow(target, screenX, screenY);
+      const size = this.windowSizeFor(tab.root, !!tab.single);
+      if (screenX === undefined || screenY === undefined) await this.main.newWindow(target, size);
+      else await this.main.moveTabToWindow(target, screenX, screenY, size);
     } catch (e) {
       this.toast(explain(e));
       return;
@@ -2050,14 +2090,22 @@ export class Controller {
     if (!sess) return;
     await sess.tree.refresh(parents === 'all' ? sess.tree.loadedParents() : parents).catch(() => {});
     if (this.active !== sess) return;
+    this.scheduleViewReload(); // pages that appeared, went or were renamed may belong to a query shown here
     void this.loadChildren();
     const cur = this.current.value;
     if (cur) void this.revealInTree(cur.path, false);
   }
 
+  /** The newest index status of workspaces whose session is not made yet (the index of a small folder can be ready before the window has finished opening it). */
+  private readonly earlyIndexStatus = new Map<string, IndexInfo>();
+
   private onIndexStatus(st: IndexInfo, root: string | undefined): void {
     const sess = this.sessionOf(root);
-    if (!sess) return;
+    if (!sess) {
+      // not lost: a session made a moment later starts from it, instead of waiting for an event that already came
+      if (root) this.earlyIndexStatus.set(root, st);
+      return;
+    }
     sess.index = { state: st.state, pages: st.pages, ...(st.files !== undefined ? { files: st.files } : {}), percent: st.state === 'ready' ? 100 : st.percent ?? 0, ...(st.phase ? { phase: st.phase } : {}), ...(st.stale ? { stale: true } : {}) };
     if (this.active === sess) this.indexStatus.value = sess.index;
     this.indexTick.value++;
@@ -2070,6 +2118,7 @@ export class Controller {
   }
 
   private async onPageChanged(path: string, hash: string | null, root: string | undefined): Promise<void> {
+    if (this.active === this.sessionOf(root)) this.scheduleViewReload(); // a page changed on disk: views that show it run again
     // The saved state of a page that is not shown (cursor, undo history, scroll) stays when the file is as it was left,
     // which is what an event for our own save looks like. A file that really changed loses its state, but not its place.
     const key = this.stateKey(path, root);
@@ -2092,14 +2141,24 @@ export class Controller {
   }
 
   /** Is the open page's file different from what this window last saw or saved? Then take the change in. */
+  /** When the person last typed, and when the timer may look at the file again. */
+  private lastEditAt = 0;
+  private nextDiskCheckAt = 0;
+  private diskChecking = false;
+
   private async checkDiskNow(): Promise<void> {
     const cur = this.current.value;
-    if (!cur?.exists || !this.editor || this.asking.deleted || this.saveState.value === 'conflict' || document.visibilityState === 'hidden') return;
+    if (!cur?.exists || !this.editor || this.asking.deleted || this.saveState.value === 'conflict' || document.visibilityState === 'hidden' || this.diskChecking) return;
+    this.diskChecking = true;
+    const t0 = performance.now();
     try {
       await this.saving;
       await this.mergeFromDisk();
     } catch {
       /* the next look tries again */
+    } finally {
+      this.diskChecking = false;
+      this.nextDiskCheckAt = Date.now() + Math.min(60_000, Math.max(0, (performance.now() - t0) * 10 - 4000));
     }
   }
 
@@ -2239,6 +2298,7 @@ export class Controller {
     for (const k of [...this.states.keys()]) if (k === this.stateKey(from, root)) this.states.delete(k);
     this.remapRoot(sess.root, (p) => (p === from ? to : p));
     if (this.active !== sess) return;
+    this.scheduleViewReload();
     const cur = this.current.value;
     if (cur?.path === from) {
       this.current.value = { path: to, exists: true };
@@ -2317,6 +2377,15 @@ export class Controller {
     );
   }
 
+  /** Query views run again soon (one run for a burst of changes). Also used when files appear, move or change on disk. */
+  private scheduleViewReload(): void {
+    if (this.viewTickTimer) clearTimeout(this.viewTickTimer);
+    this.viewTickTimer = setTimeout(() => {
+      this.viewTickTimer = null;
+      this.viewTick.value++;
+    }, 120);
+  }
+
   private onIndexUpdated(path: string | null, root: string | undefined): void {
     const sess = this.sessionOf(root);
     if (sess && this.active !== sess) {
@@ -2331,11 +2400,7 @@ export class Controller {
       return;
     }
     if (!sess) return;
-    if (this.viewTickTimer) clearTimeout(this.viewTickTimer);
-    this.viewTickTimer = setTimeout(() => {
-      this.viewTickTimer = null;
-      this.viewTick.value++;
-    }, 120);
+    this.scheduleViewReload();
     if (this.searchOpen.value && this.searchQuery.value.trim()) {
       if (this.searchRefreshTimer) clearTimeout(this.searchRefreshTimer);
       this.searchRefreshTimer = setTimeout(() => this.session.refresh(), 250);
@@ -2826,6 +2891,7 @@ export class Controller {
   }
 
   onEditorChange(): void {
+    this.lastEditAt = Date.now();
     this.refreshPresentation();
     this.scheduleStats();
     const cur = this.current.value;
@@ -3972,9 +4038,16 @@ export class Controller {
     if (!h) return;
     if (!blur && ed.hasFocus() && ed.cursorLine() === h.line) return; // still typing in it
     if (h.text === this.h1Baseline) return;
+    // only when the title itself was typed in: a heading that became the first one some other way (text above it deleted, a
+    // page loaded from disk, an automation) is not a new title
+    if (!ed.titleTouched) {
+      this.h1Baseline = h.text;
+      return;
+    }
     const name = nameFromTitle(h.text);
     const old = stripExt(cur.path).split('/').pop() ?? '';
     this.h1Baseline = h.text; // asked once per wording, whatever the answer
+    ed.titleTouched = false;
     if (!name || name === old) return;
     this.asking.rename = true;
     try {
@@ -4880,6 +4953,33 @@ export class Controller {
     } catch (e) {
       this.toast(explain(e));
     }
+  }
+
+  // ---- .caveignore files, edited in the settings
+
+  /** Every `.caveignore` to show: the whole computer's, the shown workspace's and the others found. */
+  listIgnoreFiles(): Promise<IgnoreFileInfo[]> {
+    const a = this.active;
+    return this.main.listIgnoreFiles(a && !a.single && !a.config && !a.docs ? a.root : null);
+  }
+
+  /** Save a `.caveignore` (made when it is not there). What it hides is looked at again at once, in open workspaces too. */
+  async saveIgnoreFile(file: string, text: string): Promise<void> {
+    await this.main.saveIgnoreFile(file, text);
+    this.viewTick.value++;
+  }
+
+  async deleteIgnoreFile(file: string): Promise<boolean> {
+    const ok = await this.confirm({ title: 'Delete this .caveignore?', body: `${file}\n\nEverything it hid is shown again.`, confirm: 'Delete', destructive: true });
+    if (!ok) return false;
+    await this.main.deleteIgnoreFile(file);
+    this.viewTick.value++;
+    return true;
+  }
+
+  /** Choose a folder (inside the workspace or anywhere else) and make a `.caveignore` in it. Returns the file, or null when cancelled. */
+  addIgnoreFolder(): Promise<string | null> {
+    return this.main.addIgnoreFolder();
   }
 
   /** Add a folder to the list of folders searched for workspaces, or to the list left out of that search. */

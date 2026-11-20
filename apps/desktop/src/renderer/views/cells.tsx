@@ -433,6 +433,7 @@ export function RelationCell({ ctl, row, k, rel, side, memory }: { ctl: Controll
 /** A page's title in a view: click opens the page; double-click (or the pencil, or F2) edits it, which renames the page. */
 export function EditableTitle({ ctl, row }: { ctl: Controller; row: Row }): JSX.Element {
   const [editing, setEditing] = useState(false);
+  const clickTimer = useRef<number | undefined>(undefined);
   const input = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
     if (editing) {
@@ -466,8 +467,17 @@ export function EditableTitle({ ctl, row }: { ctl: Controller; row: Row }): JSX.
     <button
       class={`vb-open ${row.isVirtual ? 'virtual' : ''}`}
       title={row.workspace ? `${row.workspace}: ${row.path.replace(/\.md$/, '')}` : `${row.path.replace(/\.md$/, '')}${row.isVirtual ? '' : ' (double-click to rename)'}`}
-      onClick={() => void (row.workspace ? ctl.openWorkspaceLink(row.workspace, row.path, null) : ctl.openPage(row.path, { reveal: true }))}
-      onDblClick={() => !row.isVirtual && !row.workspace && setEditing(true)}
+      onClick={() => {
+        const open = (): void => void (row.workspace ? ctl.openWorkspaceLink(row.workspace, row.path, null) : ctl.openPage(row.path, { reveal: true }));
+        // a single click opens the page, but only after the double-click time: a second click renames instead
+        if (row.isVirtual || row.workspace) return open();
+        if (clickTimer.current !== undefined) return;
+        clickTimer.current = window.setTimeout(() => { clickTimer.current = undefined; open(); }, 250);
+      }}
+      onDblClick={() => {
+        if (clickTimer.current !== undefined) { window.clearTimeout(clickTimer.current); clickTimer.current = undefined; }
+        if (!row.isVirtual && !row.workspace) setEditing(true);
+      }}
       onKeyDown={(e) => {
         if (e.key === 'F2' && !row.isVirtual) {
           e.preventDefault();

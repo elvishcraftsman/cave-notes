@@ -91,3 +91,23 @@ test('only the notes of a folder are kept: the folders stay open, other files ar
   assert.equal(await tree.isIgnored('Papers/figure.png', false), true);
   assert.equal(await tree.isIgnored('Papers/Ch1/Notes.md', false), false);
 });
+
+test('the whole-computer file: lines match wherever they fit, a leading slash names one place, a folder\'s own file can bring things back', async () => {
+  const root = tmp();
+  put(root, 'a/node_modules/x.md');
+  put(root, 'a/docs/.cave-notes/ws.md');
+  put(root, 'keep/node_modules/y.md');
+  put(root, 'keep/.caveignore', '!node_modules\n');
+  put(root, 'secret/s.md');
+  put(root, 'plain.md');
+  const text = `node_modules\n*/docs/.cave-notes\n${path.join(root, 'secret')}\n`;
+  const tree = openTree(root, { globalIgnore: () => text });
+  assert.equal(await tree.isIgnored('a/node_modules', true), true);
+  assert.equal(await tree.isIgnored('a/docs/.cave-notes', true), true, 'a line with a slash in the middle is not tied to the top');
+  assert.equal(await tree.isIgnored('secret', true), true, 'an absolute path names one place');
+  assert.equal(await tree.isIgnored('plain.md', false), false);
+  assert.equal(await tree.isIgnored('keep/node_modules', true), false, 'a ! line in a .caveignore in the folder brings it back');
+  // the folder opened is never judged by the lines for the computer, only what is inside it
+  const around = openTree(root, { globalIgnore: () => path.basename(root) });
+  assert.equal(await around.isIgnored('plain.md', false), false);
+});

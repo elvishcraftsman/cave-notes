@@ -15,27 +15,28 @@ const MAX_MS = 60_000;
  * Hidden folders, `node_modules` and symbolic links are not entered; `ignore` lists folders to leave out (with everything
  * below them). Folders are read a few at a time so the app stays responsive. Results are sorted by path.
  *
- * `.caveignore` files (see core-tree/src/ignore.js) in the folders being scanned are honoured: a folder they list is not
+ * `.caveignore` files (see core-tree/src/ignore.js) in the folders being scanned, and the text of the whole-computer file
+ * (`globalIgnore`), are honoured: a folder they list is not
  * entered, and a `.cave-notes` they list does not make a workspace. A line that would leave no workspace at all is dropped:
  * if the scan finds nothing while some line kept it from looking, it runs once more without those lines.
  */
-export async function scanForWorkspaces(roots: string[], ignore: string[] = [], isStopped: () => boolean = () => false): Promise<string[]> {
+export async function scanForWorkspaces(roots: string[], ignore: string[] = [], isStopped: () => boolean = () => false, globalIgnore: string | null = null): Promise<string[]> {
   const off = new Set<string>(); // lines of .caveignore files that are switched off, as "root|folder:line"
-  const first = await scanOnce(roots, ignore, isStopped, off);
+  const first = await scanOnce(roots, ignore, isStopped, off, globalIgnore);
   if (first.found.length > 0 || first.pruned.size === 0 || isStopped()) return first.found;
   for (const id of first.pruned) off.add(id);
   log.warn(`workspace scan: .caveignore lines would hide every workspace, so they are left out: ${[...first.pruned].join(', ')}`);
-  return (await scanOnce(roots, ignore, isStopped, off)).found;
+  return (await scanOnce(roots, ignore, isStopped, off, globalIgnore)).found;
 }
 
-async function scanOnce(roots: string[], ignore: string[], isStopped: () => boolean, off: Set<string>): Promise<{ found: string[]; pruned: Set<string> }> {
+async function scanOnce(roots: string[], ignore: string[], isStopped: () => boolean, off: Set<string>, globalIgnore: string | null): Promise<{ found: string[]; pruned: Set<string> }> {
   const pruned = new Set<string>();
   const rootDirs = roots.map((r) => path.resolve(r));
   // one rule set per scanned folder; its "off" lines are the ones of this folder, written without the folder's name
   const rules = rootDirs.map((r) => {
     const mine = new Set<string>();
     for (const id of off) if (id.startsWith(`${r}|`)) mine.add(id.slice(r.length + 1));
-    return { root: r, ig: createIgnore(r, { off: mine }) };
+    return { root: r, ig: createIgnore(r, { off: mine, global: () => globalIgnore }) };
   });
   const ruleFor = (dir: string): { root: string; ig: ReturnType<typeof createIgnore> } | undefined =>
     rules.filter((x) => dir === x.root || dir.startsWith(x.root + path.sep)).sort((a, b) => b.root.length - a.root.length)[0];
@@ -120,7 +121,7 @@ export const scanRoots = (chosen: string[]): string[] => {
  * A workspace outside every scanned folder is not covered by any of those files and is always kept. As in the scan, a
  * set of lines that would hide every workspace the scan could reach is ignored.
  */
-export async function ignoredWorkspaces(candidates: string[], scanFolders: string[], ignore: string[] = []): Promise<string[]> {
+export async function ignoredWorkspaces(candidates: string[], scanFolders: string[], ignore: string[] = [], globalIgnore: string | null = null): Promise<string[]> {
   const roots = scanRoots(scanFolders).map((r) => path.resolve(r));
   const skip = ignore.map((p) => path.resolve(p));
   const igs = new Map<string, ReturnType<typeof createIgnore>>();
@@ -136,7 +137,7 @@ export async function ignoredWorkspaces(candidates: string[], scanFolders: strin
       continue;
     }
     let ig = igs.get(root);
-    if (!ig) igs.set(root, (ig = createIgnore(root)));
+    if (!ig) igs.set(root, (ig = createIgnore(root, { global: () => globalIgnore })));
     const parts = path.relative(root, dir).split(path.sep).filter(Boolean);
     let off = false;
     for (let i = 1; i <= parts.length && !off; i++) {

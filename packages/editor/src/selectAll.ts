@@ -1,4 +1,4 @@
-import { type Extension, Prec } from '@codemirror/state';
+import { Annotation, type Extension, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 
 /**
@@ -10,6 +10,9 @@ import { EditorView, keymap } from '@codemirror/view';
 /** Turns the Markdown of the page into HTML; without one the page as drawn is copied. */
 export type HtmlRenderer = (markdown: string) => string;
 
+/** Marks the selection of the whole page that we made ourselves. */
+const allSelected = Annotation.define<boolean>();
+
 /** The editors whose whole text was selected "as HTML", until the selection or the text changes. */
 const htmlSelected = new WeakSet<EditorView>();
 
@@ -20,6 +23,32 @@ const selectWhole = (view: EditorView): void => {
 export function selectAllAsText(view: EditorView): boolean {
   htmlSelected.delete(view);
   selectWhole(view);
+  return true;
+}
+
+/** The paragraph around a position: the run of non-blank lines it is in (a blank line, or the page's edge, ends it). */
+export function paragraphRange(view: EditorView, pos: number): { from: number; to: number } {
+  const doc = view.state.doc;
+  const blank = (n: number): boolean => doc.line(n).text.trim() === '';
+  let first = doc.lineAt(pos).number;
+  let last = first;
+  if (blank(first)) return { from: doc.line(first).from, to: doc.line(first).to };
+  while (first > 1 && !blank(first - 1)) first--;
+  while (last < doc.lines && !blank(last + 1)) last++;
+  return { from: doc.line(first).from, to: doc.line(last).to };
+}
+
+/** Ctrl+A: the paragraph first; when that is already selected (or is all there is), the whole page. */
+export function selectParagraphThenAll(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  const doc = view.state.doc;
+  const whole = sel.from === 0 && sel.to === doc.length;
+  if (whole) return selectAllAsText(view);
+  const para = paragraphRange(view, sel.from);
+  const covered = sel.from <= para.from && sel.to >= para.to;
+  if (covered || (para.from === 0 && para.to === doc.length)) return selectAllAsText(view);
+  htmlSelected.delete(view);
+  view.dispatch({ selection: { anchor: para.from, head: para.to }, userEvent: 'select' });
   return true;
 }
 
@@ -55,11 +84,28 @@ function drawnHtml(view: EditorView): string {
   return `<div>${clone.innerHTML}</div>`;
 }
 
+/**
+ * Whether a selection is what the phone's own \u201cSelect all\u201d makes on a long page: only the part that is drawn (the viewport),
+ * from its first character to its last, while the page goes on beyond it. The system selects what it can see in the DOM.
+ */
+export function isViewportSelection(sel: { from: number; to: number }, viewport: { from: number; to: number }, docLength: number): boolean {
+  const partial = viewport.from > 0 || viewport.to < docLength;
+  return partial && sel.to > sel.from && sel.from === viewport.from && sel.to === viewport.to;
+}
+
 export function selectAll(renderHtml?: HtmlRenderer): Extension {
   return [
-    // the editor's own: select all of the text, whatever part of a long page is drawn
-    Prec.high(keymap.of([{ key: 'Mod-a', run: selectAllAsText, preventDefault: true }])),
+    // the editor's own: the paragraph first, then all of the text (whatever part of a long page is drawn)
+    Prec.high(keymap.of([{ key: 'Mod-a', run: selectParagraphThenAll, preventDefault: true }])),
     EditorView.updateListener.of((u) => {
+      // the system's Select all (the phone's selection menu) only knows the drawn part of a long page: make it all of it
+      if (u.selectionSet && !u.docChanged && !u.transactions.some((t) => t.isUserEvent('select.pointer') || t.annotation(allSelected))) {
+        const main = u.state.selection.main;
+        if (isViewportSelection(main, u.view.viewport, u.state.doc.length)) {
+          const view = u.view;
+          requestAnimationFrame(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length }, annotations: allSelected.of(true) }));
+        }
+      }
       if (!u.selectionSet && !u.docChanged) return;
       if (htmlSelected.has(u.view) && !isHtmlSelection(u.view)) htmlSelected.delete(u.view);
     }),

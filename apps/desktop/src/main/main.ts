@@ -9,6 +9,7 @@ import { type Envelope, EVENT_NAMES, MAIN_METHODS, type MainApi, type Settings, 
 import { cleanStyleSet, exportPage, parseDoc, parseStyleSetsYaml, renderHtml } from '@cave-notes/core-export';
 import { cleanDictionary, cleanNoteTypes, portableSettings, SettingsStore } from './settings';
 import { ignoredWorkspaces, scanForWorkspaces, scanRoots } from './scan';
+import { STARTER, findIgnoreFiles, readGlobalIgnore, removeIgnoreFile, writeIgnoreFile } from './ignoreFiles';
 import { noLongerWorkspaces, promoteFolder, removeWorkspace, workspaceStatus } from './workspaces';
 import { CONFIG_NOTES, isConfigRoot } from '@cave-notes/service/config-folder';
 import { WorkerClient } from './worker-client';
@@ -433,11 +434,19 @@ async function pruneStaleWorkspaces(): Promise<void> {
 
 let scanning: Promise<string[]> | null = null;
 /** Look through the chosen folders for workspaces and remember what was found (one scan at a time). */
+/** A `.caveignore` was written or removed from the settings: open workspaces look at what it hides again, and so does the search for workspaces. */
+async function ignoreFilesChanged(): Promise<void> {
+  for (const [root, a] of attached) {
+    if (a.opened) await workerFor(root).call('reloadIgnore', []).catch(() => undefined);
+  }
+  await scanNow().catch(() => undefined);
+}
+
 function scanNow(): Promise<string[]> {
   scanning ??= (async () => {
     try {
       const s = settings.get();
-      const found = await scanForWorkspaces(scanRoots(s.scanFolders), s.scanIgnore);
+      const found = await scanForWorkspaces(scanRoots(s.scanFolders), s.scanIgnore, () => false, readGlobalIgnore(appConfigDir()));
       settings.set({ found });
       sendToOthers(null, 'settings:changed', { found });
       await pruneStaleWorkspaces().catch(() => undefined);
@@ -1053,7 +1062,35 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
     },
     async ignoredWorkspaces(roots) {
       const s = settings.get();
-      return ignoredWorkspaces(roots, s.scanFolders, s.scanIgnore);
+      return ignoredWorkspaces(roots, s.scanFolders, s.scanIgnore, readGlobalIgnore(appConfigDir()));
+    },
+    async listIgnoreFiles(workspaceRoot) {
+      const s = settings.get();
+      return findIgnoreFiles({ appConfigDir: appConfigDir(), workspaceRoot, scanRoots: scanRoots(s.scanFolders), extraFolders: s.ignoreFolders });
+    },
+    async saveIgnoreFile(file, text) {
+      writeIgnoreFile(file, text);
+      await ignoreFilesChanged();
+    },
+    async deleteIgnoreFile(file) {
+      removeIgnoreFile(file);
+      const dir = path.dirname(path.resolve(file));
+      if (settings.get().ignoreFolders.includes(dir)) settings.set({ ignoreFolders: settings.get().ignoreFolders.filter((d) => d !== dir) });
+      await ignoreFilesChanged();
+    },
+    async addIgnoreFolder(folder) {
+      let dir = folder;
+      if (!dir) {
+        const opts: Electron.OpenDialogOptions = { title: 'Choose the folder to keep a .caveignore in', properties: ['openDirectory', 'createDirectory'] };
+        const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts);
+        if (r.canceled || !r.filePaths[0]) return null;
+        dir = r.filePaths[0];
+      }
+      dir = path.resolve(dir);
+      const file = path.join(dir, '.caveignore');
+      if (!fs.existsSync(file)) writeIgnoreFile(file, STARTER);
+      if (!settings.get().ignoreFolders.includes(dir)) settings.set({ ignoreFolders: [...settings.get().ignoreFolders, dir] });
+      return file;
     },
     async trash(absPaths) {
       for (const p of absPaths) {
@@ -1080,6 +1117,7 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
       if (!i) return { tabs: [], activeTab: 0 };
       const init = { ...i.state };
       delete i.state.files; // files from the command line are opened once
+      delete i.state.fresh; // and a window starts the way its workspace says only the first time
       return init;
     },
     async isFile(abs) {
@@ -1110,14 +1148,14 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
       if (i.state.tabs.length > 0) i.lastState = i.state;
       persistWindows();
     },
-    async newWindow(tab) {
-      createWindow({ tabs: tab ? [{ root: tab.root, path: tab.path, ...(tab.single ? { single: true } : {}) }] : [], activeTab: 0 }, w);
+    async newWindow(tab, size) {
+      createWindow({ tabs: tab ? [{ root: tab.root, path: tab.path, ...(tab.single ? { single: true } : {}) }] : [], activeTab: 0, ...(tab ? { fresh: true } : {}) }, w, size ? { width: size.width, height: size.height } : undefined);
     },
-    async moveTabToWindow(tab, screenX, screenY) {
+    async moveTabToWindow(tab, screenX, screenY, size) {
       const point = screenX === 0 && screenY === 0 ? screen.getCursorScreenPoint() : { x: Math.round(screenX), y: Math.round(screenY) };
       // dragging a tab out always makes a new window, even when it is let go over another one
       const at = w ? w.getBounds() : { width: 1100, height: 760 };
-      const nw = createWindow({ tabs: [{ root: tab.root, path: tab.path, ...(tab.single ? { single: true } : {}) }], activeTab: 0 }, w, { x: point.x - 120, y: point.y - 24, width: at.width, height: at.height });
+      const nw = createWindow({ tabs: [{ root: tab.root, path: tab.path, ...(tab.single ? { single: true } : {}) }], activeTab: 0, fresh: true }, w, { x: point.x - 120, y: point.y - 24, width: size?.width ?? at.width, height: size?.height ?? at.height });
       attach(tab.root, nw.id);
     },
     async pickImportFiles(mode) {

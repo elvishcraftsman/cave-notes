@@ -8,9 +8,11 @@ export function BusyHost({ ctl }: { ctl: Controller }): JSX.Element | null {
   const R = 22;
   const C = 2 * Math.PI * R;
   const known = b.fraction !== null;
+  // a page is already on screen (another workspace is being opened behind it): the card says so, but you can keep working
+  const passive = !!ctl.current.value?.exists;
   const pct = known ? Math.round(Math.max(0, Math.min(1, b.fraction!)) * 100) : null;
   return (
-    <div class="busy-overlay" role="alertdialog" aria-modal="true" aria-label={b.label} aria-live="polite">
+    <div class={`busy-overlay ${passive ? 'passive' : ''}`} role={passive ? 'status' : 'alertdialog'} aria-modal={passive ? undefined : 'true'} aria-label={b.label} aria-live="polite">
       <div class="busy-card">
         <svg class={`busy-ring ${known ? '' : 'indeterminate'}`} width="56" height="56" viewBox="0 0 56 56" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct ?? undefined}>
           <circle class="busy-track" cx="28" cy="28" r={R} fill="none" stroke-width="5" />

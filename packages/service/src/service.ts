@@ -22,6 +22,7 @@ import { parseAutomations } from '@cave-notes/core-automation';
 import { describe as describeOffer, inheritedFor, pendingFor, publishOffer, readConsent, readOffers, writeConsent } from './globals';
 import { FormulaRun, recomputeFormulas, valueText } from './formulas';
 import { AutomationRunner, defaultDeviceName, type AutomationDeps } from './automation';
+import { cleanWindow } from './settings';
 import { CONFIG_NOTES, configCreateExt, ensureConfigFolder, isConfigRoot } from './config-folder';
 import { INFO_DIR, STATE_FILE, editSection, editYaml, infoPath, readSections, readSettings, rulesText, setKey } from './workspace-file';
 import { homeFor, readConfig } from '@cave-notes/core-index/config';
@@ -198,8 +199,12 @@ export class WorkspaceService implements WorkerApi {
     let progressSink: ((p: { phase?: 'scan' | 'parse' | 'finish'; fraction?: number }) => void) | null = null;
     const dbPath = lite ? ':memory:' : path.join(dataDir, 'index.db');
     if (!lite) await this.options.prepareIndex?.(dbPath);
+    // the `.caveignore` for the whole computer lives in the app's config folder; it is read before the folder is looked at
+    this.globalIgnoreFile = lite ? null : opts.appConfigDir ? path.join(opts.appConfigDir, '.caveignore') : null;
+    this.globalIgnoreText = await this.readGlobalIgnore();
     const index = await openIndex(root, {
       ignore: ['node_modules'],
+      globalIgnore: () => this.globalIgnoreText,
       ...(this.options.driver ? { driver: this.options.driver } : {}),
       workers: lite ? 0 : (this.options.workers ?? Math.max(0, Math.min(3, cores - 1))),
       dbPath,
@@ -235,7 +240,7 @@ export class WorkspaceService implements WorkerApi {
     this.globalsEnabled = opts.globalsEnabled !== false;
     o.inheritedSig = '';
     await this.refreshGlobals(o).catch((e) => log.warn('globally global settings could not be read', e));
-    const stopFiles = watchWorkspace(root, (b) => void this.onFilesChanged(b.files, b.folders, b.schema, b.others, b.automations, b.ignores), this.options.watchDebounceMs ?? 150, single ?? undefined);
+    const stopFiles = watchWorkspace(root, (b) => void this.onFilesChanged(b.files, b.folders, b.schema, b.others, b.automations, b.ignores), this.options.watchDebounceMs ?? 150, single ?? undefined, () => this.globalIgnoreText);
     const stopGlobals = this.watchGlobals(o);
     o.stopWatching = async () => {
       stopGlobals();
@@ -325,6 +330,35 @@ export class WorkspaceService implements WorkerApi {
     const list = items.filter((x) => x !== null && x !== undefined && x !== '').map((x) => valueText(x));
     const kind = list.length === 0 ? 'empty' : Array.isArray(v) ? 'list' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'bool' : typeof v === 'object' ? 'date' : 'text';
     return { ok: true, text: valueText(v), list, kind };
+  }
+
+  /** the `.caveignore` for the whole computer (in the app's config folder), and what it says now */
+  private globalIgnoreFile: string | null = null;
+  private globalIgnoreText: string | null = null;
+  private async readGlobalIgnore(): Promise<string | null> {
+    if (!this.globalIgnoreFile) return null;
+    try {
+      return await fs.readFile(this.globalIgnoreFile, 'utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  /** A `.caveignore` outside the workspace (the one for the whole computer, or one in a folder around it) was changed by the app: look again. */
+  async reloadIgnore(): Promise<void> {
+    const o = this.ws;
+    if (!o) return;
+    this.globalIgnoreText = await this.readGlobalIgnore();
+    o.tree.reloadIgnore();
+    try {
+      await o.index.reconcile();
+    } catch (e) {
+      log.error('reconcile after .caveignore change failed', e);
+    }
+    if (this.ws !== o) return;
+    o.lookup = null;
+    this.emit('index:updated', { path: null });
+    this.emit('tree:changed', { parents: 'all' });
   }
 
   private globalDir: string | null = null;
@@ -1152,6 +1186,7 @@ export class WorkspaceService implements WorkerApi {
     const dir = infoPath(o.root);
     if ('color' in patch) await editSection(dir, 'color', (doc) => setKey(doc, 'color', validColor(patch.color)));
     if ('icon' in patch) await editSection(dir, 'icon', (doc) => setKey(doc, 'icon', validIcon(patch.icon)));
+    if ('window' in patch) await editSection(dir, 'window', (doc) => setKey(doc, 'window', cleanWindow(patch.window)));
     if ('fontStyle' in patch) await editSection(dir, 'font', (doc) => setKey(doc, 'font', validFont(patch.fontStyle)));
     if (patch.fontSizes) {
       const change = patch.fontSizes;
@@ -2823,7 +2858,7 @@ const sizesOf = (raw: Record<string, unknown>): FontSizes => {
   if (old !== null && out.sans === null && out.serif === null && out.mono === null) out[raw.font === 'serif' ? 'serif' : 'sans'] = old;
   return out;
 };
-const appearanceOf = (raw: Record<string, unknown>): WorkspaceAppearance => ({ color: validColor(raw.color), icon: validIcon(raw.icon), fontStyle: validFont(raw.font), fontSizes: sizesOf(raw), ...appearanceStyles(raw) });
+const appearanceOf = (raw: Record<string, unknown>): WorkspaceAppearance => ({ color: validColor(raw.color), icon: validIcon(raw.icon), fontStyle: validFont(raw.font), fontSizes: sizesOf(raw), window: cleanWindow(raw.window), ...appearanceStyles(raw) });
 
 /** The order of the Plugins menu: the person's own first (as written), then those other workspaces offer, then the ones that come with the app, by name. */
 export function orderPlugins(list: PluginInfo[]): PluginInfo[] {

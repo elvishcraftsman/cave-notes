@@ -4,7 +4,8 @@ import { Compartment, type Extension, EditorState, Facet, Prec, type StateEffect
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
 import { openSearchPanel, search, searchKeymap } from '@codemirror/search';
 import { createSearchPanel } from './searchPanel';
-import { yamlDocument, yamlHints } from './yamlHints';
+import { type SchemaHint, refreshHints, yamlDocument, yamlHints } from './yamlHints';
+import { yamlCompletionSource } from './yamlComplete';
 import { addFrontmatter, attributeBar, hasFrontmatter } from './attributes';
 import { viewBlockHost, type ViewBlockHost } from './blocks';
 import { tableExportHost, type TableExportHandler } from './tables';
@@ -95,6 +96,12 @@ export interface EditorOptions {
   onSave?: () => void;
   /** The cursor moved to another line, or the document changed so that it is on another line (not for every keystroke). */
   onLineChange?: () => void;
+  /** The attributes the schema declares (with what it says about them), shown in their own colour with a hover text in frontmatter. */
+  schemaAttributes?: () => SchemaHint[];
+  /** Saved query names, for `query: !Name` in a view block; with `schemaAttributes` this turns on completion in frontmatter and view blocks. */
+  savedQueryNames?: () => string[];
+  /** A check of a whole ```view block by the views' own reader: the problem it finds in the block's text, or null. */
+  viewProblem?: (source: string) => string | null;
   /** The editor lost focus. */
   onBlur?: () => void;
   /** Suggestions for text typed after "[[". */
@@ -227,6 +234,8 @@ export class NoteEditor {
   /** Space at the bottom of the editor that something lies over (the children bar): typing near it scrolls the text above it. */
   private bottomInset = 0;
   private lastLine = 1;
+  /** Was the title heading's line (the first thing on the page) typed in since the page was shown or this was last cleared? */
+  titleTouched = false;
 
   constructor(opts: EditorOptions) {
     this.opts = opts;
@@ -359,7 +368,7 @@ export class NoteEditor {
       indentGuide(),
       criticMarkup(),
       o.attributeBar === false ? [] : attributeBar(),
-      yamlHints(),
+      yamlHints(o.schemaAttributes, { ...(o.savedQueryNames ? { savedQueries: o.savedQueryNames } : {}), ...(o.viewProblem ? { viewProblem: o.viewProblem } : {}) }),
       // Ctrl+F finds, Ctrl+H finds and replaces (the panel has both fields); F3 / Ctrl+G step through the matches
       search({ top: true, createPanel: createSearchPanel }),
       EditorView.lineWrapping,
@@ -378,7 +387,16 @@ export class NoteEditor {
       o.viewBlock ? viewBlockHost.of(o.viewBlock) : [],
       o.onExportTable ? tableExportHost.of(o.onExportTable) : [],
       o.embed ? [embedHost.of(o.embed), embeds(), queryLinks(), expressions()] : [],
-      o.wikilinkCompletions ? autocompletion({ override: [wikilinkSource(o.wikilinkCompletions, o.createLinkedPage)], icons: false, defaultKeymap: false }) : [],
+      o.wikilinkCompletions || o.schemaAttributes
+        ? autocompletion({
+            override: [
+              ...(o.wikilinkCompletions ? [wikilinkSource(o.wikilinkCompletions, o.createLinkedPage)] : []),
+              ...(o.schemaAttributes ? [yamlCompletionSource({ attributes: o.schemaAttributes, savedQueries: o.savedQueryNames ?? (() => []) })] : []),
+            ],
+            icons: false,
+            defaultKeymap: false,
+          })
+        : [],
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: () => (o.onSave?.(), true) },
         { key: 'Mod-b', run: toggleWrap('**') },
@@ -413,6 +431,7 @@ export class NoteEditor {
           }
         }
         if (u.docChanged) {
+          this.noteTitleEdit(u);
           o.onChange?.(u.state.doc.toString());
           o.onOutline?.(extractOutline(u.state, { orderedLists: this.outlineLists }));
         }
@@ -508,6 +527,7 @@ export class NoteEditor {
           }
         }
         if (u.docChanged) {
+          this.noteTitleEdit(u);
           o.onChange?.(u.state.doc.toString());
           o.onOutline?.([]);
         }
@@ -578,12 +598,34 @@ export class NoteEditor {
     this.view.dispatch({ effects: this.listCompartment.reconfigure(listConfig.of(options)), annotations: Transaction.addToHistory.of(false) });
   }
 
+  /** Draw the hints again (the schema they show changed). */
+  refreshHints(): void {
+    this.view.dispatch({ effects: refreshHints.of(null) });
+  }
+
+  /** Remember whether a change reached the title heading's line (as it was before the change). */
+  private noteTitleEdit(u: { startState: EditorState; changes: { iterChangedRanges: (f: (fromA: number, toA: number) => void) => void } }): void {
+    if (this.titleTouched || this.isPlain) return;
+    const before = u.startState.doc;
+    const h = findFirstH1({ *[Symbol.iterator]() { for (let i = 1; i <= Math.min(before.lines, 400); i++) yield before.line(i).text; } });
+    if (!h) {
+      // no title yet: typing one in is an edit of the title when a heading line is there now
+      if (this.firstH1()) this.titleTouched = true;
+      return;
+    }
+    const line = before.line(h.line);
+    u.changes.iterChangedRanges((fromA, toA) => {
+      if (fromA <= line.to && toA >= line.from) this.titleTouched = true;
+    });
+  }
+
   /** Show a document in a fresh state; `plain` shows it as plain text, as a settings file is shown. */
   load(text: string, opts: { plain?: boolean; readOnly?: boolean; canvas?: boolean } = {}): void {
     this.setState(this.createState(text, opts.plain === true, opts.readOnly === true, opts.canvas === true));
     // footnotes that are out of order are put in order when a page is opened
     const fixes = opts.plain || opts.readOnly ? [] : openingFixes(text);
     if (fixes.length > 0) this.applyChanges(fixes);
+    this.titleTouched = false;
   }
 
   /** Is the document on screen shown as plain text? */
@@ -593,6 +635,7 @@ export class NoteEditor {
 
   /** Swap in a previously saved state (keeps its undo history and cursor). */
   setState(state: EditorState): void {
+    this.titleTouched = false;
     this.view.setState(state);
     this.view.dispatch({ effects: [this.listCompartment.reconfigure(listConfig.of(this.listOptions)), this.wrapCompartment.reconfigure(wrapAttributes(this.wrapCode)), this.capsCompartment.reconfigure(this.fixCaps ? fixDoubleCapitals() : [])], annotations: Transaction.addToHistory.of(false) });
     this.opts.onOutline?.(state.facet(plainMode) ? [] : extractOutline(state, { orderedLists: this.outlineLists }));

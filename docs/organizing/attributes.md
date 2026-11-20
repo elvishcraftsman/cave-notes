@@ -224,6 +224,14 @@ Without `backattribute` the other side is worked out from the first and is read-
 
 A mistake in a `children:` block (an unknown `defaults` value, say) shows as a warning on that page, and the rest of the block still applies.
 
+## Help while you type: hints, completion and checks
+
+In a page's frontmatter and in a ```` ```view ```` block, the editor helps with the YAML:
+
+- **Hover hints.** A name Cave Notes itself reads (the table above, and the settings of a view) is underlined with dots in the accent colour; rest the pointer on it to read what it does. An attribute that your **schema** declares is underlined in a different colour (teal by default); its hint says what the schema knows: the type, the choices of a select, what choosing a value sets (`implies`) and on how many pages it is used. Reserved names win: if the schema declares an attribute with a reserved name, the reserved explanation is shown.
+- **Completion.** At the start of a line the editor offers the reserved names and your attributes; after `name:` it offers the values that fit: the choices of a select, `true`/`false`, and the words that `hidden`, `defaults` and `inheritance` take. In a view block it offers the settings, the values of `type`, `groupDir` and `relationFiles`, attribute names for `sort`, `group`, `date`, `cover`, `columns` and `newFields`, and inside a query the names of attributes (and the choices after `name:`) and, after `!`, your saved queries. `[[` still completes page names. Press `Ctrl+Space` to ask for a list.
+- **Checks.** A wavy underline marks something that cannot work, with the reason on hover (red: it will not work; amber: it is doubtful). Frontmatter: a value that does not fit the schema (a choice that is not listed, a number, date or yes/no that is none), `order` that is not a number, `hidden` with a word that hides nothing, `defaults` or `inheritance` with an unknown value, and a `children:` or `files:` that has no attributes below it. View blocks: a setting that does not exist, an unknown `type`, a `limit` or `pageSize` that is not a number, a board without `group:`, a calendar without `date:`, and a `query: !Name` that names no view or saved query. Wrong YAML is still shown with the red outline and the *Invalid YAML* tag.
+
 ## Examples
 
 **A to-do list.** On the parent page:

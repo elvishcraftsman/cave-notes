@@ -320,6 +320,7 @@ export async function openIndex(rootDir, options = {}) {
     openTree(root, {
       ignore: options.ignore,
       ...(options.only ? { only: options.only } : {}),
+      ...(options.globalIgnore ? { globalIgnore: options.globalIgnore } : {}),
       orderOf: (p) => q.orderOf.get(p)?.o ?? undefined,
     });
 
@@ -1094,6 +1095,8 @@ export async function openIndex(rootDir, options = {}) {
       cur.declared = true;
       if (def.values) cur.values = def.values;
       if (def.type === 'list') cur.list = true;
+      cur.schemaType = def.type;
+      if (def.implies?.size) cur.implies = Object.fromEntries(def.implies);
       byKey.set(k, cur);
     }
     return [...byKey.values()]

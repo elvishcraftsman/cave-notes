@@ -10,11 +10,12 @@ Open **Preferences** from the main menu (the button at the right of the title ba
 
 | Category | What is in it |
 |---|---|
-| Appearance | dark or light theme, the accent colour for workspaces without their own, the typeface and size of page text |
+| Appearance | dark or light theme, the accent colour for workspaces without their own, how a window starts (sidebars and size) for other files and for workspaces without their own, the typeface and size of page text |
 | Editing | spell checking and your dictionary, fixing accidental double capitals, synonyms, list styles, wrapping of code and plain text |
 | Pages and files | which files are notes, where new pages go, collapsing of idle branches in the page tree, numbered lists in the outline, what happens to files dragged in |
 | Views | the first day of the week, and how wide table columns may grow |
 | Workspaces | nested workspaces, searching for workspaces, how folders opened from outside appear, settings shared between workspaces |
+| Ignore Files | every [`.caveignore`](caveignore.md) (the whole computer's, the workspace's and those in folders) listed and edited in place; add one for any folder |
 | Presentations | which screen the slides are shown on, and whether a presenter window opens (and on which screen); see [Presentations](../exporting/presentations.md) |
 | Sync and automation | what to do with Syncthing conflict copies, shell commands, JavaScript (**Let automations run JavaScript**, and **Ask before running a rule's JavaScript**, which is on until you turn it off) and background running of automations, and **Forget all approvals and refusals** (the commands and scripts automations may run, and the ones you refused, and the workspaces whose scripts the Run button of a [code block](../writing/code-blocks.md) may run) |
 | Updates | how often and whether the AppImage looks for a newer version and replaces itself, and the address it looks at; see [Updating the app](../the-app/updates.md) |
@@ -28,7 +29,7 @@ The main menu's **Help** (also `F1`) opens a window laid out like Preferences, w
 
 | Category | What is in it |
 |---|---|
-| Appearance | the workspace's accent colour, page text and icon |
+| Appearance | the workspace's accent colour, how a window starts for it, page text and icon |
 | File types | note types for this workspace only |
 | YAML | the workspace's attributes, schema, queries and other settings as text |
 
@@ -72,3 +73,19 @@ The chain is followed from where the list starts. A list that begins with `1.` h
 - Pasting an outline (a copied numbered list) into a numbered item drops its first marker and keeps the levels under it, moved by the difference in the width of the markers. A single line such as `A. Smith went home` is pasted as it is.
 
 Computers that already had settings keep the chain they had; change it in App preferences if you want this one.
+
+## How a window starts
+
+In Appearance, under the accent colour, **When it opens in a window** sets how a window starts for a workspace: whether the page sidebar and the outline sidebar are open or closed, and (on a computer) the width and height of the window. **Use this window's size** takes the size of the window you are in. A field left at *As in the app* follows the app.
+
+It only applies when a workspace is opened fresh, or when you pull it into a window of its own for the first time. A window that is brought back from your last session keeps what it had, so these settings never take the place of it.
+
+The same settings in the app's own Appearance page are for files opened on their own, and for workspaces that have none of their own. They are kept in the workspace's settings file as a `window:` section, so they follow the workspace to your other computers:
+
+```yaml
+window:
+  left: true      # page sidebar open
+  right: false    # outline sidebar closed
+  width: 1200
+  height: 800
+```

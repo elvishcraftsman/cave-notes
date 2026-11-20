@@ -27,6 +27,21 @@ import { fs as fsp, path } from '@cave-notes/platform';
 
 export const IGNORE_FILE = '.caveignore';
 
+/** Line numbers of the whole-computer file start here, so they never meet those of a `.caveignore` in a folder. */
+export const GLOBAL_BASE = 1_000_000;
+
+/** The rules of the whole-computer file's text, read again only when the text is different. */
+let lastGlobal = { text: null, rules: [] };
+function globalRules(get) {
+  const text = get ? get() : null;
+  if (!text) return [];
+  if (lastGlobal.text !== text) lastGlobal = { text, rules: parseIgnore(text, { global: true }) };
+  return lastGlobal.rules;
+}
+
+/** The path of a folder as the whole-computer file sees it: from the top of the disk, with `/`, ending with a slash. */
+const absPrefixOf = (root) => path.resolve(root).split(path.sep).filter(Boolean).join('/') + '/';
+
 /** Escape a character for use in a regular expression. */
 const esc = (c) => c.replace(/[.+^${}()|\\]/g, '\\$&');
 
@@ -75,7 +90,7 @@ function globSource(glob) {
  * Read the text of one `.caveignore` file.
  * @returns {Array<{ line: string, number: number, negate: boolean, dirOnly: boolean, fileOnly: boolean, re: RegExp }>}
  */
-export function parseIgnore(text) {
+export function parseIgnore(text, options = {}) {
   const rules = [];
   const lines = String(text ?? '').replace(/^\uFEFF/, '').split(/\r?\n/);
   lines.forEach((raw, i) => {
@@ -96,7 +111,9 @@ export function parseIgnore(text) {
       line = line.replace(/\/+$/, '');
     }
     if (!line) return;
-    const anchored = line.startsWith('/') || line.slice(0, -1).includes('/');
+    // in the file for the whole computer only a leading slash anchors a line (to an absolute path); a line with a slash in
+    // the middle, such as `*/docs/.cave-notes`, matches wherever it fits
+    const anchored = line.startsWith('/') || (!options.global && line.slice(0, -1).includes('/'));
     line = line.replace(/^\/+/, '');
     if (!line) return;
     const src = globSource(line);
@@ -106,7 +123,7 @@ export function parseIgnore(text) {
     } catch {
       return; // a pattern that is not valid is skipped
     }
-    rules.push({ line: raw.trim(), number: i + 1, negate, dirOnly, fileOnly, re });
+    rules.push({ line: raw.trim(), number: (options.global ? GLOBAL_BASE : 0) + i + 1, negate, dirOnly, fileOnly, re, ...(options.global ? { global: true } : {}) });
   });
   return rules;
 }
@@ -120,10 +137,11 @@ export function parseIgnore(text) {
  * @param {string} rel   path relative to the root, with `/`
  * @param {boolean} isDir  whether `rel` is a folder
  * @param {Set<string>} [off]  lines (as "folder:number") that are switched off
+ * @param {string} [absPrefix]  where `rel` starts on the disk (`home/me/notes/`), for the lines of the whole-computer file
  * @returns {{ ignored: boolean, by: string | null, reinclude: boolean }}  `by` names the line that ignores it, as "folder:number";
  *   `reinclude` says that some `!` line is in force, so something inside an ignored folder may still be wanted
  */
-export function decide(rulesFor, rel, isDir, off) {
+export function decide(rulesFor, rel, isDir, off, absPrefix = '') {
   const parts = rel.split('/');
   let ignored = false;
   let by = null;
@@ -143,7 +161,7 @@ export function decide(rulesFor, rel, isDir, off) {
         if (r.negate) reinclude = true;
         if (r.dirOnly && !stepIsDir) continue;
         if (r.fileOnly && stepIsDir) continue;
-        if (r.re.test(sub)) {
+        if (r.re.test(r.global ? absPrefix + sub : sub)) {
           hit = `${dirRel}:${r.number}`;
           hitNegated = r.negate;
         }
@@ -169,6 +187,14 @@ export function createIgnore(root, options = {}) {
   const off = options.off ?? new Set();
   const cache = new Map(); // dirRel -> rules | null
   const abs = (dirRel) => (dirRel === '' ? root : path.join(root, ...dirRel.split('/')));
+  const prefix = absPrefixOf(root);
+  // the whole-computer file comes first, so a `.caveignore` in the folder itself can bring back what it ignores
+  const rulesOf = (dirRel) => {
+    const own = cache.get(dirRel) ?? null;
+    if (dirRel !== '') return own;
+    const g = globalRules(options.global);
+    return g.length === 0 ? own : [...g, ...(own ?? [])];
+  };
 
   async function load(dirRel) {
     if (cache.has(dirRel)) return cache.get(dirRel);
@@ -189,7 +215,7 @@ export function createIgnore(root, options = {}) {
     if (!clean) return { ignored: false, by: null, reinclude: false };
     const parts = clean.split('/');
     for (let d = 0; d < parts.length; d++) await load(parts.slice(0, d).join('/'));
-    return decide((dirRel) => cache.get(dirRel) ?? null, clean, isDir, off);
+    return decide(rulesOf, clean, isDir, off, prefix);
   }
 
   return {
@@ -207,6 +233,7 @@ export function createIgnore(root, options = {}) {
     lines: () => {
       const out = new Map();
       for (const [dirRel, rules] of cache) for (const r of rules ?? []) out.set(`${dirRel}:${r.number}`, r.line);
+      for (const r of globalRules(options.global)) out.set(`:${r.number}`, r.line);
       return out;
     },
   };
@@ -217,7 +244,16 @@ export function createIgnoreSync(root, readFileSync, options = {}) {
   const off = options.off ?? new Set();
   const cache = new Map();
   const abs = (dirRel) => (dirRel === '' ? root : path.join(root, ...dirRel.split('/')));
+  const prefix = absPrefixOf(root);
   const load = (dirRel) => {
+    if (dirRel === '') {
+      const own = loadOwn('');
+      const g = globalRules(options.global);
+      return g.length === 0 ? own : [...g, ...(own ?? [])];
+    }
+    return loadOwn(dirRel);
+  };
+  const loadOwn = (dirRel) => {
     if (cache.has(dirRel)) return cache.get(dirRel);
     let rules = null;
     try {
@@ -232,12 +268,12 @@ export function createIgnoreSync(root, readFileSync, options = {}) {
     isIgnored(rel, isDir = false) {
       const clean = String(rel).replace(/^\/+|\/+$/g, '');
       if (!clean) return false;
-      return decide(load, clean, isDir, off).ignored;
+      return decide(load, clean, isDir, off, prefix).ignored;
     },
     skipDir(rel) {
       const clean = String(rel).replace(/^\/+|\/+$/g, '');
       if (!clean) return false;
-      const r = decide(load, clean, true, off);
+      const r = decide(load, clean, true, off, prefix);
       return r.ignored && !r.reinclude;
     },
     reset: () => cache.clear(),

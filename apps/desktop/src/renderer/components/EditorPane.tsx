@@ -9,7 +9,7 @@ import { createCanvasHost } from '../canvas/host';
 import { createEmbedHost } from '../views/embedHost';
 import { ChildrenBar } from './ChildrenBar';
 import { FloatingMenu, MenuItem, StatusPage } from './Overlays';
-import { savedViewTemplate } from '@cave-notes/ui-views';
+import { parseViewSet, savedViewTemplate } from '@cave-notes/ui-views';
 import { stripExt } from '../paths';
 import { Icon, WorkspaceIcon } from './icons';
 
@@ -170,6 +170,12 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       ...(ctl.caps.exportDocuments ? { onExportTable: (format: 'csv' | 'xlsx' | 'ods', table: { head: string[]; rows: string[][] }) => void ctl.exportTable(format, table) } : {}),
       onSave: () => void ctl.flush(),
       onLineChange: () => ctl.onEditorLineChange(),
+      schemaAttributes: () => ctl.facetKeys.value,
+      savedQueryNames: () => ctl.saved.value.queries.map((q) => q.name),
+      viewProblem: (src: string) => {
+        const r = parseViewSet(src);
+        return r.ok ? (r.set.warnings[0] ?? null) : r.error;
+      },
       onBlur: () => ctl.onEditorBlur(),
       spell: ctl.spellHost,
       thesaurus: ctl.thesaurusHost,

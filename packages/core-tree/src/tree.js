@@ -46,7 +46,7 @@ export function openTree(rootDir, options = {}) {
 
   const abs = (rel) => (rel === '' ? root : path.join(root, ...rel.split('/')));
   // `.caveignore` files: what they list is not here (not in the tree, not indexed). Not used in single-file mode.
-  const ignoreRules = only || options.caveIgnore === false ? null : createIgnore(root, { fs: options.fs });
+  const ignoreRules = only || options.caveIgnore === false ? null : createIgnore(root, { fs: options.fs, global: options.globalIgnore });
   const isIgnored = async (rel, isDir) => (ignoreRules ? ignoreRules.isIgnored(rel, isDir) : false);
   const isHiddenStem = (stem) => stem.startsWith('.') || ignore.has(stem.normalize('NFC'));
 

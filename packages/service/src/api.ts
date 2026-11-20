@@ -42,6 +42,20 @@ export type FontKind = 'sans' | 'serif' | 'mono';
 /** A text size in px for each typeface; null means automatic. */
 export type FontSizes = Record<FontKind, number | null>;
 
+/**
+ * How a window starts when a workspace is opened fresh, or pulled into a window of its own for the first time. It never takes the
+ * place of what a window already remembers: a restored session keeps its own sidebars and size. A field that is not there follows
+ * the app.
+ */
+export interface WindowDefaults {
+  /** the page sidebar (left) and the outline sidebar (right): open or closed */
+  left?: boolean;
+  right?: boolean;
+  /** the size of a window of its own, in px */
+  width?: number;
+  height?: number;
+}
+
 /** How a workspace looks (tab colour and icon, page text). Saved in the workspace's .cave-notes folder. */
 export interface WorkspaceAppearance {
   /** accent colour as #rrggbb, or null for none */
@@ -57,6 +71,8 @@ export interface WorkspaceAppearance {
   css?: string;
   /** `presentation-themes:` and `presentation-rules:` of this workspace, as written */
   presentation?: { themes?: Record<string, unknown>; rules?: unknown[] };
+  /** how a window starts for this workspace (`window:`), or null for none */
+  window?: WindowDefaults | null;
 }
 
 export interface WorkspaceInfo {
@@ -375,6 +391,10 @@ export interface AttributeKey {
   /** a list attribute (tags): one row per item */
   list?: boolean;
   values?: string[];
+  /** what the schema declares: string, number, date, bool, enum (a select) or list; only for a declared attribute */
+  schemaType?: string;
+  /** a select's value -> the attributes choosing it sets (`implies` in the schema) */
+  implies?: Record<string, Record<string, unknown>>;
 }
 
 export interface IndexStats {
@@ -445,6 +465,8 @@ export interface WorkerApi {
   applyAppNoteTypes(types: NoteTypes): Promise<void>;
   /** A sub-folder became or stopped being a workspace: look at the folder again. */
   rescan(): Promise<void>;
+  /** A `.caveignore` outside the workspace (the one for the whole computer, or in a folder around it) changed: look at what it hides again. */
+  reloadIgnore(): Promise<void>;
   /** Look for changes made outside the app and update the index; the tree and the pages are not touched. */
   refreshIndex(): Promise<void>;
   /** index these pages first (the ones open in tabs): a few files, quick */
@@ -626,6 +648,8 @@ export interface WindowState {
   activeTab: number;
   /** files given on the command line, to open once the tabs are back */
   files?: string[];
+  /** the window was made for a tab just opened or pulled out of another window: it starts the way the workspace says (not a restored session) */
+  fresh?: boolean;
 }
 
 /** What a folder or file handed to the running app (command line, "open with") opens in. */
@@ -633,6 +657,18 @@ export type ExternalOpen = 'tab' | 'window';
 
 /** The parts of a workspace's YAML that Workspace Preferences edits as text. */
 export type YamlSection = 'attributes' | 'files' | 'queries' | 'relations' | 'schema' | 'automations';
+
+/** One `.caveignore` shown in the settings. */
+export interface IgnoreFileInfo {
+  file: string;
+  folder: string;
+  /** the whole computer (the app's config folder), the workspace shown, or any other folder */
+  scope: 'computer' | 'workspace' | 'folder';
+  exists: boolean;
+  text: string;
+  /** a file in another folder that lies inside the workspace shown */
+  insideWorkspace?: boolean;
+}
 
 export interface Settings {
   theme: 'dark' | 'light';
@@ -677,6 +713,8 @@ export interface Settings {
   exportFormat: 'docx' | 'odt' | 'pdf';
   /** accent colour (#rrggbb) for the tab and title bar of a workspace that has none of its own; null for none */
   defaultAccent: string | null;
+  /** how a window starts for a file opened on its own, and for a workspace with no `window:` of its own */
+  defaultWindow: WindowDefaults | null;
   /** a folder or file opened from outside while Cave Notes is already running: in a new tab of the current window, or in a new window */
   openExternal: ExternalOpen;
   /** workspaces found by looking through the folders below (on top of the ones opened before) */
@@ -687,6 +725,8 @@ export interface Settings {
   scanFolders: string[];
   /** folders (and everything in them) to leave out of that search */
   scanIgnore: string[];
+  /** folders the person chose to keep a `.caveignore` in (besides those found in the workspace and the folders searched for workspaces) */
+  ignoreFolders: string[];
   /** look for workspaces now and then in the background */
   scanAuto: boolean;
   /** the icon each workspace chose, remembered so menus can show it for workspaces that are not open */
@@ -803,6 +843,14 @@ export interface MainApi {
   scanWorkspaces(): Promise<string[]>;
   /** Of these workspaces, the ones a `.caveignore` (or the scan's ignored folders) hides: they are not offered in lists, but still open by path. */
   ignoredWorkspaces(roots: string[]): Promise<string[]>;
+  /** Every `.caveignore` to show in the settings: the whole computer's, the workspace's and those in other folders. */
+  listIgnoreFiles(workspaceRoot: string | null): Promise<IgnoreFileInfo[]>;
+  /** Write a `.caveignore` (made when it is not there), and have open workspaces and the search for workspaces look again. */
+  saveIgnoreFile(file: string, text: string): Promise<void>;
+  /** Delete a `.caveignore`. */
+  deleteIgnoreFile(file: string): Promise<void>;
+  /** Make a `.caveignore` in a folder the person chose (a folder picker is shown when none is given); returns its path, or null when cancelled. */
+  addIgnoreFolder(folder?: string): Promise<string | null>;
   trash(absPaths: string[]): Promise<void>;
   setTitle(title: string): Promise<void>;
   setTheme(theme: 'dark' | 'light'): Promise<void>;
@@ -828,9 +876,9 @@ export interface MainApi {
   /** The text of one log (the end of it, when it is large), or of all of them (`all`). */
   readLog(id: string): Promise<{ id: string; label: string; text: string }>;
   /** Open a new window, optionally showing one tab. */
-  newWindow(tab?: { root: string; path: string | null; single?: boolean } | null): Promise<void>;
+  newWindow(tab?: { root: string; path: string | null; single?: boolean } | null, size?: { width: number; height: number } | null): Promise<void>;
   /** A tab was dragged out of this window and dropped at a screen position: hand it to the Cave Notes window there, or to a new one. */
-  moveTabToWindow(tab: { root: string; path: string | null; single?: boolean }, screenX: number, screenY: number): Promise<void>;
+  moveTabToWindow(tab: { root: string; path: string | null; single?: boolean }, screenX: number, screenY: number, size?: { width: number; height: number } | null): Promise<void>;
   /**
    * The Run button of a code block marked sh, bash, zsh or shell. The first time in a workspace the person is asked whether to run
    * scripts from it (the answer is kept in the app's data folder). The script runs in the page's folder; the answer holds its exit code and output.
@@ -988,11 +1036,11 @@ export interface RawBridge {
 
 export const MAIN_METHODS = [
   'chooseWorkspace', 'getSettings', 'setSettings', 'attachWorkspace', 'detachWorkspace', 'openPath', 'appConfigFolder', 'showInFolder', 'openExternal', 'updateStatus', 'checkForUpdate', 'installUpdate', 'restartApp',
-  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'saveDataFile', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
+  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'listIgnoreFiles', 'saveIgnoreFile', 'deleteIgnoreFile', 'addIgnoreFolder', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'saveDataFile', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [
-  'openWorkspace', 'closeWorkspace', 'prioritizePages', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'evaluateExpression', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
+  'openWorkspace', 'closeWorkspace', 'prioritizePages', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'evaluateExpression', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'reloadIgnore', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
   'planMove', 'applyPlan', 'undoLast', 'lastMove', 'deleteInfo', 'afterDelete', 'pageInfo', 'links', 'backlinks',
   'resolveLink', 'suggestPages', 'findPagePaths', 'getInheritedExportStyles', 'search', 'replaceFind', 'replaceApply', 'attributeKeys', 'attributeValues', 'queryView', 'savedQueries', 'saveQuery', 'setAttribute', 'setFileAttributes', 'moveFile', 'mergeTemplateInto', 'templateAttributes', 'editRelation', 'relationCandidates', 'setPageTitle', 'stats', 'getState', 'setState',
   'absolutePath', 'importFile', 'fileInPage', 'importExternal', 'setSyncOptions', 'mergeConflictCopies', 'historyList', 'historyRead', 'snapshot', 'historyTexts',

@@ -60,6 +60,7 @@ export const SECTIONS = {
   font: 'scalar',
   fontSize: 'scalar',
   fontSizes: 'map',
+  window: 'map',
   styles: 'map',
   css: 'scalar',
   'presentation-themes': 'map',
@@ -78,6 +79,7 @@ export const DEFAULT_FILE = {
   font: 'workspace.yaml',
   fontSize: 'workspace.yaml',
   fontSizes: 'workspace.yaml',
+  window: 'workspace.yaml',
   // what the app makes new always goes into the subfolders: automations in plugins/, export styles in styles/
   styles: 'styles/export-styles.yaml',
   css: 'styles/export-styles.yaml',

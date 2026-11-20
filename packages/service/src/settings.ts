@@ -1,5 +1,5 @@
 import { BUILTIN_STYLES, cleanStyleSet } from '@cave-notes/core-export';
-import type { Settings } from './api';
+import type { Settings, WindowDefaults } from './api';
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark', // dark is the default
@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: Settings = {
   unlistedWorkspaces: [],
   scanFolders: [],
   scanIgnore: [],
+  ignoreFolders: [],
   scanAuto: true,
   noteExts: ['.md'],
   noteCreate: '.md',
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   exportStyle: 'Clean',
   exportFormat: 'docx',
   defaultAccent: null,
+  defaultWindow: null,
   conflictMerge: 'ask',
   automationShell: false,
   automationJs: false,
@@ -66,6 +68,20 @@ export const DEFAULT_SETTINGS: Settings = {
   activeTab: 0,
   windows: [],
 };
+
+/** A window's starting shape from anything saved: only the fields that make sense, or null when there are none. */
+export function cleanWindow(raw: unknown): WindowDefaults | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const out: WindowDefaults = {};
+  if (typeof r.left === 'boolean') out.left = r.left;
+  if (typeof r.right === 'boolean') out.right = r.right;
+  for (const k of ['width', 'height'] as const) {
+    const n = Number(r[k]);
+    if (Number.isFinite(n) && n >= 300 && n <= 10000) out[k] = Math.round(n);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -203,7 +219,7 @@ export function portableSettings(raw: unknown): Partial<Settings> {
   if (typeof r.presenterScreen === 'string') out.presenterScreen = /^(auto|\d{1,12})$/.test(r.presenterScreen) ? r.presenterScreen : 'auto';
   if (typeof r.presenterWindow === 'boolean') out.presenterWindow = r.presenterWindow;
   if (typeof r.tableWordLimit === 'number' && Number.isInteger(r.tableWordLimit) && r.tableWordLimit >= 4 && r.tableWordLimit <= 200) out.tableWordLimit = r.tableWordLimit;
-  for (const k of ['scanFolders', 'scanIgnore'] as const) {
+  for (const k of ['scanFolders', 'scanIgnore', 'ignoreFolders'] as const) {
     if (Array.isArray(r[k])) out[k] = (r[k] as unknown[]).filter((x): x is string => typeof x === 'string' && x.startsWith('/'));
   }
   const nt = cleanNoteTypes(r.noteExts, r.noteCreate);
@@ -211,6 +227,8 @@ export function portableSettings(raw: unknown): Partial<Settings> {
     out.noteExts = nt.exts;
     out.noteCreate = nt.create;
   }
+  if (r.defaultWindow === null) out.defaultWindow = null;
+  else if (r.defaultWindow !== undefined) out.defaultWindow = cleanWindow(r.defaultWindow);
   if (r.defaultAccent === null) out.defaultAccent = null;
   else if (typeof r.defaultAccent === 'string' && HEX.test(r.defaultAccent)) out.defaultAccent = r.defaultAccent.toLowerCase();
   return out;
@@ -252,6 +270,7 @@ export function normalizeSettings(raw: Partial<Settings>): Settings {
   v.presenterWindow = raw.presenterWindow === true;
   v.deviceName = typeof raw.deviceName === 'string' ? raw.deviceName.trim().slice(0, 40) : '';
   if (v.openExternal !== 'tab' && v.openExternal !== 'window') v.openExternal = 'tab';
+  v.defaultWindow = cleanWindow(v.defaultWindow);
   if (typeof v.defaultAccent !== 'string' || !HEX.test(v.defaultAccent)) v.defaultAccent = null;
   if (v.fontStyle !== 'sans' && v.fontStyle !== 'serif') v.fontStyle = (raw as { serifBody?: unknown }).serifBody === true ? 'serif' : 'sans';
   const legacySize = (raw as { fontSize?: unknown }).fontSize;
@@ -264,6 +283,7 @@ export function normalizeSettings(raw: Partial<Settings>): Settings {
   v.unlistedWorkspaces = strs(v.unlistedWorkspaces);
   v.scanFolders = strs(v.scanFolders);
   v.scanIgnore = strs(v.scanIgnore);
+  v.ignoreFolders = strs(v.ignoreFolders);
   for (const k of ['scanAuto', 'showNestedWorkspaces', 'hideBareFolders', 'nestedInNewTab'] as const) if (typeof v[k] !== 'boolean') v[k] = DEFAULT_SETTINGS[k];
   if (v.childrenFilter !== 'notes' && v.childrenFilter !== 'all') v.childrenFilter = 'all';
   if (!Number.isInteger(v.firstDayOfWeek) || v.firstDayOfWeek < 0 || v.firstDayOfWeek > 6) v.firstDayOfWeek = 0;

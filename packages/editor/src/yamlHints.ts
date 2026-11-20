@@ -1,8 +1,41 @@
 import { syntaxTree } from '@codemirror/language';
-import { type EditorState, type Extension, type Range, StateField } from '@codemirror/state';
+import { type EditorState, type Extension, type Range, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView } from '@codemirror/view';
 import YAML from 'yaml';
 import { yamlTokens } from './yamlHighlight';
+import { type LintProblem, lintFrontmatter, lintView } from './yamlLint';
+
+/** What the workspace's schema says about an attribute (from the index's list of attribute names). */
+export interface SchemaHint {
+  key: string;
+  type: string;
+  declared?: boolean;
+  list?: boolean;
+  values?: string[];
+  pages?: number;
+  schemaType?: string;
+  implies?: Record<string, Record<string, unknown>>;
+}
+
+/** Ask the hints to be drawn again (the schema they show changed). */
+export const refreshHints = StateEffect.define<null>();
+
+const TYPE_WORDS: Record<string, string> = { string: 'text', number: 'number', date: 'date', bool: 'yes/no', enum: 'select (one choice)', list: 'list' };
+
+/** The hover text for an attribute the schema declares: what it is and what is known about it. */
+export function schemaTip(a: SchemaHint): string {
+  const kind = a.schemaType ?? a.type;
+  const parts: string[] = [];
+  const what = a.schemaType === 'list' ? (a.values ? 'multi-select list' : `list of ${TYPE_WORDS[a.type] ?? a.type}`) : (TYPE_WORDS[kind] ?? kind);
+  parts.push(`Attribute \u201c${a.key}\u201d: ${what}, declared in the schema.`);
+  if (a.values?.length) parts.push(`Choices: ${a.values.join(', ')}.`);
+  if (a.implies) {
+    const rows = Object.entries(a.implies).map(([v, set]) => `${v} sets ${Object.entries(set).map(([k, x]) => `${k}: ${String(x)}`).join(', ')}`);
+    if (rows.length) parts.push(`Implies \u2014 ${rows.join('; ')}.`);
+  }
+  if (a.pages !== undefined) parts.push(`On ${a.pages} page${a.pages === 1 ? '' : 's'}.`);
+  return parts.join(' ');
+}
 
 /** What the names Cave Notes itself reads in a page's frontmatter mean (shown when the pointer rests on one). */
 export const RESERVED_FRONTMATTER: Record<string, string> = {
@@ -18,6 +51,8 @@ export const RESERVED_FRONTMATTER: Record<string, string> = {
   files: 'Attributes for the files of this page\u2019s folder that are not notes.',
   defaults: 'Where a children: block starts from: default (the workspace\u2019s values), inherit (also this page\u2019s own) or none (a blank slate).',
   inheritance: 'children: reaches only the next level down instead of every level.',
+  indicatorText: 'Text that puts a dot at the right edge of this page\u2019s row in the page tree (hover the dot to read it; a rule can set it). Dismiss in the dot\u2019s popup removes this line.',
+  ignoreIndicators: 'true: this page never shows an indicator dot, whatever sets indicatorText. Right-click the page: Show Indicators Again.',
 };
 
 /** What the values `default`, `inherit` and `none` mean when they stand where an attribute\u2019s value goes. */
@@ -48,12 +83,14 @@ export const RESERVED_VIEW: Record<string, string> = {
   color: 'A colour rule\u2019s colour: a name (red, orange, yellow, green, blue, purple, brown, gray) or #rrggbb.',
   colors: 'Colour rules: the first whose query matches a page colours its row.',
   relationFiles: 'link or skip: what a relation column does with a page or file that cannot name this page back (a file that is not a note). link links it from this side only; skip leaves it out. Without it you are asked.',
+  open: 'true makes this the view shown first, when a block has several.',
   noDuplicateWarning: 'true creates a page whose name is taken without asking first (its file gets .1, .2 \u2026).',
 };
 
 /** The explanation of a frontmatter name (names are not case-sensitive), or undefined. */
+const FRONTMATTER_LOWER = new Map(Object.entries(RESERVED_FRONTMATTER).map(([k, v]) => [k.toLowerCase(), v]));
 export function reservedFrontmatter(name: string): string | undefined {
-  return RESERVED_FRONTMATTER[name] ?? RESERVED_FRONTMATTER[name.toLowerCase()];
+  return RESERVED_FRONTMATTER[name] ?? FRONTMATTER_LOWER.get(name.toLowerCase());
 }
 
 /** The first problem in a piece of YAML, or null when it reads fine (an empty block is fine). */
@@ -77,7 +114,7 @@ export function frontmatterBody(text: string): string {
 
 const KEY = /^(\s*)(- +)?([A-Za-z_][\w.-]*)(\s*:)(\s*)(.*)$/;
 
-function addHints(state: EditorState, out: Array<Range<Decoration>>, from: number, to: number, kind: 'frontmatter' | 'view', bodyFrom: number, bodyTo: number): void {
+function addHints(state: EditorState, out: Array<Range<Decoration>>, from: number, to: number, kind: 'frontmatter' | 'view', bodyFrom: number, bodyTo: number, schema: Map<string, SchemaHint>): void {
   const doc = state.doc;
   const names: Record<string, string> = kind === 'frontmatter' ? new Proxy(RESERVED_FRONTMATTER, { get: (t, k) => (typeof k === 'string' ? reservedFrontmatter(k) : undefined) }) : RESERVED_VIEW;
   // whether we are inside a nested block, so only the names that nest (defaults, inheritance) count there
@@ -106,6 +143,11 @@ function addHints(state: EditorState, out: Array<Range<Decoration>>, from: numbe
     if (kind === 'view' && key === 'when') nested = false;
     const tip = names[key] && (kind === 'view' ? !nested || key === 'when' : !nested || key === 'defaults' || key === 'inheritance') ? names[key] : undefined;
     if (tip) out.push(Decoration.mark({ class: 'cm-yaml-reserved', attributes: { title: tip } }).range(keyFrom, keyFrom + key.length));
+    else if (kind === 'frontmatter' && !names[key]) {
+      // an attribute the schema declares: in another colour, with what the schema says about it
+      const a = schema.get(key.toLowerCase());
+      if (a) out.push(Decoration.mark({ class: 'cm-yaml-schema', attributes: { title: schemaTip(a) } }).range(keyFrom, keyFrom + key.length));
+    }
     const v = value.replace(/\s+#.*$/, '').trim();
     if (kind === 'frontmatter' && v in RESERVED_VALUES && key !== 'defaults') {
       const vFrom = line.from + m[0].length - value.length;
@@ -125,9 +167,30 @@ function addColours(state: EditorState, out: Array<Range<Decoration>>, from: num
   for (const t of yamlTokens(state.doc.sliceString(from, to))) out.push(Decoration.mark({ class: `cm-y-${t.cls}` }).range(from + t.from, from + t.to));
 }
 
-function build(state: EditorState): DecorationSet {
+/** What the linter needs from outside: the names of saved queries, and a check of a whole view block by the view code itself. */
+export interface YamlLintHost {
+  savedQueries?: () => string[];
+  /** a problem the views' own reader finds in the block's text (shown when the YAML itself is fine), or null */
+  viewProblem?: (source: string) => string | null;
+}
+
+function build(state: EditorState, getSchema?: () => SchemaHint[], lint?: YamlLintHost): DecorationSet {
+  const schema = new Map<string, SchemaHint>();
+  for (const a of getSchema?.() ?? []) if (a.declared) schema.set(a.key.toLowerCase(), a);
   const out: Array<Range<Decoration>> = [];
   const doc = state.doc;
+  /** Underline what the linter found, from the line of the YAML where the block's text starts. */
+  const lintMarks = (problems: LintProblem[], firstLine: number): void => {
+    for (const p of problems) {
+      const n = firstLine + p.line;
+      if (n > doc.lines) continue;
+      const line = doc.line(n);
+      const from = Math.min(line.from + p.from, line.to);
+      const to = Math.max(from + 1, Math.min(line.from + p.to, line.to));
+      if (to > line.to && from >= line.to) continue;
+      out.push(Decoration.mark({ class: `cm-yaml-lint cm-yaml-lint-${p.severity}`, attributes: { title: p.message } }).range(from, Math.min(to, line.to)));
+    }
+  };
   const flag = (from: number, to: number, problem: string): void => {
     const a = doc.lineAt(from).number;
     const b = doc.lineAt(Math.max(from, to - 1)).number;
@@ -143,10 +206,11 @@ function build(state: EditorState): DecorationSet {
         const body = frontmatterBody(text);
         const problem = yamlProblem(body);
         if (problem) flag(ref.from, ref.to, problem);
+        else lintMarks(lintFrontmatter(body, schema), doc.lineAt(ref.from).number + 1);
         const first = doc.lineAt(ref.from);
         const last = doc.lineAt(Math.max(ref.from, ref.to - 1));
         const closed = last.number > first.number && /^(---|\.\.\.)\s*$/.test(last.text);
-        addHints(state, out, ref.from, ref.to, 'frontmatter', Math.min(first.to + 1, ref.to), closed ? last.from : ref.to);
+        addHints(state, out, ref.from, ref.to, 'frontmatter', Math.min(first.to + 1, ref.to), closed ? last.from : ref.to, schema);
         addColours(state, out, Math.min(first.to + 1, ref.to), closed ? last.from : ref.to);
         return false;
       }
@@ -161,9 +225,15 @@ function build(state: EditorState): DecorationSet {
         const innerTo = closed ? last.from : ref.to;
         addColours(state, out, innerFrom, innerTo);
         if (lang !== 'view') return false;
-        const problem = yamlProblem(doc.sliceString(innerFrom, innerTo), true);
+        const viewText = doc.sliceString(innerFrom, innerTo);
+        const problem = yamlProblem(viewText, true);
         if (problem) flag(ref.from, ref.to, problem);
-        addHints(state, out, ref.from, ref.to, 'view', innerFrom, innerTo);
+        else {
+          lintMarks(lintView(viewText, { savedQueries: lint?.savedQueries?.() ?? [] }), first.number + 1);
+          const other = lint?.viewProblem?.(viewText);
+          if (other) out.push(Decoration.mark({ class: 'cm-yaml-lint cm-yaml-lint-error', attributes: { title: other } }).range(first.from, first.to));
+        }
+        addHints(state, out, ref.from, ref.to, 'view', innerFrom, innerTo, schema);
         return false;
       }
       return undefined;
@@ -177,10 +247,10 @@ function build(state: EditorState): DecorationSet {
  * "Invalid YAML" tag in the bottom right corner (drawn over the block, so nothing moves while you type), and the
  * names and values Cave Notes itself reads are styled and explain themselves when the pointer rests on them.
  */
-export function yamlHints(): Extension {
+export function yamlHints(getSchema?: () => SchemaHint[], lint?: YamlLintHost): Extension {
   return StateField.define<DecorationSet>({
-    create: build,
-    update: (value, tr) => (tr.docChanged ? build(tr.state) : value),
+    create: (state) => build(state, getSchema, lint),
+    update: (value, tr) => (tr.docChanged || tr.effects.some((e) => e.is(refreshHints)) ? build(tr.state, getSchema, lint) : value),
     provide: (f) => EditorView.decorations.from(f),
   });
 }

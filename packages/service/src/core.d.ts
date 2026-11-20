@@ -34,14 +34,14 @@ declare module '@cave-notes/core-tree' {
   export interface IgnoreRule { line: string; number: number; negate: boolean; dirOnly: boolean; re: RegExp }
   export function parseIgnore(text: string): IgnoreRule[];
   export function decideIgnore(rulesFor: (dirRel: string) => IgnoreRule[] | null, rel: string, isDir: boolean, off?: Set<string>): { ignored: boolean; by: string | null; reinclude: boolean };
-  export function createIgnore(root: string, options?: { off?: Set<string>; fs?: Record<string, unknown> }): {
+  export function createIgnore(root: string, options?: { off?: Set<string>; fs?: Record<string, unknown>; global?: () => string | null }): {
     isIgnored(rel: string, isDir?: boolean): Promise<boolean>;
     check(rel: string, isDir?: boolean): Promise<{ ignored: boolean; by: string | null; reinclude: boolean }>;
     skipDir(rel: string): Promise<boolean>;
     reset(): void;
     lines(): Map<string, string>;
   };
-  export function createIgnoreSync(root: string, readFileSync: (file: string, enc: 'utf8') => string, options?: { off?: Set<string> }): { isIgnored(rel: string, isDir?: boolean): boolean; skipDir(rel: string): boolean; reset(): void };
+  export function createIgnoreSync(root: string, readFileSync: (file: string, enc: 'utf8') => string, options?: { off?: Set<string>; global?: () => string | null }): { isIgnored(rel: string, isDir?: boolean): boolean; skipDir(rel: string): boolean; reset(): void };
   export function configureNotes(o: { exts?: string[]; defaultExt?: string }): void;
   export function noteExtensions(): string[];
   export function defaultNoteExt(): string;
