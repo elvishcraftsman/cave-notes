@@ -34,3 +34,10 @@ body {
 .toast:not(:last-child) { display: none; }
 .toast-action { padding: 2px 8px; font-size: 12.5px; }
 .toast-close { width: 22px; height: 22px; flex: none; }
+
+/* the top bar's text half as big again as it was on a touch screen (1.25em and 15px before) */
+@media (pointer: coarse) {
+  .headerbar { height: 64px; }
+  .headerbar .tab-title, .headerbar .hb-title .title { font-size: 1.875em; line-height: 1.15; }
+  .headerbar .hb-title .subtitle { font-size: 22px; line-height: 1.15; }
+}

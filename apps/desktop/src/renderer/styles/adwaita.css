@@ -216,7 +216,7 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
 .outline-item.active { background: var(--selected-bg); box-shadow: inset 3px 0 0 var(--accent-bg); }
 .outline-text { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outline-text.level-1 { font-weight: 700; }
-.outline-text.level-2 { font-weight: 600; }
+.outline-text.level-2 { font-weight: 400; }
 .outline-text.level-3, .outline-text.level-4 { color: var(--dim-fg); }
 /* numbered-list items: lighter than any heading */
 .outline-text.list { color: var(--dim-fg); opacity: 0.8; font-size: 0.92em; }
@@ -1335,3 +1335,7 @@ body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 .window-sizes { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .window-size { display: flex; align-items: center; gap: 6px; }
 .window-size input { width: 5.5rem; }
+
+/* the way back to the page sidebar when it is closed (a wide window) */
+.editor-menu-button { position: absolute; top: 6px; left: 6px; z-index: 5; opacity: .55; background: color-mix(in srgb, var(--view-bg) 80%, transparent); border-radius: 8px; }
+.editor-menu-button:hover, .editor-menu-button:focus-visible { opacity: 1; }

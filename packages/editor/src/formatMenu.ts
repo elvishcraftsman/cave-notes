@@ -552,6 +552,7 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
 
   if (dock) menu.classList.add('cm-format-dock');
   document.body.appendChild(menu);
+  if (dock) dockHeight = menu.offsetHeight;
   if (previous) {
     previous.close();
     open = null;
@@ -686,9 +687,40 @@ export function showFormatMenu(view: EditorView, x: number, y: number, spelling?
   };
   // the docked menu lies over the bottom of the window: the page keeps that much room below its last line
   if (dock) document.documentElement.style.setProperty('--dock-h', `${menu.offsetHeight}px`);
+  // the menu can come up after the cursor was scrolled into view (the first tap in the text): lift the line above it, once
+  if (dock && view.hasFocus) requestAnimationFrame(() => view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main.head, { y: 'nearest', yMargin: 8 }) }));
 }
 
 let savedViewsHost: (() => Array<{ label: string; template: string }>) | null = null;
+
+/** One thing the menu can do, for the slash menu: the same items, by name. */
+export interface FormatItem {
+  label: string;
+  /** a hint shown beside it: the shortcut, or how the result looks */
+  detail: string;
+  run: (view: EditorView) => void;
+}
+
+/** Every item of the selection menu, in the order of the menu. */
+export function formatItems(): FormatItem[] {
+  const items: FormatItem[] = [];
+  const tool = (t: Tool): void => void items.push({ label: t.label, detail: t.hint ?? '', run: (v) => (t.action ? t.action(v) : t.inline ? toggleInline(v, t.inline) : toggleBlock(v, t.block!)) });
+  for (const t of INLINE) tool(t);
+  for (const h of HEADINGS) items.push({ label: h.label, detail: h.sample, run: (v) => toggleBlock(v, h.block) });
+  tool(QUOTE);
+  tool(CODEBLOCK);
+  for (const b of BULLET_VARIANTS) items.push({ label: `${b.label} list`, detail: b.sample, run: (v) => toggleBlock(v, b.block) });
+  for (const n of NUMBER_VARIANTS) items.push({ label: `${n.label} list`, detail: n.sample, run: (v) => toggleBlock(v, n.block) });
+  tool(TASKS);
+  items.push({ label: 'Outdent list item', detail: '', run: (v) => void outdentListItems(v) });
+  items.push({ label: 'Indent list item', detail: '', run: (v) => void indentListItems(v) });
+  items.push({ label: 'Table', detail: '2 \u00d7 2', run: (v) => void insertTable(v) });
+  items.push({ label: 'Database view', detail: 'Ctrl+Alt+V', run: (v) => void insertViewBlock(v) });
+  for (const q of savedViewsHost ? savedViewsHost().slice(0, 30) : []) items.push({ label: `View: ${q.label}`, detail: 'saved query', run: (v) => void insertViewBlock(v, q.template) });
+  items.push({ label: 'Select all text', detail: '', run: (v) => void selectAllAsText(v) });
+  items.push({ label: 'Select all as HTML', detail: '', run: (v) => void selectAllAsHtml(v) });
+  return items;
+}
 
 export interface FormatMenuOptions {
   /** Also show the menu when the mouse is released with text selected (default true). */
@@ -705,6 +737,9 @@ export interface FormatMenuOptions {
  * Right-click (and, optionally, selecting text with the mouse) opens the menu. On a touch screen a long press is left to the
  * system, which selects the word; the menu then appears along the bottom edge once a selection has settled.
  */
+/** How tall the docked menu was when it was last shown: while the editor is being typed in, the text stays above that much, even in the moment the menu is made again. */
+let dockHeight = 0;
+
 export function formatMenu(options: FormatMenuOptions = {}): Extension {
   savedViewsHost = options.savedViews ?? null;
   /** what the last pointer in the editor was: 'mouse', 'pen' or 'touch' */
@@ -770,7 +805,10 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
         // A tap in the text can lose the focus for a moment and give it back at once. Taking the menu away then, and putting it
         // back, made it blink and sometimes land over the line being edited: only a focus that stays lost takes it away.
         settle = setTimeout(() => {
-          if (!view.hasFocus && open?.dock) closeFormatMenu();
+          if (!view.hasFocus && open?.dock) {
+            dockHeight = 0;
+            closeFormatMenu();
+          }
         }, 500);
         return;
       }
@@ -807,6 +845,6 @@ export function formatMenu(options: FormatMenuOptions = {}): Extension {
       }, 350);
     }),
     // keep the line being edited above the docked menu
-    EditorView.scrollMargins.of(() => (open?.dock ? { bottom: open.el.offsetHeight } : null)),
+    EditorView.scrollMargins.of((view) => (open?.dock ? { bottom: open.el.offsetHeight } : dockHeight > 0 && view.hasFocus ? { bottom: dockHeight } : null)),
   ];
 }

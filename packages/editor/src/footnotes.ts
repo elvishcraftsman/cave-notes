@@ -1,4 +1,4 @@
-import { ChangeSet, EditorSelection, EditorState, Prec, StateField, type ChangeSpec, type Extension, type Text } from '@codemirror/state';
+import { Annotation, ChangeSet, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type ChangeSpec, type Extension, type Text } from '@codemirror/state';
 import { EditorView, ViewPlugin, WidgetType, keymap, type Command } from '@codemirror/view';
 
 /**
@@ -407,18 +407,113 @@ const hasNotes = StateField.define<boolean>({
   },
 });
 
+/** What was left behind when a footnote's reference or its text was deleted: the other one may be deleted too. */
+export interface FootnoteOrphan {
+  /** `text`: the reference was deleted and its footnote is still on the page; `marker`: the footnote was deleted and a reference to it is still in the text */
+  kind: 'text' | 'marker';
+  label: string;
+  /** the start of the footnote's text, for the question to ask */
+  preview: string;
+  /** Delete what is left (one undo step of its own). */
+  remove: () => void;
+}
+
+interface OrphanNote {
+  kind: 'text' | 'marker';
+  label: string;
+  preview: string;
+}
+
+const orphaned = StateEffect.define<OrphanNote>();
+/** Marks the deleting we do ourselves, which is not asked about again. */
+const cleanup = Annotation.define<boolean>();
+
+/** Edits of the person's own that can delete a reference or a footnote (not undo, redo or what we do ourselves). */
+const deletes = (tr: Transaction): boolean => !tr.annotation(cleanup) && !tr.isUserEvent('undo') && !tr.isUserEvent('redo') && (tr.isUserEvent('delete') || tr.isUserEvent('input') || tr.isUserEvent('move'));
+
+/**
+ * A reference that was deleted while its footnote is still there, or a footnote deleted while a reference still points at it.
+ * A label that was only typed over is not that: the number of references (or of footnotes) must have gone down.
+ */
+function orphansOf(oldDoc: Text, newText: string, oldScan: FootnoteScan): OrphanNote[] {
+  const nw = scanFootnotes(newText);
+  const out: OrphanNote[] = [];
+  if (nw.refs.length < oldScan.refs.length) {
+    for (const d of oldScan.defs) {
+      const hadRef = oldScan.refs.some((r) => r.label === d.label);
+      const stillRef = nw.refs.some((r) => r.label === d.label);
+      const stillDef = nw.defs.some((x) => x.label === d.label);
+      if (hadRef && !stillRef && stillDef) out.push({ kind: 'text', label: d.label, preview: footnoteText(oldDoc, d).slice(0, 80) });
+    }
+  }
+  if (nw.defs.length < oldScan.defs.length) {
+    for (const r of oldScan.refs) {
+      const hadDef = oldScan.defs.some((d) => d.label === r.label);
+      const stillDef = nw.defs.some((d) => d.label === r.label);
+      const stillRef = nw.refs.some((x) => x.label === r.label);
+      if (hadDef && !stillDef && stillRef && !out.some((o) => o.kind === 'marker' && o.label === r.label)) out.push({ kind: 'marker', label: r.label, preview: '' });
+    }
+  }
+  return out;
+}
+
 const orderKeeper = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged || !tr.state.field(hasNotes, false)) return tr;
-  const fix = footnoteFixes(tr.newDoc.toString());
-  if (!fix) return tr;
-  const head = tr.newSelection.main;
-  const spec = {
-    changes: fix.changes as ChangeSpec[],
-    sequential: true,
-    selection: EditorSelection.single(fix.mapPos(head.anchor), fix.mapPos(head.head)),
-  };
+  const newText = tr.newDoc.toString();
+  const notes = deletes(tr) && tr.state.doc.length > 0 ? orphansOf(tr.startState.doc, newText, footnoteScanOf(tr.startState.doc)) : [];
+  const fix = footnoteFixes(newText);
+  if (!fix && notes.length === 0) return tr;
+  const spec: Record<string, unknown> = { sequential: true };
+  if (fix) {
+    const head = tr.newSelection.main;
+    spec.changes = fix.changes as ChangeSpec[];
+    spec.selection = EditorSelection.single(fix.mapPos(head.anchor), fix.mapPos(head.head));
+  }
+  if (notes.length > 0) spec.effects = notes.map((n) => orphaned.of(n));
   return [tr, spec];
 });
+
+/** Delete the footnote that has no reference now (the one called `label`, or the only one). */
+function removeOrphanText(view: EditorView, label: string): void {
+  const scan = footnoteScanOf(view.state.doc);
+  const lone = scan.defs.filter((d) => !scan.refs.some((r) => r.label === d.label));
+  const def = lone.find((d) => d.label === label) ?? (lone.length === 1 ? lone[0] : undefined);
+  if (!def) return;
+  const doc = view.state.doc;
+  const first = doc.lineAt(def.from);
+  const last = doc.lineAt(def.to);
+  // take a blank line with it, so no gap is left behind
+  let from = first.from;
+  let to = last.to < doc.length ? last.to + 1 : last.to;
+  if (to < doc.length && doc.lineAt(to).text.trim() === '') to = Math.min(doc.length, doc.lineAt(to).to + 1);
+  else if (to >= doc.length && from > 0) from = Math.max(0, from - 1);
+  view.dispatch({ changes: { from, to }, annotations: cleanup.of(true), userEvent: 'delete' });
+}
+
+/** Delete the references that point at a footnote that is gone. */
+function removeOrphanMarkers(view: EditorView, label: string): void {
+  const scan = footnoteScanOf(view.state.doc);
+  const lone = scan.refs.filter((r) => !scan.defs.some((d) => d.label === r.label));
+  const mine = lone.filter((r) => r.label === label);
+  const refs = mine.length > 0 ? mine : lone;
+  if (refs.length === 0) return;
+  view.dispatch({ changes: refs.map((r) => ({ from: r.from, to: r.to })), annotations: cleanup.of(true), userEvent: 'delete' });
+}
+
+/** Tells the host about what a deletion left behind, once the edit is done. */
+function orphanWatcher(host: (o: FootnoteOrphan) => void): Extension {
+  return EditorView.updateListener.of((u) => {
+    for (const tr of u.transactions) {
+      for (const e of tr.effects) {
+        if (!e.is(orphaned)) continue;
+        const n = e.value;
+        const view = u.view;
+        // after the update, so that the question is asked about the page as it is now
+        queueMicrotask(() => host({ ...n, remove: () => (n.kind === 'text' ? removeOrphanText(view, n.label) : removeOrphanMarkers(view, n.label)) }));
+      }
+    }
+  });
+}
 
 /** Put the footnotes of a document in order; the changes to make, or [] if they are. For a document just opened. */
 export function openingFixes(doc: string): Array<{ from: number; to: number; insert: string }> {
@@ -606,7 +701,7 @@ function installCss(): void {
 }
 
 /** Footnotes for the editor: order keeping, the insert command and the hover card (the drawing is in live preview). */
-export function footnotes(): Extension {
+export function footnotes(onOrphan?: (o: FootnoteOrphan) => void): Extension {
   installCss();
-  return [hasNotes, orderKeeper, hoverCard, Prec.high(keymap.of([{ key: 'Mod-Alt-f', run: insertFootnote }]))];
+  return [hasNotes, orderKeeper, hoverCard, ...(onOrphan ? [orphanWatcher(onOrphan)] : []), Prec.high(keymap.of([{ key: 'Mod-Alt-f', run: insertFootnote }]))];
 }

@@ -165,6 +165,8 @@ Grace is a gift.[^1] It is not earned.[^note]
 
 - The mark is drawn as a small raised number. **Click** it to go to the footnote; click the number in front of the footnote to come back. **Hover** the mark to read the whole footnote in a box (it scrolls when it is long).
 - Footnotes are **numbered by where they are first used**. When you add, move or delete a mark, the numbers and the footnotes below are put in order for you, in the same step as your edit (one Ctrl+Z undoes both). A page whose footnotes are out of order is put in order when you open it.
+- **Deleting one half.** If you delete a mark and its footnote is still on the page (or delete a footnote while a mark still points at it), you are asked whether to delete the other one too. Cancel keeps it. Retyping a name or number, deleting both together, and Undo do not ask.
+- The written `[^1]:` in front of a footnote shows only when the cursor is against it or in it, not for a cursor elsewhere in the footnote's line.
 - Numbered labels are rewritten. A named label (`[^note]`) keeps its name and takes its place in the order.
 - A mark with no footnote, or a footnote that nothing refers to, is left alone and not counted, so a half-written footnote is not rewritten while you type.
 - **Ctrl+Alt+F** adds a mark at the cursor and an empty footnote at the end of the page, with the cursor in it.

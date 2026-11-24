@@ -12,6 +12,7 @@ import { FloatingMenu, MenuItem, StatusPage } from './Overlays';
 import { parseViewSet, savedViewTemplate } from '@cave-notes/ui-views';
 import { stripExt } from '../paths';
 import { Icon, WorkspaceIcon } from './icons';
+import { narrow } from '../layout';
 
 /** Where an attribute comes from, in words. */
 function originLabel(o: AttributeSource['source']): string {
@@ -172,6 +173,8 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       onLineChange: () => ctl.onEditorLineChange(),
       schemaAttributes: () => ctl.facetKeys.value,
       savedQueryNames: () => ctl.saved.value.queries.map((q) => q.name),
+      onFootnoteOrphan: (o) => void ctl.askOrphanFootnote(o),
+      slashMenu: !ctl.caps.softKeyboard,
       viewProblem: (src: string) => {
         const r = parseViewSet(src);
         return r.ok ? (r.set.warnings[0] ?? null) : r.error;
@@ -285,6 +288,11 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
 
   return (
     <div class={`editor-pane ${showEditor && cur?.exists ? 'has-attributes' : ''} ${showEditor && ctl.automationHits.value.hits.length > 0 && ctl.automationHits.value.path === cur?.path ? 'has-automation' : ''} ${showEditor && ctl.children.value.length > 0 ? 'has-children' : ''} ${ctl.settings.value.childrenDocked ? 'bar-docked' : ''} ${ctl.typingMode() ? 'typing' : ''} ${cur && !cur.exists ? 'no-page' : ''}`}>
+      {!narrow.value && !!ctl.workspace.value && !ctl.activeSingle.value && !ctl.settings.value.showLeft && (
+        <button class="icon-button editor-menu-button" title="Show the page sidebar (F9)" aria-label="Show the page sidebar" onClick={() => ctl.toggleLeft()}>
+          <Icon name="menu" />
+        </button>
+      )}
       {ctl.pagesLoading.value > 0 && (
         <div class="page-spinner" role="status" aria-label="Opening the page">
           <svg class="busy-ring indeterminate" width="36" height="36" viewBox="0 0 56 56" aria-hidden="true">

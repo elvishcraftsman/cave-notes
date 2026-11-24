@@ -232,6 +232,35 @@ export function sortedRowOrder(rows: string[][], col: number, dir: 'asc' | 'desc
 }
 
 /** Sort a table's body rows by a column (the header stays first); the heights of the rows go with their rows. */
+/** Move a body row (grid row `from`, 1 or more: the header stays first) so that it ends up as grid row `to`. */
+export function moveRowIn(m: TableModel, from: number, to: number): void {
+  const last = m.rows.length;
+  if (from < 1 || from > last || to < 1 || to > last || from === to) return;
+  const [row] = m.rows.splice(from - 1, 1);
+  m.rows.splice(to - 1, 0, row!);
+  const [h] = m.heights.splice(from, 1);
+  m.heights.splice(to, 0, h ?? null);
+}
+
+/** Move a column so that it ends up as column `to`, with its width, alignment and header. */
+export function moveColIn(m: TableModel, from: number, to: number): void {
+  const n = m.head.length;
+  if (from < 0 || from >= n || to < 0 || to >= n || from === to) return;
+  const shift = <T,>(a: T[]): void => {
+    const [x] = a.splice(from, 1);
+    a.splice(to, 0, x as T);
+  };
+  shift(m.head);
+  shift(m.align);
+  shift(m.widths);
+  for (const row of m.rows) shift(row);
+}
+
+/** Where a dragged row or column ends up when it is dropped into the gap before item `gap` (0 to n): its index afterwards. */
+export function dropIndex(from: number, gap: number): number {
+  return gap > from ? gap - 1 : gap;
+}
+
 export function sortTable(m: TableModel, col: number, dir: 'asc' | 'desc'): void {
   const order = sortedRowOrder(m.rows, col, dir);
   const rows = order.map((i) => m.rows[i]!);
@@ -492,17 +521,94 @@ class TableEditor {
     return b;
   }
 
-  private gripButton(title: string, run: () => void): HTMLButtonElement {
-    const b = this.button('cm-table-grip', '', title, run);
+  /** Set when a grip was just dragged, so that the click that ends the drag does not open the menu as well. */
+  private dragged = false;
+
+  private gripButton(title: string, run: () => void, drag?: { kind: 'row' | 'col'; index: number }): HTMLButtonElement {
+    const b = this.button('cm-table-grip', '', title, () => {
+      if (this.dragged) {
+        this.dragged = false;
+        return;
+      }
+      run();
+    });
     b.textContent = '\u22EE\u22EE';
+    if (drag) this.wireDrag(b, drag.kind, drag.index);
     return b;
+  }
+
+  /** The gap (0 to n) before which a row or column dragged to this pointer position would be dropped. */
+  private gapAt(kind: 'row' | 'col', ev: PointerEvent): number {
+    const n = kind === 'row' ? this.nRows : this.nCols;
+    const min = kind === 'row' ? 1 : 0; // the header row stays first
+    let gap = n;
+    for (let i = min; i < n; i++) {
+      const el = kind === 'row' ? this.rowEl(i) : this.table.querySelector<HTMLElement>(`th[data-c="${i}"]`);
+      const rect = el?.getBoundingClientRect();
+      if (!rect) continue;
+      const mid = kind === 'row' ? rect.top + rect.height / 2 : rect.left + rect.width / 2;
+      if ((kind === 'row' ? ev.clientY : ev.clientX) < mid) {
+        gap = i;
+        break;
+      }
+    }
+    return gap;
+  }
+
+  /** Show where a drop would go: a line before the cells of the gap (or after the last ones). */
+  private showDrop(kind: 'row' | 'col', gap: number | null): void {
+    for (const el of this.table.querySelectorAll('.cm-drop-row-before, .cm-drop-row-after, .cm-drop-col-before, .cm-drop-col-after')) el.classList.remove('cm-drop-row-before', 'cm-drop-row-after', 'cm-drop-col-before', 'cm-drop-col-after');
+    if (gap === null) return;
+    const n = kind === 'row' ? this.nRows : this.nCols;
+    const at = Math.min(gap, n - 1);
+    const cells = kind === 'row' ? Array.from(this.rowEl(at)?.querySelectorAll<HTMLElement>('td, th.cm-table-cell') ?? []) : Array.from(this.table.querySelectorAll<HTMLElement>(`[data-c="${at}"]`));
+    const cls = (kind === 'row' ? 'cm-drop-row-' : 'cm-drop-col-') + (gap >= n ? 'after' : 'before');
+    for (const el of cells) el.classList.add(cls);
+  }
+
+  /** Drag a grip to move its row or column; a click that does not move still opens the menu. */
+  private wireDrag(b: HTMLButtonElement, kind: 'row' | 'col', index: number): void {
+    if (kind === 'row' && index === 0) return; // the header row stays first
+    b.style.touchAction = 'none';
+    b.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const x0 = e.clientX;
+      const y0 = e.clientY;
+      let moving = false;
+      let gap: number | null = null;
+      b.setPointerCapture(e.pointerId);
+      const move = (ev: PointerEvent): void => {
+        if (!moving && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+        moving = true;
+        b.classList.add('cm-grip-dragging');
+        gap = this.gapAt(kind, ev);
+        this.showDrop(kind, dropIndex(index, gap) === index ? null : gap);
+      };
+      const end = (ev: PointerEvent): void => {
+        b.removeEventListener('pointermove', move);
+        b.removeEventListener('pointerup', end);
+        b.removeEventListener('pointercancel', end);
+        b.classList.remove('cm-grip-dragging');
+        this.showDrop(kind, null);
+        if (!moving) return;
+        this.dragged = true; // the click that follows is the end of the drag
+        setTimeout(() => (this.dragged = false), 0);
+        if (ev.type === 'pointercancel' || gap === null) return;
+        const to = dropIndex(index, gap);
+        if (to === index) return;
+        this.mutate(() => (kind === 'row' ? moveRowIn(this.model, index, to) : moveColIn(this.model, index, to)), kind === 'row' ? { row: to, col: 0 } : { row: 0, col: to });
+      };
+      b.addEventListener('pointermove', move);
+      b.addEventListener('pointerup', end);
+      b.addEventListener('pointercancel', end);
+    });
   }
 
   private colGrip(c: number): HTMLElement {
     const th = document.createElement('th');
     th.className = 'cm-col-grip';
     th.dataset.grip = 'col';
-    th.append(this.gripButton(`Column ${c + 1}: select, insert, delete`, () => this.gripClick(th, 'col', c)));
+    th.append(this.gripButton(`Column ${c + 1}: select, insert, delete (drag to move)`, () => this.gripClick(th, 'col', c), { kind: 'col', index: c }));
     th.append(this.resizer('col', c));
     return th;
   }
@@ -511,7 +617,7 @@ class TableEditor {
     const th = document.createElement('th');
     th.className = 'cm-row-grip';
     th.dataset.grip = 'row';
-    th.append(this.gripButton(`Row ${r + 1}: select, insert, delete`, () => this.gripClick(th, 'row', r)));
+    th.append(this.gripButton(r === 0 ? `Row ${r + 1}: select, insert, delete` : `Row ${r + 1}: select, insert, delete (drag to move)`, () => this.gripClick(th, 'row', r), { kind: 'row', index: r }));
     th.append(this.resizer('row', r));
     return th;
   }

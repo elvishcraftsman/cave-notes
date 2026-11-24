@@ -517,7 +517,8 @@ export function computeDecorations(
       const n = shown.def.get(d.label);
       if (n === undefined || seen.has(d.label)) continue; // not in use: stays as it is written
       seen.add(d.label);
-      if (activeLine(d.from)) add(mark('cm-footnote-raw'), d.labelFrom - 2, d.bodyFrom);
+      // the written `[^1]:` shows only when the cursor is against it or in it, not for a cursor elsewhere in the line
+      if (touches(d.from, d.bodyFrom)) add(mark('cm-footnote-raw'), d.labelFrom - 2, d.bodyFrom);
       else add(Decoration.replace({ widget: new FootnoteDefWidget(d.label, n) }), d.from, d.bodyFrom);
     }
   }

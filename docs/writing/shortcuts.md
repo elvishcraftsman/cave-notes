@@ -85,3 +85,5 @@ In the app: the main menu's **Help** (or `Ctrl+/`, or `F1`) → **Keyboard short
 
 **Find bar.** It shows how many matches there are and which one is selected ("3 of 12"); typing jumps to the first match at or after the cursor, and Enter / Shift+Enter step through them. The × or Esc closes it.
 
+
+**Slash menu.** On a computer, typing `/` at the start of a line (after any indentation) lists the same items as the formatting menu: text styles, headings, quote and code block, bulleted and numbered lists, tasks, table, database view and your saved views. Keep typing to narrow the list (`/h2`, `/task`), press Enter or click to choose, Esc to leave it. The slash and what you typed are removed and the item is applied. It does not open in code, a table or front matter. A touch screen has its own bar along the bottom instead.

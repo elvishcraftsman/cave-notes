@@ -16,8 +16,17 @@ const allSelected = Annotation.define<boolean>();
 /** The editors whose whole text was selected "as HTML", until the selection or the text changes. */
 const htmlSelected = new WeakSet<EditorView>();
 
+/** Until when a selection of the whole page that we made is held against what the system reads back from the drawn part. */
+const holdUntil = new WeakMap<EditorView, number>();
+
 const selectWhole = (view: EditorView): void => {
-  view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+  holdUntil.set(view, Date.now() + 900);
+  view.dispatch({ selection: { anchor: 0, head: view.state.doc.length }, annotations: allSelected.of(true) });
+  // a long page is drawn a part at a time, so the system can only select what is drawn: the next lines say what happened to ours
+  setTimeout(() => {
+    const m = view.state.selection.main;
+    if (!(m.from === 0 && m.to === view.state.doc.length)) console.warn(`[select-all] the whole page was selected, but ${m.from}-${m.to} of ${view.state.doc.length} is selected now (drawn ${view.viewport.from}-${view.viewport.to})`);
+  }, 500);
 };
 
 export function selectAllAsText(view: EditorView): boolean {
@@ -98,6 +107,18 @@ export function selectAll(renderHtml?: HtmlRenderer): Extension {
     // the editor's own: the paragraph first, then all of the text (whatever part of a long page is drawn)
     Prec.high(keymap.of([{ key: 'Mod-a', run: selectParagraphThenAll, preventDefault: true }])),
     EditorView.updateListener.of((u) => {
+      // right after a Select all of ours the system reads its own (drawn part only) selection back: that does not replace ours
+      const until = holdUntil.get(u.view);
+      if (until !== undefined && u.selectionSet && !u.docChanged) {
+        const m = u.state.selection.main;
+        const whole = m.from === 0 && m.to === u.state.doc.length;
+        if (Date.now() > until) holdUntil.delete(u.view);
+        else if (!whole && !u.transactions.some((t) => t.annotation(allSelected))) {
+          const view = u.view;
+          requestAnimationFrame(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length }, annotations: allSelected.of(true) }));
+          return;
+        }
+      }
       // the system's Select all (the phone's selection menu) only knows the drawn part of a long page: make it all of it
       if (u.selectionSet && !u.docChanged && !u.transactions.some((t) => t.isUserEvent('select.pointer') || t.annotation(allSelected))) {
         const main = u.state.selection.main;

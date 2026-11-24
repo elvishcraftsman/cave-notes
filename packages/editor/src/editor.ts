@@ -6,6 +6,8 @@ import { openSearchPanel, search, searchKeymap } from '@codemirror/search';
 import { createSearchPanel } from './searchPanel';
 import { type SchemaHint, refreshHints, yamlDocument, yamlHints } from './yamlHints';
 import { yamlCompletionSource } from './yamlComplete';
+import { slashCompletionSource } from './slashMenu';
+import type { FootnoteOrphan } from './footnotes';
 import { addFrontmatter, attributeBar, hasFrontmatter } from './attributes';
 import { viewBlockHost, type ViewBlockHost } from './blocks';
 import { tableExportHost, type TableExportHandler } from './tables';
@@ -102,6 +104,10 @@ export interface EditorOptions {
   savedQueryNames?: () => string[];
   /** A check of a whole ```view block by the views' own reader: the problem it finds in the block's text, or null. */
   viewProblem?: (source: string) => string | null;
+  /** A reference or a footnote was deleted and the other one is still there: the host may ask whether to delete that too (and call `remove`). */
+  onFootnoteOrphan?: (o: FootnoteOrphan) => void;
+  /** A slash at the start of a line lists what the selection menu offers (for a keyboard; a touch screen has its own bar). */
+  slashMenu?: boolean;
   /** The editor lost focus. */
   onBlur?: () => void;
   /** Suggestions for text typed after "[[". */
@@ -359,11 +365,21 @@ export class NoteEditor {
       o.formatMenu === false ? [] : formatMenu({ onSelection: o.selectionMenu !== false, ...(o.spell ? { spell: o.spell } : {}), ...(o.thesaurus ? { thesaurus: o.thesaurus } : {}), ...(o.savedViews ? { savedViews: o.savedViews } : {}) }),
       selectAll(o.renderHtml),
       fenceAutoClose(),
-      footnotes(),
+      footnotes(o.onFootnoteOrphan),
       listEnterKeepsSpace(),
       this.listCompartment.of(listConfig.of(this.listOptions)),
       this.wrapCompartment.of(wrapAttributes(this.wrapCode)),
       EditorView.scrollMargins.of(() => ({ bottom: this.bottomInset })),
+      // the phone keyboard's own Undo and Redo arrive as input events, which CodeMirror does not turn into its history
+      EditorView.domEventHandlers({
+        beforeinput: (e, view) => {
+          const t = (e as InputEvent).inputType;
+          if (t !== 'historyUndo' && t !== 'historyRedo') return false;
+          e.preventDefault();
+          (t === 'historyUndo' ? undo : redo)(view);
+          return true;
+        },
+      }),
       listSupport(),
       indentGuide(),
       criticMarkup(),
@@ -387,10 +403,11 @@ export class NoteEditor {
       o.viewBlock ? viewBlockHost.of(o.viewBlock) : [],
       o.onExportTable ? tableExportHost.of(o.onExportTable) : [],
       o.embed ? [embedHost.of(o.embed), embeds(), queryLinks(), expressions()] : [],
-      o.wikilinkCompletions || o.schemaAttributes
+      o.wikilinkCompletions || o.schemaAttributes || o.slashMenu
         ? autocompletion({
             override: [
               ...(o.wikilinkCompletions ? [wikilinkSource(o.wikilinkCompletions, o.createLinkedPage)] : []),
+              ...(o.slashMenu ? [slashCompletionSource()] : []),
               ...(o.schemaAttributes ? [yamlCompletionSource({ attributes: o.schemaAttributes, savedQueries: o.savedQueryNames ?? (() => []) })] : []),
             ],
             icons: false,
@@ -496,6 +513,16 @@ export class NoteEditor {
       this.listCompartment.of(listConfig.of(this.listOptions)),
       this.wrapCompartment.of(wrapAttributes(this.wrapCode)),
       EditorView.scrollMargins.of(() => ({ bottom: this.bottomInset })),
+      // the phone keyboard's own Undo and Redo arrive as input events, which CodeMirror does not turn into its history
+      EditorView.domEventHandlers({
+        beforeinput: (e, view) => {
+          const t = (e as InputEvent).inputType;
+          if (t !== 'historyUndo' && t !== 'historyRedo') return false;
+          e.preventDefault();
+          (t === 'historyUndo' ? undo : redo)(view);
+          return true;
+        },
+      }),
       search({ top: true, createPanel: createSearchPanel }),
       EditorView.lineWrapping,
       noteTheme,

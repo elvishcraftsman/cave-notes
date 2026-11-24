@@ -4,7 +4,7 @@ import { computed, effect, signal } from '@preact/signals';
 import type { EditorState } from '@codemirror/state';
 import { CONFLICT_OPEN, mergeDocuments, pickBase, textChanges } from '@cave-notes/core-sync/pure';
 import { BackgroundIndexer } from './background';
-import { type FollowableLink, NoteEditor, type OutlineItem, type SpellHost, type ThesaurusHost, findFirstH1 } from '@cave-notes/editor';
+import { type FollowableLink, type FootnoteOrphan, NoteEditor, type OutlineItem, type SpellHost, type ThesaurusHost, findFirstH1 } from '@cave-notes/editor';
 import { SearchSession, setSort, toggleToken, type SessionState } from '@cave-notes/ui-search';
 import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-notes/ui-tree';
 import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
@@ -791,7 +791,20 @@ export class Controller {
    * While the keyboard is up for some other field (search, a dialog) the sub-page bar stays out of the way too.
    */
   typingMode(): boolean {
-    return this.caps.softKeyboard && (this.editorFocused.value || this.keyboardUp.value);
+    return this.caps.softKeyboard && this.typingHeld.value;
+  }
+
+  /**
+   * Typing mode, held for a moment after the focus or the keyboard goes: a tap in the text can lose the focus for an instant and the
+   * keyboard slides in over several resizes, and the bars (format bar, sub-page bar) must not blink with each of those.
+   */
+  private readonly typingHeld = signal(false);
+  private typingHeldTimer = 0;
+  private holdTyping(): void {
+    const now = this.editorFocused.value || this.keyboardUp.value;
+    window.clearTimeout(this.typingHeldTimer);
+    if (now) this.typingHeld.value = true;
+    else if (this.typingHeld.value) this.typingHeldTimer = window.setTimeout(() => (this.typingHeld.value = false), 700);
   }
 
   /**
@@ -802,6 +815,8 @@ export class Controller {
    */
   private watchKeyboard(): void {
     if (!this.caps.softKeyboard) return;
+    this.editorFocused.subscribe(() => this.holdTyping());
+    this.keyboardUp.subscribe(() => this.holdTyping());
     const inEditor = (el: Element | null): boolean => !!el?.closest('.cm-editor, .cm-format-dock, .cm-format-sub, .cm-dock-panel');
     let settle = 0;
     const focus = (): void => {
@@ -2901,6 +2916,18 @@ export class Controller {
     this.saveTimer = setTimeout(() => void this.flush(), AUTOSAVE_MS);
   }
 
+  /** A reference or a footnote was deleted and the other is still there: ask whether to delete that as well. */
+  async askOrphanFootnote(o: FootnoteOrphan): Promise<void> {
+    const text = o.kind === 'text';
+    const ok = await this.confirm({
+      title: text ? 'Delete the footnote too?' : 'Delete the reference too?',
+      body: text ? `The reference to this footnote was deleted, but the footnote is still on the page:\n\n\u201c${o.preview || '(empty footnote)'}\u201d` : 'The footnote was deleted, but the text still points to it with a raised number.',
+      confirm: text ? 'Delete Footnote' : 'Delete Reference',
+      destructive: true,
+    });
+    if (ok) o.remove();
+  }
+
   /** Save now if there is anything to save. Calls are serialized. */
   flush(): Promise<void> {
     if (this.saveTimer) clearTimeout(this.saveTimer);
@@ -4575,6 +4602,8 @@ export class Controller {
     const hit = this.searchState.value.results[index];
     if (!hit) return;
     this.searchSel.value = index;
+    // narrow: the search is in the drawer, so put the drawer away to show the page that was chosen
+    if (narrow.value && this.settings.value.showLeft) this.toggleLeft();
     await this.openPage(hit.path, { focus });
     if (focus) this.editor?.focus();
   }
