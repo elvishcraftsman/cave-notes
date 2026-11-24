@@ -321,7 +321,7 @@ export class WorkspaceService implements WorkerApi {
   }
 
   /** The value of an expression written in the text of a page (or anywhere else a `${…}` is allowed), as text and as a list. */
-  async evaluateExpression(path: string | null, expr: string): Promise<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty' } | { ok: false; error: string }> {
+  async evaluateExpression(path: string | null, expr: string): Promise<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty'; mark?: string } | { ok: false; error: string }> {
     const o = this.open;
     const res = await new FormulaRun(this.formulaHost(o)).evaluate(path, expr);
     if (!res.ok) return res;
@@ -329,7 +329,7 @@ export class WorkspaceService implements WorkerApi {
     const items = Array.isArray(v) ? v : [v];
     const list = items.filter((x) => x !== null && x !== undefined && x !== '').map((x) => valueText(x));
     const kind = list.length === 0 ? 'empty' : Array.isArray(v) ? 'list' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'bool' : typeof v === 'object' ? 'date' : 'text';
-    return { ok: true, text: valueText(v), list, kind };
+    return { ok: true, text: valueText(v), list, kind, ...(res.mark ? { mark: res.mark } : {}) };
   }
 
   /** the `.caveignore` for the whole computer (in the app's config folder), and what it says now */
@@ -579,10 +579,10 @@ export class WorkspaceService implements WorkerApi {
    * A button (`[=Label](automation:rule-id)`) in the page `p` was clicked. The page is looked at again first, so the rule sees what
    * the person just typed (the window saves the page before it asks). Answers with what happened; it never throws for a rule that did not run.
    */
-  async automationButtonAsk(ruleId: string, p: string): Promise<{ title: string; ask: PluginAsk[] }> {
+  async automationButtonAsk(ruleId: string, p: string, answers: Record<string, unknown> | null = null): Promise<{ title: string; ask: PluginAsk[] }> {
     const a = this.open.automation;
     if (!a) return { title: ruleId, ask: [] };
-    return (await a.buttonQuestions(ruleId, normalizePagePath(p))) as { title: string; ask: PluginAsk[] };
+    return (await a.buttonQuestions(ruleId, normalizePagePath(p), answers)) as { title: string; ask: PluginAsk[] };
   }
 
   async automationButton(ruleId: string, p: string, answers: Record<string, unknown> = {}): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }> {
@@ -678,10 +678,10 @@ export class WorkspaceService implements WorkerApi {
     return gone;
   }
 
-  async automationPluginAsk(ruleId: string, p: string, text: string, selection: boolean): Promise<PluginAsk[]> {
+  async automationPluginAsk(ruleId: string, p: string, text: string, selection: boolean, answers: Record<string, unknown> | null = null): Promise<PluginAsk[]> {
     const a = this.open.automation;
     if (!a) return [];
-    return (await a.pluginQuestions(ruleId, { path: normalizePagePath(p), text, selection })) as PluginAsk[];
+    return (await a.pluginQuestions(ruleId, { path: normalizePagePath(p), text, selection, answers })) as PluginAsk[];
   }
 
   async automationPlugin(ruleId: string, p: string, text: string, selection: boolean, answers: Record<string, unknown>, cursor: number | null = null): Promise<PluginResult> {

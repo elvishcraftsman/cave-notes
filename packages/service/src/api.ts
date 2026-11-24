@@ -497,10 +497,13 @@ export interface WorkerApi {
    * Run a plugin on `text` (the selection, or the whole page when `selection` is false) with the answers to its questions.
    * Nothing is written: the changed text comes back for the window to put into the editor.
    */
-  /** The questions of a plugin with their `${ }` filled in for the text it is about to work on. */
-  automationPluginAsk(ruleId: string, path: string, text: string, selection: boolean): Promise<PluginAsk[]>;
-  /** The questions a button's rule asks before it runs (an empty list: it runs at once). */
-  automationButtonAsk(ruleId: string, path: string): Promise<{ title: string; ask: PluginAsk[] }>;
+  /**
+   * The questions of a plugin with their `${ }` filled in for the text it is about to work on. With `answers` (what has been typed
+   * so far in the open dialog) the labels are worked out again with them as `${ask.name}`, for questions marked `live`.
+   */
+  automationPluginAsk(ruleId: string, path: string, text: string, selection: boolean, answers?: Record<string, unknown> | null): Promise<PluginAsk[]>;
+  /** The questions a button's rule asks before it runs (an empty list: it runs at once); `answers` as for automationPluginAsk. */
+  automationButtonAsk(ruleId: string, path: string, answers?: Record<string, unknown> | null): Promise<{ title: string; ask: PluginAsk[] }>;
   /** `cursor` is the cursor's offset in `text` (null if there is none). */
   automationPlugin(ruleId: string, path: string, text: string, selection: boolean, answers: Record<string, unknown>, cursor: number | null): Promise<PluginResult>;
   /** (main process only) the answer to an 'automation:shell' request. */
@@ -567,7 +570,7 @@ export interface WorkerApi {
   templateText(page: string, name: string): Promise<{ ok: true; text: string } | { ok: false; error: string }>;
   /** what `![[target#heading]]` on page `from` shows (`named`: `![[@target]]`) */
   /** Work out an expression from the text of page `path`: formulas, sums and counts over a query, values of other pages. */
-  evaluateExpression(path: string | null, expr: string): Promise<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty' } | { ok: false; error: string }>;
+  evaluateExpression(path: string | null, expr: string): Promise<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty'; /** the colour of `highlight(…)` when its test is true */ mark?: string } | { ok: false; error: string }>;
   resolveEmbed(from: string, target: string, heading: string | null, named: boolean): Promise<{ ok: true; text: string; source: string } | { ok: false; error: string }>;
   /** change the source of an embed */
   saveEmbed(from: string, target: string, heading: string | null, named: boolean, text: string): Promise<{ ok: true } | { ok: false; error: string }>;
@@ -1056,6 +1059,8 @@ export interface PluginAsk {
   options: string[] | null;
   min: number | null;
   max: number | null;
+  /** the label uses the answers (`${ask.name}`) or `let:`: the dialog asks for it again as the person types */
+  live?: boolean;
 }
 
 /** A rule listed in the Plugins menu. */

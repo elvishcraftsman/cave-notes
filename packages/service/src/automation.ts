@@ -199,8 +199,8 @@ export class AutomationRunner {
   }
 
   /** The questions a button's rule asks before it runs (none: it runs at once), with labels worked out for the page. */
-  buttonQuestions(ruleId: string, page: string): Promise<{ title: string; ask: unknown[] }> {
-    return this.engine.buttonQuestions(ruleId, { path: page });
+  buttonQuestions(ruleId: string, page: string, answers: Record<string, unknown> | null = null): Promise<{ title: string; ask: unknown[] }> {
+    return this.engine.buttonQuestions(ruleId, { path: page, answers });
   }
 
   /** The rules of the Plugins menu. */
@@ -209,7 +209,7 @@ export class AutomationRunner {
   }
 
   /** The questions of a plugin, filled in for the text it is about to work on. */
-  pluginQuestions(ruleId: string, opts: { path: string | null; text: string; selection: boolean }): Promise<unknown[]> {
+  pluginQuestions(ruleId: string, opts: { path: string | null; text: string; selection: boolean; answers?: Record<string, unknown> | null }): Promise<unknown[]> {
     return this.engine.pluginQuestions(ruleId, opts);
   }
 

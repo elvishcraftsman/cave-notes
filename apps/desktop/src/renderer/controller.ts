@@ -31,7 +31,7 @@ export type DialogSpec =
   | { kind: 'import'; what: ImportKind }
   | { kind: 'prompt'; title: string; body?: string; label: string; value: string; confirm: string; /** an extra drop-down under the text box; its choice is the second argument of `submit` */ select?: { label: string; options: Array<{ label: string; value: string }>; value: string }; submit: (value: string, choice?: string) => Promise<string | null> }
   | { kind: 'confirm'; title: string; body: string; details?: string[]; confirm: string; destructive?: boolean; /** a tick box; `apply` runs when the dialog is confirmed with it ticked */ check?: { label: string; apply: () => void }; resolve: (ok: boolean) => void }
-  | { kind: 'plugin-ask'; plugin: PluginInfo | null; title: string; fields: PluginAsk[]; confirm: string; submit: (answers: Record<string, unknown>) => Promise<string | null> }
+  | { kind: 'plugin-ask'; plugin: PluginInfo | null; title: string; fields: PluginAsk[]; confirm: string; submit: (answers: Record<string, unknown>) => Promise<string | null>; /** the questions worked out again with the answers so far, for labels marked `live` */ refresh?: (answers: Record<string, unknown>) => Promise<PluginAsk[]> }
   | { kind: 'plan'; title: string; plan: LinkPlan; confirm: string; resolve: (ok: boolean) => void }
   | { kind: 'choose'; title: string; body: string; options: Array<{ label: string; detail?: string; value: string }>; /** a tick box; `apply` gets the option picked when it was ticked (not for Cancel) */ remember?: { label: string; values: string[]; apply: (value: string) => void }; resolve: (value: string | null) => void }
   | { kind: 'preferences'; tab?: 'app' | 'workspace'; page?: string }
@@ -3239,13 +3239,15 @@ export class Controller {
     }
     // the questions may show something worked out from the text (`${words}`), so they are filled in just before they are shown
     const sel = ed.view.state.selection.main;
+    const askText = sel.empty ? ed.view.state.doc.toString() : ed.view.state.doc.sliceString(sel.from, sel.to);
     let fields = plugin.ask;
     try {
-      fields = await this.ws.automationPluginAsk(plugin.id, cur.path, sel.empty ? ed.view.state.doc.toString() : ed.view.state.doc.sliceString(sel.from, sel.to), !sel.empty);
+      fields = await this.ws.automationPluginAsk(plugin.id, cur.path, askText, !sel.empty);
     } catch {
       /* the questions as written will do */
     }
-    this.dialog.value = { kind: 'plugin-ask', plugin, title: plugin.label, fields, confirm: fields.every((q) => q.type === 'info') ? 'OK' : 'Run', submit: go };
+    const refresh = (answers: Record<string, unknown>): Promise<PluginAsk[]> => this.ws.automationPluginAsk(plugin.id, cur.path, askText, !sel.empty, answers);
+    this.dialog.value = { kind: 'plugin-ask', plugin, title: plugin.label, fields, confirm: fields.every((q) => q.type === 'info') ? 'OK' : 'Run', submit: go, refresh };
   }
 
   /**
@@ -3276,6 +3278,7 @@ export class Controller {
           title: q.title,
           fields: q.ask,
           confirm: q.ask.every((f) => f.type === 'info') ? 'OK' : 'Run',
+          refresh: async (answers) => (await this.ws.automationButtonAsk(ruleId, path, answers)).ask,
           submit: async (answers) => {
             await this.flush();
             try {

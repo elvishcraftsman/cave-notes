@@ -55,6 +55,8 @@ rules:
       - log: "page count shown"
 ```
 
+A label can also use the answers to the plugin's other questions (`${ask.name}`) and its `let:` values; it is then worked out again as you type, exactly as for [buttons](buttons.md#messages-that-follow-the-typing). A message keeps its line breaks.
+
 A word is a run of characters with at least one letter or digit, so a lone `-` or `#` of Markdown is not counted. A plugin whose questions are all `info` just shows its message; the `do:` list still runs when you press OK.
 
 ### Turning a plugin off

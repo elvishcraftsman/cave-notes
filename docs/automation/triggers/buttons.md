@@ -48,6 +48,26 @@ A button's rule can have an `ask:` list, just like a [plugin](plugins.md): the c
 
 Questions of type `info` only show a message (its label can use `${this.…}` for the page the button is in), so a rule with nothing but an `info` question is a confirmation: *Are you sure?* and **OK** or **Cancel**. Labels and defaults are worked out for the page just before the dialog opens.
 
+### Messages that follow the typing
+
+A label can also use the answers, `${ask.name}`, and the rule's `let:` values, which are worked out after the answers. While the dialog is open, every label that does is worked out again a moment after you stop typing, so a message can show what the run is about to do before you press **Run**. When the dialog opens the answers are the defaults. A part of a label that cannot be worked out yet (a number field that is still empty) shows as `—`. Defaults do not follow the typing; they are only filled in when the dialog opens. The labels are worked out in the background, one request at a time with only your latest answers, so a busy workspace makes them lag a little but never slows your typing.
+
+```yaml
+rules:
+  - id: pay-out
+    where: kind:account
+    on: button
+    let:
+      left: "${this.balance - ask.amount}"
+    ask:
+      amount: { type: number, label: "How much?", default: 100 }
+      after:  { type: info, label: "The balance will be ${commas(let.left, 2)}${let.left < 0 ? ' (overdrawn!)' : ''}" }
+    do:
+      - set_property: { balance: "${let.left}" }
+```
+
+A message keeps its line breaks, so a summary can put one figure on each line (write the label as a YAML block, `label: |`); a message of several lines is set flush left with figures lined up.
+
 A rule can only be started by a button if it lists `button` in its `on:`. This is deliberate: a note can come from another person, and without this rule a note could contain a button for any rule in your workspace. A rule can have a button and other triggers together: `on: [button, { schedule: "@daily" }]` means "every day, and also whenever I click". A button run has no `old` or `new` (they only exist for `change`).
 
 ---

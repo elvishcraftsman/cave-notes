@@ -156,6 +156,25 @@ export function coerceAnswers(ask, answers) {
   return values;
 }
 
+/**
+ * The answers as they stand while the dialog is still open, for `${ask.name}` in labels that follow the typing. Like
+ * coerceAnswers, but it never refuses: a number field that is empty or not (yet) a number is null, a value out of range is
+ * kept, and a select that is not one of its options is its first option.
+ */
+export function previewAnswers(ask, answers) {
+  const values = {};
+  for (const q of ask) {
+    if (q.type === 'info') continue;
+    let v = answers && q.name in answers ? answers[q.name] : q.default;
+    if (q.type === 'number') v = v === null || v === undefined || String(v).trim() === '' || !Number.isFinite(Number(v)) ? null : Number(v);
+    else if (q.type === 'boolean') v = v === true || v === 'true';
+    else if (q.type === 'select') v = v !== null && v !== undefined && q.options.includes(String(v)) ? String(v) : q.options[0];
+    else v = v === null || v === undefined ? '' : String(v);
+    values[q.name] = v;
+  }
+  return values;
+}
+
 function normalizeRule(raw, index, seen) {
   if (!isMap(raw)) throw new Error('a rule is a mapping with id, on and do');
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';

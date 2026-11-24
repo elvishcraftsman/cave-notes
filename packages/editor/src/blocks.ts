@@ -2,7 +2,7 @@ import { syntaxTree } from '@codemirror/language';
 import { frameObserver } from './frameObserver';
 import { type EditorState, type Extension, type Range, Facet, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
-import { TableWidget, tableEnd } from './tables';
+import { TableWidget, tableAttrRefresh, tableEnd } from './tables';
 import { RESERVED_VALUES, frontmatterBody, reservedFrontmatter, yamlProblem } from './yamlHints';
 
 /**
@@ -287,6 +287,7 @@ export function blockWidgets(): Extension {
   return [
     editorFocus,
     focusTracker,
+    tableAttrRefresh,
     EditorView.focusChangeEffect.of((_state, focusing) => setEditorFocus.of(focusing)),
     StateField.define<DecorationSet>({
       create: compute,

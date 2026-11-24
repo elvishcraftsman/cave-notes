@@ -193,6 +193,14 @@ export const noteTheme = EditorView.theme({
   '.cm-expression .cm-wikilink': { textDecoration: 'none' },
   '.cm-expression-empty, .cm-expression-bad': { color: 'var(--dim-fg)', fontStyle: 'italic' },
   '.cm-expression-bad': { color: 'var(--destructive-color)' },
+  // highlight(value, test, color): the value in a soft wash of its colour, with the colour's own line under it
+  '.cm-expression-mark': { backgroundColor: 'color-mix(in srgb, var(--cm-mark) 24%, transparent)', textDecorationColor: 'var(--cm-mark)', borderRadius: '3px', padding: '0 2px', fontWeight: '600' },
+  // ${=this.name}: a small box in the line that writes the attribute
+  '.cm-attr-input-wrap': { display: 'inline-block', verticalAlign: 'baseline' },
+  '.cm-attr-input': { font: 'inherit', fontVariantNumeric: 'tabular-nums', color: 'inherit', background: 'color-mix(in srgb, currentColor 6%, transparent)', border: '1px solid color-mix(in srgb, currentColor 22%, transparent)', borderRadius: '4px', padding: '0 4px', margin: '0 1px', lineHeight: '1.3', minWidth: '3em' },
+  '.cm-attr-input:focus': { outline: '2px solid var(--accent-color, #3584e4)', outlineOffset: '0' },
+  '.cm-attr-input:disabled': { opacity: '0.7' },
+  '.cm-table-cell.cm-attr-cell:not([data-editing="1"])': { background: 'color-mix(in srgb, currentColor 5%, transparent)', fontVariantNumeric: 'tabular-nums' },
   '.cm-querylinks-empty, .cm-querylinks-bad': { color: 'var(--dim-fg)', fontStyle: 'italic' },
   '.cm-querylinks-bad': { color: 'var(--destructive-color)' },
   '.cm-footnote-ref': { color: 'var(--accent-color)', cursor: 'pointer', fontSize: '0.75em', fontWeight: '600', padding: '0 0.1em', verticalAlign: 'super', lineHeight: '0' },

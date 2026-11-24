@@ -159,7 +159,7 @@ export function createEmbedHost(ctl: Controller): EmbedHost {
       if (!m) {
         // anything beyond reading one attribute is worked out by the workspace: sums and counts over a query, arithmetic, text and date functions
         const r = await ctl.ws.evaluateExpression(ctl.current.value?.path ?? null, expr.trim());
-        return r.ok ? { ok: true, values: r.list.map((text) => ({ text })) } : { ok: false, error: r.error };
+        return r.ok ? { ok: true, values: r.list.map((text) => ({ text })), ...(r.mark ? { mark: r.mark } : {}) } : { ok: false, error: r.error };
       }
       const from = ctl.current.value?.path ?? '';
       let path = from;

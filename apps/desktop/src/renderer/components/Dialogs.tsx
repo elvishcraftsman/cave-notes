@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import YAML from 'yaml';
 import { PAGE_CM, SLIDE_PT, paginate, cropFractions, formatLen, parseDoc, pxToLen, type Fractions, type ImageRef, type Unit, parseStyleSetsYaml, renderHtml, stringifyStyleSets, type StyleSet } from '@cave-notes/core-export';
 import { logLinesOfDay } from '../logText';
-import type { ConflictMerge, ExternalOpen, FontKind, FontSizes, FontStyle, HistoryEntry, IgnoreFileInfo, LogSource, WindowDefaults, TreeItem, YamlSection } from '../../shared/api';
+import { latestOnly } from '../latestOnly';
+import type { ConflictMerge, ExternalOpen, FontKind, PluginAsk, FontSizes, FontStyle, HistoryEntry, IgnoreFileInfo, LogSource, WindowDefaults, TreeItem, YamlSection } from '../../shared/api';
 import { AUTO_FONT_SIZE, type Controller, type DialogSpec, type HelpPage, type NewPageMode } from '../controller';
 import { HELP_TOPICS } from '../helpTopics';
 import { ACCENT_FAMILIES, familyColor, familyOf } from '../color';
@@ -41,6 +42,18 @@ function PluginAskDialog({ ctl, d }: { ctl: Controller; d: Extract<DialogSpec, {
   const [values, setValues] = useState<Record<string, unknown>>(() => Object.fromEntries(d.fields.map((f) => [f.name, f.default ?? (f.type === 'select' ? f.options?.[0] ?? '' : f.type === 'boolean' ? false : '')])));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // labels that use the answers (`${ask.name}`) are worked out again as the person types; the others stay as they came
+  const [labels, setLabels] = useState<Record<string, string>>(() => Object.fromEntries(d.fields.map((f) => [f.name, f.label])));
+  const live = d.refresh !== undefined && d.fields.some((f) => f.live);
+  // one request to the worker at a time, and only the newest answers that waited (a busy worker is not flooded)
+  const refresher = useMemo(() => (live ? latestOnly(d.refresh!, (fields: PluginAsk[]) => setLabels(Object.fromEntries(fields.map((f) => [f.name, f.label])))) : null), []);
+  useEffect(() => () => refresher?.stop(), []);
+  useEffect(() => {
+    if (!refresher) return;
+    const timer = setTimeout(() => refresher.push(values), 150);
+    return () => clearTimeout(timer);
+  }, [values]);
+  const labelOf = (name: string): string => labels[name] ?? name;
   const onlyInfo = d.fields.every((f) => f.type === 'info'); // a message with an OK button
   const first = useRef<HTMLInputElement & HTMLSelectElement>(null);
   // the first thing that can be filled in (a message above it does not count)
@@ -64,10 +77,10 @@ function PluginAskDialog({ ctl, d }: { ctl: Controller; d: Extract<DialogSpec, {
   return (
     <Modal title={d.title} onClose={() => ctl.closeDialog()}>
       {d.fields.map((f, i) => f.type === 'info' ? (
-        <p key={f.name} class="dialog-body">{f.label}</p>
+        <p key={f.name} class={`dialog-body ask-info${labelOf(f.name).includes('\n') ? ' multi' : ''}${f.live ? ' live' : ''}`} aria-live={f.live ? 'polite' : undefined}>{labelOf(f.name)}</p>
       ) : (
         <label key={f.name} class={f.type === 'boolean' ? 'field check' : 'field'}>
-          <span>{f.label}</span>
+          <span>{labelOf(f.name)}</span>
           {f.type === 'select' ? (
             <select ref={i === firstField ? first : undefined} value={String(values[f.name] ?? '')} onChange={(e) => set(f.name, (e.currentTarget as HTMLSelectElement).value)}>
               {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}

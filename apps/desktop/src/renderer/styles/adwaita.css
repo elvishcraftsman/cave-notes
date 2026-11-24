@@ -292,6 +292,9 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
 .dialog h2 { margin: 0 0 10px; font-size: 19px; font-weight: 800; text-align: center; }
 .dialog-body { margin: 0 0 12px; color: var(--dim-fg); text-align: center; line-height: 1.45; }
 .dialog-body strong { color: var(--window-fg); }
+/* a message in a plugin's or button's dialog: its lines are kept, and a message of several lines reads from the left */
+.dialog-body.ask-info { white-space: pre-line; }
+.dialog-body.ask-info.multi { text-align: left; font-variant-numeric: tabular-nums; }
 .dialog-details { margin: 0 0 12px; padding: 0 0 0 20px; color: var(--dim-fg); }
 .dialog-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
 .dialog-actions .pill-button { flex: 1; max-width: 12rem; }

@@ -116,7 +116,34 @@ How it behaves:
 
 An expression in the text of a page is drawn where it stands and worked out again when anything it reads changes. Put the cursor in it to change it. See [Values from attributes](../writing/linking.md#values-from-attributes) for the links and buttons an attribute value can become. Anything more than reading one attribute (`this.x`, `[[Page]].x`) is worked out as described here. A list is shown separated by commas. If it cannot be worked out, the text says why, in red.
 
-Inside code, and in the attributes at the top, `${…}` is not drawn as a value (in the attributes it is a formula, above).
+Inside code, and in the attributes at the top, `${…}` is not drawn as a value (in the attributes it is a formula, above). Expressions are drawn in [table](../writing/tables.md) cells too.
+
+### Colouring a value: `highlight`
+
+`${highlight(this.diff, abs(this.diff) > 5)}` shows `this.diff` as usual, on a wash of orange when the test is true, so a number that needs a look stands out the way conditional formatting does in a spreadsheet. A third value picks the colour: `${highlight(this.balance, this.balance < 0, "red")}` (red, orange, yellow, green, blue, purple, brown, gray or `#rrggbb`). The colour is only drawn when the whole expression is the `highlight(…)` call; written inside something larger, or in an attribute formula or a rule, it is just the value.
+
+## Typing values in: `${=this.name}`
+
+An expression that starts with `=` and names an attribute of the page itself is drawn as a **box you can type in**:
+
+```
+---
+opening: 700
+counted: 685
+---
+Envelope at the start: ${=this.opening}
+Counted now: ${=this.counted}
+Missing: ${this.opening - this.counted}
+```
+
+- The box shows the attribute's value as it is written in the attributes at the top of the page (`12.50` stays `12.50`; a list shows its items with spaces between them).
+- **Enter** or leaving the box saves what you typed into the attributes. **Tab** saves and goes on to the next box on the page, **Shift+Tab** to the one before. **Esc** puts the value back. Ctrl+Z takes a save back like any other change.
+- Every expression that reads the attribute, including formulas, follows once the page is saved.
+- A number is written as you typed it; other text is quoted only when YAML needs it (`a: b` becomes `"a: b"`). An empty box leaves the attribute empty (`name:`). If the page has no such attribute, it is added at the end of the attributes; if the page has no attributes at all, they are made.
+- **Pasting** several lines into a box (a column of amounts copied from another program) puts them on one line with spaces between them, which `numbers()` reads back as a list: `${sum(numbers(this.amounts))}`.
+- Only the page's own attributes can be typed into: `${=this.name}`, or `${=this["two words"]}` for a name with a space. Anything else after `=` is shown in red with a note saying so.
+- Put the cursor next to the box (with the arrow keys) to see and change the text `${=this.name}` itself.
+- In a [table](../writing/tables.md), a cell that holds nothing but `${=this.name}` is an input cell: you type the value into the cell itself.
 
 ## Using it: some ideas
 
@@ -131,6 +158,9 @@ Inside code, and in the attributes at the top, `${…}` is not drawn as a value 
 | stock to reorder | `low: ${count("kind:part stock:<5")}` and `${join(titles("kind:part stock:<5"), ", ")}` |
 | someone's age | `age: ${years_between(this.born, today)}` |
 | money, nicely | `${commas(this.total, 2)}`, or `${fixed(this.total, 2)}` without separators |
+| amounts pasted into one attribute | `${sum(numbers(this.amounts))}` when `amounts: 12.50 30 7.25` |
+| a difference that stands out | `${highlight(this.diff, abs(this.diff) > 5)}` |
+| a number to type in on the page | `${=this.counted}` |
 | days until something | `${days_between(today, this.due)}` days left |
 | who is on what | `${join(titles("assignee:$this"), ", ")}` |
 | an average over the last 30 days | `${avg("kind:log mtime:>$now.day-30", "weight")}` |
@@ -152,5 +182,6 @@ The result of arithmetic is shown without floating-point noise (`0.1 + 0.2` is `
 [Functions](../automation/values/functions.md) lists them all: dates and durations, choosing a value, text, lists, numbers, totals and averages, and reading queries and pages.
 
 ## Limits
+
 
 An expression has to end: there are no loops. It is limited to ten thousand steps, and a query can find at most 100,000 pages. A formula can read other pages, but not itself. Expressions cannot change anything; to change attributes use an [automation](../automation.md).

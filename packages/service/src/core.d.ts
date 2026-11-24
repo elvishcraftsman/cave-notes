@@ -220,6 +220,8 @@ declare module '@cave-notes/core-automation' {
   export function hostCalls(tree: unknown): Array<{ kind: 'query' | 'page'; name: string; args: string[]; key: string }>;
   export function queryValue(name: string, args: string[], data: { count: number; titles: string[]; values: Array<{ type: string; text: string; num: number | null }> }): unknown;
   export function stringifyValue(v: unknown): string;
+  export function truthy(v: unknown): boolean;
+  export function numbersInText(text: string): number[];
   export interface AutomationPageInfo {
     path: string;
     title: string;
@@ -319,9 +321,9 @@ declare module '@cave-notes/core-automation' {
     onChanges(changes: Array<{ path: string; kind: 'created' | 'modified' | 'deleted'; origin?: 'local' | 'external' }>, moves?: Array<{ from: string; to: string }>): Promise<void>;
     runNow(ruleId: string, o?: { dry?: boolean; path?: string | null; limit?: number }): Promise<Array<{ path: string | null; status: string; detail: string; steps?: unknown[] }>>;
     plugins(): Array<{ id: string; label: string; ask: unknown[] }>;
-    pluginQuestions(ruleId: string, opts: { path: string | null; text: string; selection: boolean }): Promise<unknown[]>;
+    pluginQuestions(ruleId: string, opts: { path: string | null; text: string; selection: boolean; answers?: Record<string, unknown> | null }): Promise<unknown[]>;
     runPlugin(ruleId: string, opts: { path: string | null; text: string; selection: boolean; answers: Record<string, unknown> }): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; text: string; changed: boolean }>;
-    buttonQuestions(ruleId: string, opts: { path: string | null }): Promise<{ title: string; ask: unknown[] }>;
+    buttonQuestions(ruleId: string, opts: { path: string | null; answers?: Record<string, unknown> | null }): Promise<{ title: string; ask: unknown[] }>;
     runButton(ruleId: string, path: string | null, answers?: Record<string, unknown>): Promise<{ status: 'done' | 'failed' | 'skipped' | 'refused'; detail: string; steps: Array<{ action: string; status: string; detail: string }> }>;
     log(limit?: number): LogEntry[];
     rulesFor(path: string): Promise<Array<{ id: string; name: string; triggers: string[]; definition: string }>>;

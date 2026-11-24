@@ -3,6 +3,7 @@ import { type EditorState, type Extension, type Range, StateField } from '@codem
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import { type EmbedHost, embedHost } from './embeds';
 import { fillQueryLinks, queryLinkStyle } from './queryLinks';
+import { InputWidget, frontmatterValue, inputKey, isInputExpr } from './attrInputs';
 
 /**
  * `${this.writing}` shows an attribute of the page itself, `${[[Page]].writing}` one of another page. A value that names a
@@ -20,7 +21,27 @@ export interface ExpressionValue {
 }
 
 /** The result of an expression: its values, or why it has none. */
-export type ExpressionResult = { ok: true; values: ExpressionValue[] } | { ok: false; error: string };
+export type ExpressionResult = { ok: true; values: ExpressionValue[]; /** a colour from `highlight(value, test, color)` whose test is true */ mark?: string } | { ok: false; error: string };
+
+/** The colours `highlight()` names, as the GNOME palette has them, so that they read on a light and a dark page. */
+export const MARK_PALETTE: Record<string, string> = {
+  red: '#e01b24',
+  orange: '#ff7800',
+  yellow: '#e5a50a',
+  green: '#2ec27e',
+  blue: '#3584e4',
+  purple: '#9141ac',
+  brown: '#986a44',
+  gray: '#9a9996',
+};
+
+/** Draw (or stop drawing) the colour of `highlight()` on an element. */
+export function applyMark(el: HTMLElement, mark: string | undefined): void {
+  const color = mark ? (MARK_PALETTE[mark] ?? (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(mark) ? mark : null)) : null;
+  el.classList.toggle('cm-expression-mark', color !== null);
+  if (color) el.style.setProperty('--cm-mark', color);
+  else el.style.removeProperty('--cm-mark');
+}
 
 const CALL = /\[\[\$\{([^}\n]+)\}(?:\|([^\]\n]*))?\]\]|\$\{([^}\n]+)\}/g;
 const CODE = new Set(['InlineCode', 'FencedCode', 'CodeBlock', 'CodeText', 'CodeMark', 'Frontmatter']);
@@ -58,6 +79,7 @@ export function drawExpression(el: HTMLElement, host: ExpressionHost, expr: stri
     el.textContent = '';
     el.classList.remove('cm-expression-bad', 'cm-expression-empty');
     el.title = title;
+    applyMark(el, r.ok ? r.mark : undefined);
     if (!r.ok) return fail(r.error);
     if (r.values.length === 0) {
       el.classList.add('cm-expression-empty');
@@ -136,7 +158,6 @@ function inCode(state: EditorState, pos: number): boolean {
 
 function compute(state: EditorState, tick: number): DecorationSet {
   const host = state.facet(embedHost);
-  if (!host?.expression) return Decoration.none;
   const out: Array<Range<Decoration>> = [];
   const sel = state.selection.ranges;
   for (let n = 1; n <= state.doc.lines; n++) {
@@ -146,13 +167,23 @@ function compute(state: EditorState, tick: number): DecorationSet {
       const from = line.from + f.index;
       const to = from + f.length;
       if (inCode(state, from) || sel.some((r) => r.from <= to && r.to >= from)) continue;
+      if (!f.link && isInputExpr(f.expr)) {
+        // `${=this.name}`: a box that writes the attribute; it needs only the page's own text
+        const key = inputKey(f.expr);
+        out.push(Decoration.replace({ widget: new InputWidget(key, f.expr, key ? frontmatterValue(state.doc, key) : '') }).range(from, to));
+        continue;
+      }
+      if (!host?.expression) continue;
       out.push(Decoration.replace({ widget: new ExpressionWidget(f.expr, f.link, f.label, tick) }).range(from, to));
     }
   }
   return Decoration.set(out, true);
 }
 
-/** `${…}`: a value worked out from the attributes of this page or another, kept up to date while the page is edited. */
+/**
+ * `${…}`: a value worked out from the attributes of this page or another, kept up to date while the page is edited.
+ * `${=this.name}` is a box that shows the attribute and writes what is typed into it (see attrInputs).
+ */
 export function expressions(getTick: () => number = () => 0): Extension {
   return StateField.define<DecorationSet>({
     create: (s) => compute(s, getTick()),

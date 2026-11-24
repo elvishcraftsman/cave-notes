@@ -668,6 +668,36 @@ def('commas', 'commas(n, digits)', 'A number as text with thousands separators: 
   const d = a[1] === undefined ? undefined : Math.max(0, Math.min(20, numArg('commas', a[1])));
   return n.toLocaleString('en-US', d === undefined ? { maximumFractionDigits: 3 } : { minimumFractionDigits: d, maximumFractionDigits: d });
 });
+/**
+ * Every number written in a text, in order: `12.50 30 (7.25) $1,200` gives 12.5, 30, -7.25 and 1200. A comma followed by
+ * exactly three digits is a thousands separator (`1,200`); any other comma separates two numbers (`12,30` is 12 and 30).
+ * A minus sign right before a number (`-5`, `-$5`), or brackets around it (`(5)`, as accounts write it), make it negative.
+ */
+export function numbersInText(text) {
+  const out = [];
+  const re = /(\(\s*)?(-\s*)?\$?\s?(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+)(\s*\))?/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    let n = Number(m[3].replace(/,/g, ''));
+    if (!Number.isFinite(n)) continue;
+    if (m[2] || (m[1] && m[4])) n = -n;
+    out.push(n);
+  }
+  return out;
+}
+def('numbers', 'numbers(text)', 'Every number written in a text, as a list: `numbers(\"12.50 30 $1,200 (7)\")` is 12.5, 30, 1200 and -7. Made for amounts pasted in one after another; `sum(numbers(this.amounts))` adds them up. Given a list, it reads each item.', (a) => {
+  need('numbers', a, 1);
+  const items = Array.isArray(a[0]) ? a[0].flat(Infinity) : [a[0]];
+  const out = [];
+  for (const x of items) {
+    if (typeof x === 'number') out.push(x);
+    else if (x !== null && x !== undefined && typeof x !== 'boolean' && !isDateValue(x)) out.push(...numbersInText(stringify(x)));
+  }
+  return out;
+});
+def('highlight', 'highlight(value, test, color)', 'The value itself. In the text of a page it is drawn in a colour (orange unless `color` names another: red, orange, yellow, green, blue, purple, brown, gray or #rrggbb) when the test is true: `${highlight(this.diff, abs(this.diff) > 5)}`. Anywhere else (attributes, rules) it is just the value.', (a) => {
+  need('highlight', a, 2, 3);
+  return a[0];
+});
 def('years_between', 'years_between(a, b)', 'Whole years from a to b (negative if b is earlier): `years_between(this.born, today)` is an age.', (a) => {
   need('years_between', a, 2);
   const x = dateArg('years_between', a[0]).date;

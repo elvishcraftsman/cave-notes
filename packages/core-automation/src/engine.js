@@ -29,10 +29,13 @@
  */
 import { DateValue, addDuration, parseClock, parseDateValue, startOfDay, withClock } from './dates.js';
 import { lastCronBetween } from './cron.js';
-import { evaluate, render, stringify, truthy } from './expr.js';
+import { evaluate, render, splitTemplate, stringify, truthy } from './expr.js';
 import { runActions } from './actions.js';
 import { runSandbox } from '#sandbox';
-import { DEFAULT_SETTINGS, coerceAnswers, parseAutomations } from './schema.js';
+import { DEFAULT_SETTINGS, coerceAnswers, parseAutomations, previewAnswers } from './schema.js';
+
+/** A label or default that could not be worked out (yet). */
+const UNSHOWN = Symbol('unshown');
 
 /** The names an expression can use. The documentation is checked against this list. */
 export const VARIABLES = ['now', 'today', 'this', 'old', 'new', 'rule', 'trigger', 'device', 'let', 'created', 'shell', 'ask', 'selection', 'words', 'characters'];
@@ -986,41 +989,86 @@ export class AutomationEngine {
     return out;
   }
 
-  /**
-   * The questions of a plugin as the window shows them: the `label` and `default` of each may use `${ }` with the text the plugin
-   * is about to work on (`words`, `characters`, `selection`), which is how a plugin shows a result in a dialog (`type: info`).
-   */
   /** The questions a button's rule puts to the person before it runs: the `ask:` of the rule, with labels worked out for the page. */
-  async buttonQuestions(ruleId, { path = null } = {}) {
+  async buttonQuestions(ruleId, { path = null, answers = null } = {}) {
     const rule = this.rules.find((r) => r.id === ruleId);
     if (!rule) return { title: ruleId, ask: [] };
-    return { title: rule.name || rule.id, ask: await this.pluginQuestions(ruleId, { path, kind: 'button' }) };
+    return { title: rule.name || rule.id, ask: await this.pluginQuestions(ruleId, { path, kind: 'button', answers }) };
   }
 
-  async pluginQuestions(ruleId, { path = null, text = '', selection = false, kind = 'plugin' } = {}) {
+  /**
+   * The questions of a plugin (or a button) as the window shows them. The `label` and `default` of each may use `${ }` with the
+   * page, `let:` and the text the plugin is about to work on (`words`, `characters`, `selection`), which is how a rule shows a result
+   * in a dialog (`type: info`). A label may also use `${ask.name}`: the answers as they stand. When the dialog opens they are the
+   * defaults; while it is open the window sends what has been typed (`answers`) and shows the labels again, so a message can follow
+   * the typing. Such a question is marked `live: true`. A `let:` value is worked out after the answers, so it can use them too.
+   * A part of a label that cannot be worked out yet (a number field still empty) shows as “—”.
+   */
+  async pluginQuestions(ruleId, { path = null, text = '', selection = false, kind = 'plugin', answers = null } = {}) {
     const rule = this.rules.find((r) => r.id === ruleId);
     if (!rule) return [];
     let vars = null;
     try {
       const info = path ? await this.host.pageInfo(path) : null;
       vars = this.varsFor(rule, info, path, { kind });
-      vars.ask = {};
       vars.selection = selection;
       Object.assign(vars, textStats(text));
-      vars.let = {};
-      for (const [k, v] of Object.entries(rule.let ?? {})) vars.let[k.toLowerCase()] = render(v, vars);
     } catch {
       return rule.ask;
     }
+    const lets = () => {
+      vars.let = {};
+      for (const [k, v] of Object.entries(rule.let ?? {})) {
+        try {
+          vars.let[k.toLowerCase()] = render(v, vars);
+        } catch {
+          vars.let[k.toLowerCase()] = null; // it may need an answer that is not there yet
+        }
+      }
+    };
     const show = (s) => {
       if (typeof s !== 'string') return s;
+      let parts;
       try {
-        return String(render(s, vars));
+        parts = splitTemplate(s);
       } catch {
         return s;
       }
+      if (parts.length === 1 && 'expr' in parts[0]) {
+        // a default that is one expression keeps its type (a number stays a number)
+        try {
+          const v = evaluate(parts[0].expr, vars);
+          return v === null || v === undefined ? null : typeof v === 'number' || typeof v === 'boolean' ? v : stringify(v);
+        } catch {
+          return UNSHOWN;
+        }
+      }
+      return parts
+        .map((p) => {
+          if ('lit' in p) return p.lit;
+          try {
+            return stringify(evaluate(p.expr, vars));
+          } catch {
+            return '—';
+          }
+        })
+        .join('');
     };
-    return rule.ask.map((q) => ({ ...q, label: show(q.label), default: show(q.default) }));
+    // the defaults first (they can use the page and let:), then the answers: the defaults, or what has been typed so far
+    vars.ask = {};
+    lets();
+    const defaults = rule.ask.map((q) => {
+      const d = show(q.default);
+      return d === UNSHOWN ? null : d;
+    });
+    const given = answers ?? Object.fromEntries(rule.ask.map((q, i) => [q.name, defaults[i]]));
+    vars.ask = previewAnswers(rule.ask, given);
+    lets();
+    const live = (q) => typeof q.label === 'string' && /\$\{[^}]*\b(?:ask|let)\b/i.test(q.label);
+    return rule.ask.map((q, i) => {
+      const label = show(q.label);
+      return { ...q, label: label === UNSHOWN ? '—' : label === null ? '' : String(label), default: defaults[i], ...(live(q) ? { live: true } : {}) };
+    });
   }
 
   /**

@@ -82,6 +82,7 @@ These work on a list or on text.
 | `split(text, ",")` | Text cut into a list at every separator; the pieces lose their surrounding spaces. |
 | `substr(text, start, length)` | Part of a text: from character `start` (the first is 1), `length` characters (to the end when left out). `substr("Chapter", 1, 4)` is `Chap`. |
 | `len(value)` | The length of a list or text. |
+| `numbers(text)` | Every number written in a text, as a list. Made for amounts pasted in one after another: `numbers("12.50 30 $1,200 (7)")` is 12.5, 30, 1200 and -7. A comma followed by exactly three digits is a thousands separator (`1,200`); any other comma separates two numbers (`12,30` is 12 and 30). A minus sign right before a number (`-5`, `-$5`), or brackets around it (`(7)`, as accounts write it), make it negative. Given a list, it reads each item. `sum(numbers(this.amounts))` adds up what was pasted into the attribute `amounts`. |
 
 ## Numbers
 
@@ -113,6 +114,12 @@ These work on a list, on several values, or on the pages a query finds (see [Exp
 | `median(list)` | The middle number of a list. `median("query", "attribute")` works over the pages a query finds. |
 | `product(list)` | The numbers of a list multiplied. |
 | `count(list)` | How many items a list has that are not empty. `count("query")` is how many pages a query finds; `count("query", "attribute")` how many of them have a value for the attribute. |
+
+## Drawing attention to a value
+
+| Function | What it gives |
+|---|---|
+| `highlight(value, test, color)` | The value itself. In the text of a page (and in a table cell) it is drawn on a wash of colour when `test` is true: `${highlight(this.diff, abs(this.diff) > 5)}` shows the difference in orange once it is more than 5 either way. `color` is optional: `red`, `orange` (the default), `yellow`, `green`, `blue`, `purple`, `brown`, `gray`, or `#rrggbb`. Only an expression that is nothing but this call is coloured; anywhere else (an attribute formula, a rule, inside a larger expression) it is just the value. |
 
 ## Reading pages and queries
 

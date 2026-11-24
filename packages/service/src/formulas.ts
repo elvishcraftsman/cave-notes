@@ -1,4 +1,4 @@
-import { DateValue, evalExpr, hostCalls, isDateValue, parseDateValue, parseExpr, queryValue, rewritePageRefs, startOfDay } from '@cave-notes/core-automation';
+import { DateValue, evalExpr, hostCalls, isDateValue, parseDateValue, parseExpr, queryValue, rewritePageRefs, startOfDay, truthy } from '@cave-notes/core-automation';
 import type { Index } from '@cave-notes/core-index';
 
 /**
@@ -8,7 +8,19 @@ import type { Index } from '@cave-notes/core-index';
  */
 
 type Entry = { type: string; text: string; num: number | null };
-export type FormulaResult = { ok: true; value: unknown } | { ok: false; error: string };
+/** `mark` is the colour `highlight(value, test, color)` asks for when its test is true (only an expression that is nothing but that call has one). */
+export type FormulaResult = { ok: true; value: unknown; mark?: string } | { ok: false; error: string };
+
+/** The colours `highlight()` takes by name, as views do; anything else must be #rgb or #rrggbb. */
+export const MARK_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'brown', 'gray'];
+
+/** The colour of `highlight(…)`: one of MARK_COLORS (`grey` is gray), or #rgb / #rrggbb. Throws for anything else. */
+export function markColor(v: unknown): string {
+  const c = (v === null || v === undefined || v === '' ? 'orange' : String(v)).trim().toLowerCase();
+  if (c === 'grey') return 'gray';
+  if (MARK_COLORS.includes(c) || /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/.test(c)) return c;
+  throw new Error(`highlight(): “${String(v)}” is not a colour; use ${MARK_COLORS.join(', ')} or #rrggbb`);
+}
 
 /** What the formulas need of the workspace. */
 export interface FormulaHost {
@@ -130,7 +142,14 @@ export class FormulaRun {
     const today = startOfDay(new DateValue(this.now.getTime(), false));
     const ctx: Record<string, unknown> = { this: here ? record(this.host, here) : null, today, now: new DateValue(this.now.getTime(), false), __host: store };
     try {
-      return { ok: true, value: evalExpr(tree, ctx) };
+      const value = evalExpr(tree, ctx);
+      // `highlight(value, test, color)` as the whole expression: the text of a page draws the value in that colour when the test holds
+      const t = tree as { k?: string; name?: string; args?: unknown[] };
+      if (t.k === 'call' && t.name === 'highlight' && t.args && t.args.length >= 2) {
+        const color = markColor(t.args.length > 2 ? evalExpr(t.args[2], ctx) : null);
+        if (truthy(evalExpr(t.args[1], ctx))) return { ok: true, value, mark: color };
+      }
+      return { ok: true, value };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }

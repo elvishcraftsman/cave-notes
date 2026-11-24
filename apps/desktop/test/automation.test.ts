@@ -408,5 +408,25 @@ rules:
       expect(res.status).toBe('done');
       expect((await front('N.md')).got).toBe(42);
     });
+
+    it('the message of a button can follow what is typed in its dialog', async () => {
+      await open({ 'N.md': '---\nkind: thing\nbalance: 100\n---\n# N\n' }, `
+rules:
+  - id: live
+    where: kind:thing
+    on: button
+    let:
+      left: "\${this.balance - ask.n}"
+    ask:
+      n: { type: number, label: How much, default: 10 }
+      after: { type: info, label: "Left: \${let.left}" }
+    do:
+      - set_property: { balance: "\${let.left}" }
+`);
+      const first = await svc.automationButtonAsk('live', 'N.md');
+      expect(first.ask.find((x) => x.name === 'after')).toMatchObject({ label: 'Left: 90', live: true });
+      const typed = await svc.automationButtonAsk('live', 'N.md', { n: '35' });
+      expect(typed.ask.find((x) => x.name === 'after')?.label).toBe('Left: 65');
+    });
   });
 });

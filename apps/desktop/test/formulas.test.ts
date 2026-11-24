@@ -92,3 +92,20 @@ it('a formula that cannot be worked out keeps its text and is reported', async (
   await until(async () => (await attr('Broken.md', 'x')) !== undefined);
   expect(await attr('Broken.md', 'x')).toBe('${1 +}');
 });
+
+it('highlight() gives the value, and the colour when its test is true', async () => {
+  const on = await svc.evaluateExpression('Budget/Rent.md', 'highlight(this.cost - 900, abs(this.cost - 900) > 5)');
+  expect(on).toMatchObject({ ok: true, text: '100', mark: 'orange' });
+  const off = await svc.evaluateExpression('Budget/Rent.md', 'highlight(this.cost - 998, abs(this.cost - 998) > 5, "red")');
+  expect(off).toMatchObject({ ok: true, text: '2' });
+  expect((off as { mark?: string }).mark).toBeUndefined();
+  expect(await svc.evaluateExpression('Budget/Rent.md', 'highlight(1, true, "Grey")')).toMatchObject({ mark: 'gray' });
+  expect(await svc.evaluateExpression('Budget/Rent.md', 'highlight(1, true, "#A0b1C2")')).toMatchObject({ mark: '#a0b1c2' });
+  expect(await svc.evaluateExpression('Budget/Rent.md', 'highlight(1, true, "pink")')).toMatchObject({ ok: false });
+  // inside a larger expression it is just its value
+  expect(await svc.evaluateExpression('Budget/Rent.md', 'highlight(5, true) + 1')).toMatchObject({ ok: true, text: '6' });
+});
+
+it('numbers() reads amounts pasted into an attribute', async () => {
+  expect(await svc.evaluateExpression(null, 'sum(numbers("12.50 30\\n$7.25"))')).toMatchObject({ ok: true, text: '49.75' });
+});

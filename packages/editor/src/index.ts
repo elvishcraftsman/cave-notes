@@ -27,7 +27,8 @@ export { yamlHints, yamlDocument, yamlProblem, frontmatterBody, reservedFrontmat
 export { embeds, embedHost, type EmbedHost, type EmbedHandle, type EmbedSpec } from './embeds';
 export { footnotes, insertFootnote, scanFootnotes, footnoteFixes, footnoteOrder, type FootnoteOrphan } from './footnotes';
 export { formatQueryLink, fillQueryLinks, queryLinkStyle, type QueryLinkItem } from './queryLinks';
-export { drawExpression, findExpressions, type ExpressionHost, type ExpressionResult, type ExpressionValue } from './expressions';
+export { applyMark, drawExpression, findExpressions, MARK_PALETTE, type ExpressionHost, type ExpressionResult, type ExpressionValue } from './expressions';
+export { frontmatterValue, inputKey, isInputExpr, setFrontmatterValue, writeAttribute, yamlScalar } from './attrInputs';
 export { frameObserver } from './frameObserver';
 export { codeScroll } from './codeScroll';
 export { listPaste, listPasteText } from './listPaste';

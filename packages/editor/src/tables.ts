@@ -2,6 +2,9 @@ import { syntaxTree } from '@codemirror/language';
 import { Facet, type EditorState, type Extension } from '@codemirror/state';
 import { EditorView, WidgetType } from '@codemirror/view';
 import { installFormatMenuStyles } from './theme';
+import { frontmatterValue, inputKey, isInputExpr, writeAttribute } from './attrInputs';
+import { embedHost } from './embeds';
+import { drawExpression, findExpressions } from './expressions';
 
 /**
  * Tables. A Markdown pipe table is drawn as a grid that can be edited in place: type in the cells, add, insert and delete
@@ -396,6 +399,9 @@ export function renderInline(parent: HTMLElement, text: string): void {
 
 // ---------------------------------------------------------------- the editable grid
 
+/** Is this a cell of the header row (which stays text: an input there would have no row to belong to)? */
+const r0 = (td: HTMLElement): boolean => td.dataset.r === '0';
+
 interface Rect { r0: number; c0: number; r1: number; c1: number }
 
 const editors = new WeakMap<HTMLElement, TableEditor>();
@@ -640,10 +646,72 @@ class TableEditor {
     }
   }
 
+  /** the expressions drawn in each cell, to stop watching when the cell is drawn again or typed in */
+  private cleanups = new Map<HTMLElement, Array<() => void>>();
+
+  private stopDrawing(td: HTMLElement): void {
+    for (const stop of this.cleanups.get(td) ?? []) stop();
+    this.cleanups.delete(td);
+  }
+
+  /** The grid is gone: stop every expression it draws. */
+  dispose(): void {
+    for (const td of [...this.cleanups.keys()]) this.stopDrawing(td);
+  }
+
+  /** The attribute a cell holding nothing but `${=this.name}` writes, or null for an ordinary cell. */
+  private attrOf(raw: string): string | null {
+    const f = findExpressions(raw.trim());
+    if (f.length !== 1 || f[0]!.link || f[0]!.index !== 0 || f[0]!.length !== raw.trim().length || !isInputExpr(f[0]!.expr)) return null;
+    return inputKey(f[0]!.expr);
+  }
+
   private render(td: HTMLElement, raw: string): void {
+    this.stopDrawing(td);
     td.textContent = '';
     td.dataset.editing = '0';
-    renderInline(td, raw);
+    const key = r0(td) ? null : this.attrOf(raw);
+    td.classList.toggle('cm-attr-cell', key !== null);
+    if (key !== null) {
+      // an input cell shows the attribute; typing in it writes the attribute, not the table
+      td.dataset.attr = key;
+      td.title = `${key} (saved in the page's attributes)`;
+      td.textContent = frontmatterValue(this.view.state.doc, key);
+      return;
+    }
+    delete td.dataset.attr;
+    td.removeAttribute('title');
+    if (!raw.includes('${')) {
+      renderInline(td, raw);
+      return;
+    }
+    // `${…}` in a cell is drawn as its value, as in the text of the page
+    const host = this.view.state.facet(embedHost);
+    const stops: Array<() => void> = [];
+    let last = 0;
+    for (const f of findExpressions(raw)) {
+      if (f.index > last) renderInline(td, raw.slice(last, f.index));
+      const span = document.createElement('span');
+      if (isInputExpr(f.expr) && !f.link) {
+        // a box needs the whole cell to itself: alone it is an input cell
+        span.className = 'cm-expression cm-expression-bad';
+        span.textContent = 'Put ${=this.name} alone in its cell';
+      } else if (host?.expression) stops.push(drawExpression(span, host, f.expr, f.link, f.label));
+      else span.textContent = raw.slice(f.index, f.index + f.length);
+      td.append(span);
+      last = f.index + f.length;
+    }
+    if (last < raw.length) renderInline(td, raw.slice(last));
+    if (stops.length > 0) this.cleanups.set(td, stops);
+  }
+
+  /** The page's text changed elsewhere (an attribute typed in another box): show input cells' new values. */
+  refreshAttrCells(): void {
+    for (const td of this.dom.querySelectorAll<HTMLElement>('.cm-table-cell.cm-attr-cell')) {
+      if (td.dataset.editing === '1' || !td.dataset.attr) continue;
+      const v = frontmatterValue(this.view.state.doc, td.dataset.attr);
+      if (td.textContent !== v) td.textContent = v;
+    }
   }
 
   private applyWidths(): void {
@@ -663,7 +731,9 @@ class TableEditor {
     td.addEventListener('focus', () => {
       if (td.dataset.editing === '1') return;
       td.dataset.editing = '1';
-      td.textContent = this.value(r, c);
+      this.stopDrawing(td);
+      // an input cell is typed in as the attribute's value; any other cell as its text
+      td.textContent = td.dataset.attr ? frontmatterValue(this.view.state.doc, td.dataset.attr) : this.value(r, c);
       // arriving by keyboard selects the whole cell, as a spreadsheet does
       if (!this.pointerFocus) selectContents(td);
       this.clearSelection();
@@ -671,13 +741,29 @@ class TableEditor {
     td.addEventListener('blur', () => {
       this.pointerFocus = false;
       const raw = td.textContent ?? '';
+      if (td.dataset.attr) {
+        writeAttribute(this.view, td.dataset.attr, raw);
+        if (td.isConnected) this.render(td, this.value(r, c));
+        return;
+      }
       if (raw !== this.value(r, c)) {
         this.setValue(r, c, raw);
         this.write(false);
       }
       if (td.isConnected) this.render(td, this.value(r, c));
     });
+    td.addEventListener('paste', (e) => {
+      // a column of amounts pasted into an input cell becomes one line of them, not new rows of the table
+      if (!td.dataset.attr || td.dataset.editing !== '1') return;
+      const text = e.clipboardData?.getData('text/plain');
+      if (text === undefined) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const one = text.replace(/[\r\n\t]+/g, ' ').trim();
+      if (!document.execCommand?.('insertText', false, one)) td.textContent = `${td.textContent ?? ''}${one}`;
+    });
     td.addEventListener('input', () => {
+      if (td.dataset.attr) return; // saved in the attributes when the cell is left
       this.setValue(r, c, td.textContent ?? '');
       this.write(false);
     });
@@ -1155,7 +1241,22 @@ export class TableWidget extends WidgetType {
   override ignoreEvent(): boolean {
     return true;
   }
+  override destroy(dom: HTMLElement): void {
+    editors.get(dom)?.dispose();
+  }
 }
+
+/** After a change to the page, the input cells of every grid show their attribute's value as it now is. */
+export const tableAttrRefresh = EditorView.updateListener.of((u) => {
+  if (!u.docChanged) return;
+  for (const wrap of u.view.dom.querySelectorAll<HTMLElement>('.cm-table-wrap')) {
+    const ed = editors.get(wrap);
+    if (ed) {
+      ed.view = u.view;
+      ed.refreshAttrCells();
+    }
+  }
+});
 
 // ---------------------------------------------------------------- copying a table out of the raw text
 
