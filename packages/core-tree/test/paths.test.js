@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  safeStem,
   normalizeName,
   normalizePagePath,
   pageFolder,
@@ -75,4 +76,14 @@ test('fileStem leaves question marks and a trailing dot out of the file name', a
   assert.equal(fileStem('What is this?...'), 'What is this');
   assert.equal(fileStem('Plain'), 'Plain');
   assert.throws(() => fileStem('???'), /empty/);
+});
+
+test('safeStem swaps what a file name cannot hold, leaving the rest', () => {
+  assert.equal(safeStem('Q1/Q2 plan'), 'Q1-Q2 plan');
+  assert.equal(safeStem('a\\b'), 'a-b');
+  assert.equal(safeStem('Why?'), 'Why');
+  assert.equal(safeStem('.hidden.'), 'hidden');
+  assert.equal(safeStem('///'), '---');
+  assert.equal(safeStem('  '), 'Untitled');
+  assert.doesNotThrow(() => normalizeName(safeStem('x'.repeat(500) + '/y')));
 });

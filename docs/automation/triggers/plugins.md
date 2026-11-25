@@ -63,6 +63,8 @@ A word is a run of characters with at least one letter or digit, so a lone `-` o
 
 Every plugin dialog, a question or a message, has a **Turn off this plugin** button, so that a plugin that asks too often can be silenced at once. It is kept on this computer (not in the workspace, so syncing does not carry it to your other computers). The plugin stays in the Plugins menu, dimmed and marked *off*; choosing it there turns it on again. The rule itself is not changed.
 
+**Hiding a plugin's messages.** The message that says a rule ran (or failed) has a **⋯** button. Its menu stays open without the message going away, and **Hide messages like this** stops the messages of that rule, of that kind (ran, or failed), in this workspace on this computer. In **Plugins > All plugins…**, under *Hidden messages*, each hidden kind has a **Show again** button, and **Show all again** brings them all back.
+
 ## The Plugins menu
 
 Its first line is a **search box** (type, and Enter runs the first plugin that matches). Below it come the plugins **you wrote** (the workspace's own, and those other workspaces share with it), then a line, then the plugins **that come with the app**, by name. **All plugins…** at the bottom opens a window listing every plugin with a switch to turn it on or off (for this computer and this workspace, like *Turn off this plugin* above) and an **Uninstall** button: for your own plugin the rule is removed from its settings file, for one that comes with the app its file is removed from the [app config folder](../../workspaces/workspace-files.md#the-app-config-folder). **Restore default plugins** there brings back the ones that came with the app and were uninstalled.

@@ -84,8 +84,9 @@ export function tagGlobal(text: string): { text: string; tagged: string[] } {
 function styleSetsOf(text: string): { sets: ReturnType<typeof parseStyleSetsYaml>['sets']; errors: string[] } {
   let body = text;
   const doc = YAML.parseDocument(text, { customTags: [{ tag: '!global', collection: 'map' }] });
-  if (doc.errors.length === 0 && YAML.isMap(doc.contents) && doc.contents.has('export-style')) {
-    body = YAML.stringify((doc.toJS() as Record<string, unknown>)['export-style']);
+  if (doc.errors.length === 0 && YAML.isMap(doc.contents)) {
+    const key = ['export-style', 'export-styles'].find((k) => (doc.contents as YAML.YAMLMap).has(k));
+    if (key) body = YAML.stringify((doc.toJS() as Record<string, unknown>)[key]);
   }
   return parseStyleSetsYaml(body);
 }

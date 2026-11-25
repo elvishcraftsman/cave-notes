@@ -195,12 +195,18 @@ export const noteTheme = EditorView.theme({
   '.cm-expression-bad': { color: 'var(--destructive-color)' },
   // highlight(value, test, color): the value in a soft wash of its colour, with the colour's own line under it
   '.cm-expression-mark': { backgroundColor: 'color-mix(in srgb, var(--cm-mark) 24%, transparent)', textDecorationColor: 'var(--cm-mark)', borderRadius: '3px', padding: '0 2px', fontWeight: '600' },
-  // ${=this.name}: a small box in the line that writes the attribute
+  // ${=this.name}: a field that writes the attribute. In a line it is a small box; in a table it is the whole cell.
+  // Both wear the same light accent tint and border, so a field reads as "type here" at a glance.
   '.cm-attr-input-wrap': { display: 'inline-block', verticalAlign: 'baseline' },
-  '.cm-attr-input': { font: 'inherit', fontVariantNumeric: 'tabular-nums', color: 'inherit', background: 'color-mix(in srgb, currentColor 6%, transparent)', border: '1px solid color-mix(in srgb, currentColor 22%, transparent)', borderRadius: '4px', padding: '0 4px', margin: '0 1px', lineHeight: '1.3', minWidth: '3em' },
-  '.cm-attr-input:focus': { outline: '2px solid var(--accent-color, #3584e4)', outlineOffset: '0' },
+  '.cm-attr-input': { font: 'inherit', fontVariantNumeric: 'tabular-nums', color: 'inherit', background: 'color-mix(in srgb, var(--accent-color, #3584e4) 9%, var(--view-bg, transparent))', border: '1px solid color-mix(in srgb, var(--accent-color, #3584e4) 40%, transparent)', borderRadius: '4px', padding: '0 4px', margin: '0 1px', lineHeight: '1.3', minWidth: '3em' },
+  '.cm-attr-input::placeholder': { color: 'var(--dim-fg)', fontStyle: 'italic' },
+  '.cm-attr-input:focus': { outline: '2px solid var(--accent-color, #3584e4)', outlineOffset: '0', background: 'var(--view-bg, transparent)' },
   '.cm-attr-input:disabled': { opacity: '0.7' },
-  '.cm-table-cell.cm-attr-cell:not([data-editing="1"])': { background: 'color-mix(in srgb, currentColor 5%, transparent)', fontVariantNumeric: 'tabular-nums' },
+  '.cm-table-cell.cm-attr-cell': { background: 'color-mix(in srgb, var(--accent-color, #3584e4) 9%, var(--view-bg, transparent))', boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--accent-color, #3584e4) 40%, transparent)', fontVariantNumeric: 'tabular-nums' },
+  '.cm-table-cell.cm-attr-cell:hover': { background: 'color-mix(in srgb, var(--accent-color, #3584e4) 15%, var(--view-bg, transparent))' },
+  '.cm-table-cell.cm-attr-cell:focus, .cm-table-cell.cm-attr-cell[data-editing="1"]': { background: 'var(--view-bg, transparent)', boxShadow: 'inset 0 0 0 2px var(--accent-color, #3584e4)' },
+  // an empty field shows the attribute's name, dimmed, so it never looks like an empty table cell
+  '.cm-table-cell.cm-attr-cell:empty::before': { content: 'attr(data-placeholder)', color: 'var(--dim-fg)', fontStyle: 'italic', pointerEvents: 'none' },
   '.cm-querylinks-empty, .cm-querylinks-bad': { color: 'var(--dim-fg)', fontStyle: 'italic' },
   '.cm-querylinks-bad': { color: 'var(--destructive-color)' },
   '.cm-footnote-ref': { color: 'var(--accent-color)', cursor: 'pointer', fontSize: '0.75em', fontWeight: '600', padding: '0 0.1em', verticalAlign: 'super', lineHeight: '0' },

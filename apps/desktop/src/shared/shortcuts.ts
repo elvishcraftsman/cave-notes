@@ -15,6 +15,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: 'Ctrl+W', does: 'Close the tab' },
       { keys: 'Ctrl+Tab / Ctrl+Shift+Tab', does: 'Next / previous tab, in tab order' },
       { keys: 'Ctrl+PageDown / Ctrl+PageUp', does: 'Next / previous tab, in tab order' },
+      { keys: 'Alt+1 … Alt+8 / Alt+9', does: 'Go to the first … eighth tab / the last tab, in tab order, as in a browser' },
       { keys: 'Alt+W', does: 'Switch to the tab you used before this one; keep Alt down and press W again to go further back (Shift+Alt+W goes the other way)' },
       { keys: 'Alt+Left / Alt+Right', does: 'Back / forward in this tab' },
       { keys: 'Ctrl+,', does: 'Preferences' },

@@ -5,7 +5,7 @@ import { buildLookup, openIndex, resolvePageLink, setWeekStart, type Index, type
 import { applyPlan, listJournal, planMove, undo } from '@cave-notes/core-links';
 import { conflictOriginal, HistoryStore, isConflictName, mergeDocuments, pickBase } from '@cave-notes/core-sync';
 import { namedStylesFromYaml, parseStyleSetsYaml } from '@cave-notes/core-export';
-import { configureNotes, defaultNoteExt, isNoteFile, noteExtOf, noteExtensions, normalizeName, fileStem, normalizePagePath, pageFolder, pageName, parentPage, type Tree } from '@cave-notes/core-tree';
+import { configureNotes, defaultNoteExt, isNoteFile, noteExtOf, noteExtensions, normalizeName, fileStem, safeStem, normalizePagePath, pageFolder, pageName, parentPage, type Tree } from '@cave-notes/core-tree';
 import type { PageSource,
   FileItem, AttributeSource, NoteTypes, ApplyResult, DeleteInfo, IndexStats, LinkInfo, LinkPlan, PageData, PageInfo, PageSuggestion, ResolvedLink,
   SearchResponse, TreeItem, WireError, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, WorkspaceState, WriteResult, BacklinkInfo, AttributeKey, AttrValue, ViewData, SavedQueries,
@@ -1486,9 +1486,10 @@ export class WorkspaceService implements WorkerApi {
     await o.index.refresh([created]);
   }
 
-  async createPage(parent: string | null, name: string, content?: string, template?: string | null, mergeDefault?: boolean): Promise<string> {
+  async createPage(parent: string | null, name: string, content?: string, template?: string | null, mergeDefault?: boolean, fixName?: boolean): Promise<string> {
     const o = this.open;
-    const stem = fileStem(name);
+    // fixName (a view's New row): characters a file name cannot hold are swapped for ones it can, so the page can always be made; the title keeps them
+    const stem = fixName ? safeStem(name) : fileStem(name);
     // what was typed is the title, with its question mark or trailing dot; the file name leaves those out
     const title = titleOfTyped(name, stem);
     // no text given: start from the template asked for (null: none), else the one the parents name for their sub-pages.

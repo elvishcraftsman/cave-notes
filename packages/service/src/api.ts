@@ -561,7 +561,7 @@ export interface WorkerApi {
    */
   writePage(path: string, text: string, baseHash: string | null, opts?: { deferIndex?: boolean }): Promise<WriteResult>;
   /** `template`: a template name to start from, null for none; left out, the parents' default template (if any) is used when no content is given */
-  createPage(parent: string | null, name: string, content?: string, template?: string | null, mergeDefault?: boolean): Promise<string>;
+  createPage(parent: string | null, name: string, content?: string, template?: string | null, mergeDefault?: boolean, fixName?: boolean): Promise<string>;
   /** the templates usable for sub-pages of `parent` (null = top level) and the default one */
   /** make `.cave-notes` with its templates folder and any missing settings file (stubs that are only comments); answers its path */
   ensureConfigFolder(): Promise<string>;
@@ -757,6 +757,8 @@ export interface Settings {
   dictionary: string[];
   /** plugins turned off on this computer (from their dialogs), as `workspace folder|rule id`; they stay in the Plugins menu, dimmed, until turned on again */
   disabledPlugins: string[];
+  /** plugin messages the person chose to hide (from the “⋯” menu on the message), as `workspace folder|rule id|ran` or `…|failed`; they can be shown again under Plugins */
+  mutedToasts: string[];
   /** AppImage updates: `install` downloads a newer one and puts it in place of this one, `notify` only says there is one, `off` never looks */
   updateMode: 'install' | 'notify' | 'off';
   /** where to look for updates instead of the project's GitHub releases: a GitHub repository address, or the address of a small JSON file (see docs/the-app/updates.md); empty: the default */

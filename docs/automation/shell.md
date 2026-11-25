@@ -31,9 +31,17 @@ Rules can run programs: deploy a site, create a calendar entry, call a script. B
     argv: [./scripts/publish.sh, "${this.path}"]
 ```
 
+**Writing `timeout`.** A number and a unit, with no space: `30s` (seconds), `5min` (minutes) or `1h` (hours); `timeout: 5min` is five minutes. A plain number is milliseconds (`timeout: 30000`). Anything longer than 10 minutes is cut to 10 minutes. Write minutes as `min`, not `m`: a bare `m` is refused, because it could mean minutes or months. (Months, `mo`, belong to dates and durations in [expressions](values.md) such as `this.due + "1mo"`; they make no sense as a time limit.)
+
+```yaml
+- run_shell:
+    argv: [./scripts/publish.sh]
+    timeout: 5min
+```
+
 Relative paths in `argv` and `command` (`./scripts/publish.sh`) start from the working folder: the workspace folder, unless `cwd` names another folder inside it.
 
-4. **Limits.** The working folder (`cwd`, default the workspace folder) must be inside the workspace. The default time limit is 30 seconds (`timeout`, up to 10 minutes); a command that runs over is stopped together with what it started. Only a short list of ordinary environment variables is passed on (`PATH`, `HOME`, `LANG`, display and session variables), never the app's own environment.
+4. **Limits.** The working folder (`cwd`, default the workspace folder) must be inside the workspace. The default time limit is 30 seconds (`timeout`, up to 10 minutes; see below for how to write it); a command that runs over is stopped together with what it started. Only a short list of ordinary environment variables is passed on (`PATH`, `HOME`, `LANG`, display and session variables), never the app's own environment.
 5. **Which computer.** A rule with `run_shell` is switched off until it says where it runs, so that two computers do not both run a command by accident. Pick one: `device: desktop` (only the computer with that name, for example the one that has `git` set up), `runs: once` (any one computer: whichever gets there first), or `runs: everywhere` (every computer runs it).
 
 `on_success:` and `on_failure:` take an action or a list; use them to record the result or notify. A failure that has an `on_failure` is handled, so the rest of the rule goes on. Inside them `${shell.code}` (the exit code, 0 means success) and `${shell.stderr}` (what the program wrote as error output) are available:

@@ -120,6 +120,11 @@ export function App({ ctl }: { ctl: Controller }): JSX.Element {
         e.preventDefault();
         ctl.toggleWrapCode();
       }
+      // Alt+1 … Alt+8 show the first … eighth tab, Alt+9 the last one, as in a browser
+      if (e.altKey && !mod && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+        e.preventDefault();
+        ctl.selectTabNumber(Number(e.code.slice(5)));
+      }
       if (e.altKey && !mod && e.code === 'KeyW') {
         e.preventDefault();
         ctl.altSwitchStep(e.shiftKey ? -1 : 1);

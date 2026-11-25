@@ -22,6 +22,10 @@ export interface Toast {
   id: number;
   text: string;
   action?: { label: string; run: () => void };
+  /** a message from a plugin's rule: its “⋯” menu can hide messages of this kind (`key` is what is stored) */
+  mute?: { key: string; label: string };
+  /** the “⋯” menu is open: the message stays until it is closed */
+  menuOpen?: boolean;
 }
 
 export type DialogSpec =
@@ -69,6 +73,12 @@ interface Nav {
 /** A page name made from a title: what a file name cannot hold is dropped (so are question marks and a trailing dot; the title keeps them). */
 export function nameFromTitle(title: string): string {
   return title.replace(/\?/g, '').replace(/[/\\\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/\.+$/, '').trim();
+}
+
+/** The file name a view's New row gives a page: what a file name cannot hold is swapped for something it can (the title keeps it). */
+export function safeStemOf(title: string): string {
+  const n = title.normalize('NFC').replace(/[/\\]/g, '-').replace(/[\u0000-\u001f]/g, ' ').replace(/\?/g, '').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/\.+$/, '').trim();
+  return n === '' ? 'Untitled' : n;
 }
 
 /** A workspace that is open in at least one tab. */
@@ -128,7 +138,7 @@ export interface RelationMemory {
 export class Controller {
   // ---- UI state
   readonly settings = signal<Settings>({
-    theme: 'dark', recent: [], found: [], unlistedWorkspaces: [], scanFolders: [], scanIgnore: [], ignoreFolders: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
+    theme: 'dark', recent: [], found: [], unlistedWorkspaces: [], scanFolders: [], scanIgnore: [], ignoreFolders: [], scanAuto: true, noteExts: ['.md'], noteCreate: '.md', showNestedWorkspaces: true, hideBareFolders: false, nestedInNewTab: true, childrenFilter: 'all', spellcheck: true, fixCapitals: true, synonyms: true, indexAllWorkspaces: true, dictionary: [], disabledPlugins: [], mutedToasts: [], updateMode: 'install', updateUrl: '', lastUpdateCheck: 0, presentScreen: 'auto', presenterWindow: false, presenterScreen: 'auto', firstDayOfWeek: 0, tableWordLimit: 22, globalsEnabled: true,
     lastWorkspace: null, showLeft: true, showRight: true, leftWidth: 280, rightWidth: 300, rightTab: 'outline', childrenDocked: false, bounds: null, maximized: false,
     autoCollapse: true, autoCollapseSeconds: 10, newPageDefault: 'nested', fontStyle: 'sans', fontSizes: { sans: null, serif: null, mono: null }, outlineOrderedLists: true, orderedListStyles: ['I.', 'A.', '1.', 'a.', 'i.', '1)', 'a)', 'i)'], bulletGlyphs: ['\u2022', '\u25E6', '\u25AA'], hierarchicalLists: true, wrapCode: false, dropAction: 'move', dropActionOtherDrive: 'same', exportStyles: [], exportStyle: 'Clean', exportFormat: 'docx', defaultAccent: null, defaultWindow: null, conflictMerge: 'ask', automationShell: false, automationJs: false, automationJsAsk: true, automationBackground: false, deviceName: '', openExternal: 'tab', tabs: [], activeTab: 0, windows: [],
   });
@@ -1293,7 +1303,7 @@ export class Controller {
   }
 
   /** Change one or more preferences (from the preferences dialog). */
-  setPreferences(patch: Partial<Pick<Settings, 'autoCollapse' | 'autoCollapseSeconds' | 'newPageDefault' | 'fontStyle' | 'fontSizes' | 'outlineOrderedLists' | 'exportStyles' | 'exportStyle' | 'exportFormat' | 'orderedListStyles' | 'bulletGlyphs' | 'hierarchicalLists' | 'wrapCode' | 'dropAction' | 'dropActionOtherDrive' | 'defaultAccent' | 'defaultWindow' | 'openExternal' | 'showNestedWorkspaces' | 'hideBareFolders' | 'nestedInNewTab' | 'scanAuto' | 'scanFolders' | 'scanIgnore' | 'automationShell' | 'automationJs' | 'automationJsAsk' | 'automationBackground' | 'deviceName' | 'firstDayOfWeek' | 'tableWordLimit' | 'globalsEnabled' | 'spellcheck' | 'synonyms' | 'indexAllWorkspaces' | 'fixCapitals' | 'dictionary' | 'disabledPlugins' | 'updateMode' | 'updateUrl' | 'presentScreen' | 'presenterWindow' | 'presenterScreen'>>): void {
+  setPreferences(patch: Partial<Pick<Settings, 'autoCollapse' | 'autoCollapseSeconds' | 'newPageDefault' | 'fontStyle' | 'fontSizes' | 'outlineOrderedLists' | 'exportStyles' | 'exportStyle' | 'exportFormat' | 'orderedListStyles' | 'bulletGlyphs' | 'hierarchicalLists' | 'wrapCode' | 'dropAction' | 'dropActionOtherDrive' | 'defaultAccent' | 'defaultWindow' | 'openExternal' | 'showNestedWorkspaces' | 'hideBareFolders' | 'nestedInNewTab' | 'scanAuto' | 'scanFolders' | 'scanIgnore' | 'automationShell' | 'automationJs' | 'automationJsAsk' | 'automationBackground' | 'deviceName' | 'firstDayOfWeek' | 'tableWordLimit' | 'globalsEnabled' | 'spellcheck' | 'synonyms' | 'indexAllWorkspaces' | 'fixCapitals' | 'dictionary' | 'disabledPlugins' | 'mutedToasts' | 'updateMode' | 'updateUrl' | 'presentScreen' | 'presenterWindow' | 'presenterScreen'>>): void {
     const next = { ...patch };
     if (next.autoCollapseSeconds !== undefined) next.autoCollapseSeconds = Math.max(1, Math.min(3600, Math.round(Number(next.autoCollapseSeconds)) || 10));
     if (next.globalsEnabled !== undefined && next.globalsEnabled !== this.settings.value.globalsEnabled) {
@@ -1917,6 +1927,13 @@ export class Controller {
     if (next) void this.activateTab(next.id);
   }
 
+  /** Alt+1 … Alt+9: show the tab in that place (9 is always the last tab), as a browser does. */
+  selectTabNumber(n: number): void {
+    const tabs = this.tabs.value;
+    const tab = n >= 9 ? tabs[tabs.length - 1] : tabs[n - 1];
+    if (tab && tab.id !== this.activeTabId.value) void this.activateTab(tab.id);
+  }
+
   /** Close a tab (default: the active one). Closing the last tab of a workspace closes the workspace. */
   async closeTab(id: string | null = this.activeTabId.value): Promise<void> {
     if (!id) return;
@@ -2353,14 +2370,18 @@ export class Controller {
     if (!this.sessionOf(root)) return;
     const page = e.path ? stripExt(e.path).split('/').pop() : null;
     const where = page ? ` on “${page}”` : '';
+    const status = e.status === 'failed' ? 'failed' : 'ran';
+    const key = this.muteKey(e.rule, status, root);
+    if (this.settings.value.mutedToasts.includes(key)) return;
+    const mute = { key, label: status === 'failed' ? `Messages about “${e.rule}” failing are hidden.` : `Messages from “${e.rule}” are hidden.` };
     if (e.status === 'failed') {
       // a script or command that was not allowed: the link goes to where the permission is, not to the page
       const blocked = /switched off in Preferences|you refused this|Preferences can forget/.test(e.detail);
-      this.toast(`Automation “${e.rule}” failed${where}: ${e.detail || 'see the automation log'}`, blocked ? { label: 'Permissions', run: () => this.openPreferences('sync') } : e.path ? { label: 'Show', run: () => void this.showAutomationPage(e.path!, root) } : undefined);
+      this.toast(`Automation “${e.rule}” failed${where}: ${e.detail || 'see the automation log'}`, blocked ? { label: 'Permissions', run: () => this.openPreferences('sync') } : e.path ? { label: 'Show', run: () => void this.showAutomationPage(e.path!, root) } : undefined, mute);
       return;
     }
     const did = e.steps.filter((s) => s.status === 'done').map((s) => (s.detail && s.detail !== 'ran' ? s.detail : s.action.replace(/_/g, ' ')));
-    this.toast(`Automation “${e.rule}” ran${where}${did.length > 0 ? `: ${did.join('; ')}` : ''}`, e.path ? { label: 'Show', run: () => void this.showAutomationPage(e.path!, root) } : undefined);
+    this.toast(`Automation “${e.rule}” ran${where}${did.length > 0 ? `: ${did.join('; ')}` : ''}`, e.path ? { label: 'Show', run: () => void this.showAutomationPage(e.path!, root) } : undefined, mute);
   }
 
   /**
@@ -4779,7 +4800,7 @@ export class Controller {
           }
         }
       } else parent = cur;
-      const name = nameFromTitle(title);
+      const name = safeStemOf(title);
       const taken = name !== '' && (await this.ws.pageNameTaken(parent, name));
       if (taken && !opts.quiet) {
         const go = await new Promise<boolean>((resolve) => {
@@ -4795,7 +4816,7 @@ export class Controller {
         if (!go) return false;
       }
       if (taken) await this.ws.createPageNumbered(parent, name, content, true);
-      else await this.ws.createPage(parent, title, content, undefined, true);
+      else await this.ws.createPage(parent, title, content, undefined, true, true);
       await this.tree.refresh([parent]);
       this.viewTick.value++;
       void this.loadChildren(); // the sub-page bar of the open page shows the new page at once
@@ -5553,13 +5574,48 @@ export class Controller {
 
   // ---------------------------------------------------------------- toasts & dialogs
 
-  toast(text: string, action?: Toast['action']): void {
+  toast(text: string, action?: Toast['action'], mute?: Toast['mute']): void {
     const id = this.toastId++;
-    this.toasts.value = [...this.toasts.value.slice(-2), { id, text, ...(action ? { action } : {}) }];
-    setTimeout(() => this.dismissToast(id), action ? 9000 : 5000);
+    this.toasts.value = [...this.toasts.value.slice(-2), { id, text, ...(action ? { action } : {}), ...(mute ? { mute } : {}) }];
+    this.armToast(id, action ? 9000 : 5000);
+  }
+  private armToast(id: number, ms: number): void {
+    setTimeout(() => {
+      // a message whose menu is open stays; it is armed again when the menu closes
+      if (this.toasts.value.find((t) => t.id === id)?.menuOpen) return;
+      this.dismissToast(id);
+    }, ms);
   }
   dismissToast(id: number): void {
     this.toasts.value = this.toasts.value.filter((t) => t.id !== id);
+  }
+  /** The “⋯” menu of a message opens or closes. While it is open the message does not go away. */
+  setToastMenu(id: number, open: boolean): void {
+    this.toasts.value = this.toasts.value.map((t) => (t.id === id ? { ...t, menuOpen: open } : t));
+    if (!open && this.toasts.value.some((t) => t.id === id)) this.armToast(id, 4000);
+  }
+
+  private muteKey(rule: string, status: 'ran' | 'failed', root: string | undefined = this.active?.root): string {
+    return `${root ?? ''}|${rule}|${status}`;
+  }
+  /** Hide the messages of a plugin's rule (those that say it ran, or those that say it failed) from now on. */
+  muteToasts(key: string, label: string): void {
+    const rest = this.settings.value.mutedToasts.filter((k) => k !== key);
+    this.setPreferences({ mutedToasts: [...rest, key] });
+    this.toast(`${label} Turn them back on under Plugins > All plugins.`);
+  }
+  /** The kinds of message hidden for the workspace in front: rule id and which messages. */
+  mutedToastsHere(): Array<{ key: string; rule: string; status: 'ran' | 'failed' }> {
+    const root = this.active?.root ?? '';
+    const out: Array<{ key: string; rule: string; status: 'ran' | 'failed' }> = [];
+    for (const key of this.settings.value.mutedToasts) {
+      const [r, rule, status] = key.split('|');
+      if (r === root && rule && (status === 'ran' || status === 'failed')) out.push({ key, rule, status });
+    }
+    return out;
+  }
+  unmuteToasts(keys: string[]): void {
+    this.setPreferences({ mutedToasts: this.settings.value.mutedToasts.filter((k) => !keys.includes(k)) });
   }
 
   confirm(o: { title: string; body: string; details?: string[]; confirm: string; destructive?: boolean }): Promise<boolean> {

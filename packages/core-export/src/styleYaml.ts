@@ -167,7 +167,17 @@ export function parseStyleSetsYaml(text: string, known: StyleSet[] = BUILTIN_STY
     const e = doc.errors[0]!;
     return { sets, errors: [`${e.message.split('\n')[0]}${e.linePos?.[0] ? ` (line ${e.linePos[0].line})` : ''}`] };
   }
-  const top = doc.toJS();
+  let top = doc.toJS();
+  // The styles may sit under an `export-style:` (or `export-styles:`) heading, as in a workspace's settings file.
+  if (top && typeof top === 'object' && !Array.isArray(top)) {
+    const t = top as Record<string, unknown>;
+    for (const key of ['export-style', 'export-styles']) {
+      if (t[key] && typeof t[key] === 'object' && !Array.isArray(t[key])) {
+        top = { ...(t[key] as Record<string, unknown>) };
+        break;
+      }
+    }
+  }
   if (!top || typeof top !== 'object' || Array.isArray(top)) return { sets, errors: ['This has to be a list of style names, each with its settings (Name: …).'] };
   for (const [name, value] of Object.entries(top as Record<string, unknown>)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {

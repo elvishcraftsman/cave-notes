@@ -2394,6 +2394,7 @@ function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
   const own = all.filter((p) => p.origin !== 'default' && !p.pending && hit(p));
   const offered = all.filter((p) => p.pending && hit(p));
   const shipped = all.filter((p) => p.origin === 'default' && hit(p));
+  const muted = ctl.mutedToastsHere();
   const row = (p: (typeof all)[number]): JSX.Element => (
     <li key={p.id} class="plugin-row">
       {p.pending ? (
@@ -2431,6 +2432,24 @@ function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
         {group('Come with the app', shipped, 'Kept in the app config folder, where you can edit them.')}
         {own.length + offered.length + shipped.length === 0 && <p class="pref-hint">{all.length === 0 ? 'There are no plugins.' : 'No plugin matches.'}</p>}
       </div>
+      {muted.length > 0 && (
+        <section class="plugin-group">
+          <h3 class="look-h">Hidden messages</h3>
+          <p class="pref-hint">Plugin messages you chose to hide in this workspace. Remove one to see those messages again.</p>
+          <ul class="plugin-list">
+            {muted.map((m) => (
+              <li key={m.key} class="plugin-row">
+                <span class="pref-text">
+                  <span class="pref-label">{m.rule}</span>
+                  <span class="pref-hint">{m.status === 'failed' ? 'Messages that it failed' : 'Messages that it ran'}</span>
+                </span>
+                <button type="button" class="pill-button" onClick={() => ctl.unmuteToasts([m.key])}>Show again</button>
+              </li>
+            ))}
+          </ul>
+          {muted.length > 1 && <button type="button" class="pill-button" onClick={() => ctl.unmuteToasts(muted.map((m) => m.key))}>Show all again</button>}
+        </section>
+      )}
       <div class="dialog-actions">
         {ctl.caps.windows && <button type="button" class="pill-button" onClick={() => ctl.openImport('plugin')}>Add from file…</button>}
         <button type="button" class="pill-button" onClick={() => void ctl.restoreDefaultPlugins()}>Restore default plugins</button>

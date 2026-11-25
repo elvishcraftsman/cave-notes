@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: Settings = {
   indexAllWorkspaces: true,
   dictionary: [],
   disabledPlugins: [],
+  mutedToasts: [],
   updateMode: 'install',
   updateUrl: '',
   lastUpdateCheck: 0,
@@ -215,6 +216,7 @@ export function portableSettings(raw: unknown): Partial<Settings> {
   if (typeof r.indexAllWorkspaces === 'boolean') out.indexAllWorkspaces = r.indexAllWorkspaces;
   if (Array.isArray(r.dictionary)) out.dictionary = cleanDictionary(r.dictionary);
   if (Array.isArray(r.disabledPlugins)) out.disabledPlugins = cleanDisabledPlugins(r.disabledPlugins);
+  if (Array.isArray(r.mutedToasts)) out.mutedToasts = cleanDisabledPlugins(r.mutedToasts);
   if (typeof r.presentScreen === 'string') out.presentScreen = /^(auto|\d{1,12})$/.test(r.presentScreen) ? r.presentScreen : 'auto';
   if (typeof r.presenterScreen === 'string') out.presenterScreen = /^(auto|\d{1,12})$/.test(r.presenterScreen) ? r.presenterScreen : 'auto';
   if (typeof r.presenterWindow === 'boolean') out.presenterWindow = r.presenterWindow;
@@ -262,6 +264,7 @@ export function normalizeSettings(raw: Partial<Settings>): Settings {
   v.indexAllWorkspaces = raw.indexAllWorkspaces !== false;
   v.dictionary = cleanDictionary(raw.dictionary);
   v.disabledPlugins = cleanDisabledPlugins(raw.disabledPlugins);
+  v.mutedToasts = cleanDisabledPlugins(raw.mutedToasts);
   if (v.updateMode !== 'install' && v.updateMode !== 'notify' && v.updateMode !== 'off') v.updateMode = 'install';
   v.updateUrl = typeof raw.updateUrl === 'string' ? raw.updateUrl.trim().slice(0, 500) : '';
   v.lastUpdateCheck = typeof raw.lastUpdateCheck === 'number' && Number.isFinite(raw.lastUpdateCheck) && raw.lastUpdateCheck > 0 ? Math.floor(raw.lastUpdateCheck) : 0;

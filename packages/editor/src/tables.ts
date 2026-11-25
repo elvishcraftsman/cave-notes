@@ -675,11 +675,13 @@ class TableEditor {
     if (key !== null) {
       // an input cell shows the attribute; typing in it writes the attribute, not the table
       td.dataset.attr = key;
+      td.dataset.placeholder = key; // shown, dimmed, while the field is empty
       td.title = `${key} (saved in the page's attributes)`;
       td.textContent = frontmatterValue(this.view.state.doc, key);
       return;
     }
     delete td.dataset.attr;
+    delete td.dataset.placeholder;
     td.removeAttribute('title');
     if (!raw.includes('${')) {
       renderInline(td, raw);
@@ -703,6 +705,11 @@ class TableEditor {
     }
     if (last < raw.length) renderInline(td, raw.slice(last));
     if (stops.length > 0) this.cleanups.set(td, stops);
+  }
+
+  /** What a cell shows while it is typed in: an input cell its attribute's value, any other cell its text. */
+  private editText(td: HTMLElement, r: number, c: number): string {
+    return td.dataset.attr ? frontmatterValue(this.view.state.doc, td.dataset.attr) : this.value(r, c);
   }
 
   /** The page's text changed elsewhere (an attribute typed in another box): show input cells' new values. */
@@ -733,7 +740,7 @@ class TableEditor {
       td.dataset.editing = '1';
       this.stopDrawing(td);
       // an input cell is typed in as the attribute's value; any other cell as its text
-      td.textContent = td.dataset.attr ? frontmatterValue(this.view.state.doc, td.dataset.attr) : this.value(r, c);
+      td.textContent = this.editText(td, r, c);
       // arriving by keyboard selects the whole cell, as a spreadsheet does
       if (!this.pointerFocus) selectContents(td);
       this.clearSelection();
@@ -742,7 +749,8 @@ class TableEditor {
       this.pointerFocus = false;
       const raw = td.textContent ?? '';
       if (td.dataset.attr) {
-        writeAttribute(this.view, td.dataset.attr, raw);
+        // the cell's own text (`${=this.name}`) is never a value: it would turn the attribute into a broken formula
+        if (inputKey(raw.trim().replace(/^\$\{([\s\S]*)\}$/, '$1')) !== td.dataset.attr) writeAttribute(this.view, td.dataset.attr, raw);
         if (td.isConnected) this.render(td, this.value(r, c));
         return;
       }
@@ -797,7 +805,8 @@ class TableEditor {
     this.clearSelection();
     if (td.dataset.editing !== '1') {
       td.dataset.editing = '1';
-      td.textContent = this.value(r, c);
+      this.stopDrawing(td);
+      td.textContent = this.editText(td, r, c);
     }
     const move = (ev: PointerEvent): void => {
       const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-r]');

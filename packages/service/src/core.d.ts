@@ -52,6 +52,7 @@ declare module '@cave-notes/core-tree' {
   export function normalizePagePath(p: string): string;
   export function normalizeName(n: string): string;
   export function fileStem(n: string): string;
+  export function safeStem(n: string): string;
   export function parentPage(p: string): string | null;
   export function pageName(p: string): string;
   export function pageFolder(p: string): string;

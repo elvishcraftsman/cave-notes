@@ -50,6 +50,7 @@ Read them in this order the first time; later, jump to the one you need.
 | [JavaScript in rules](automation/javascript.md) | `run_js`: a short script for what the built-in actions cannot do. How to turn it on, what a script can use and return, helpers for headings and cursor, and two worked plugins. |
 | [Examples](automation/examples.md) | Fifteen complete rules files for real jobs. |
 | [Shell commands](automation/shell.md) | Running programs, and the guards around it. |
+| [Plugins that call outside services](automation/outside-services.md) | Scripts cannot use the network, so a plugin calls a web service through a helper script and `run_shell`. A minimal rules file, and how `runs:` and `cwd` behave. |
 | [Several computers](automation/computers.md) | How synced computers take turns, the wait after waking up, tombstones for deleted pages, and the `settings:` section. |
 | [Safety nets and the background](automation/safety.md) | Loop limits, checked saves, and rules that keep running with the window closed. |
 

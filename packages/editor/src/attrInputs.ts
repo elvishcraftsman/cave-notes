@@ -60,6 +60,12 @@ const shown = (v: unknown): string => {
 
 /** The text an input box shows for the attribute: the value as written (so `12.50` stays `12.50`), a list as its items. */
 export function frontmatterValue(doc: Text, key: string): string {
+  const v = rawFrontmatterValue(doc, key);
+  // `${=…}` is a field, never a value: one saved by mistake (an older version could do that from a table cell) shows as empty
+  return /^\$\{\s*=[\s\S]*\}$/.test(v.trim()) ? '' : v;
+}
+
+function rawFrontmatterValue(doc: Text, key: string): string {
   const f = findKey(doc, key);
   if (!f) return '';
   const rest = f.rest.replace(/\s+#.*$/, '');
@@ -101,7 +107,7 @@ export function setFrontmatterValue(state: EditorState, key: string, text: strin
 /** Write a value into the page's attributes. Returns false when nothing changed (or the editor cannot be changed). */
 export function writeAttribute(view: EditorView, key: string, text: string): boolean {
   if (view.state.readOnly) return false;
-  if (frontmatterValue(view.state.doc, key) === text.replace(/[\r\n\t]+/g, ' ').trim()) return false;
+  if (rawFrontmatterValue(view.state.doc, key) === text.replace(/[\r\n\t]+/g, ' ').trim()) return false; // (a mistaken `${=…}` is replaced)
   view.dispatch({ changes: setFrontmatterValue(view.state, key, text), userEvent: 'input.attribute' });
   return true;
 }

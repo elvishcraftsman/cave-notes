@@ -23,6 +23,10 @@ Every rule is a few lines of YAML with the same fields. This page lists the fiel
 | `runs` | `once`: only one of your computers does the work (the default for rules that change files). `everywhere`: every computer does it (the default for rules that only notify or log). See [Several computers](computers.md). |
 | `device` | Run only on the computer with this name, for example `device: desktop`. The name is set in Preferences → Sync and automation → Automations; if you never set one, it is the computer's own name. |
 
+## A rule with a mistake is left out
+
+If a rule cannot be read (a misspelled action, a duration such as `5m` that is not allowed, a missing `id`, a shell rule that does not say where it runs), Cave Notes **leaves that rule out** and loads the others. Nothing appears on the screen: the rule simply does not exist, so a plugin with a mistake does not show up in the Plugins menu and a rule with a mistake never runs. The reason is a warning in the log: open **Help > View Logs…** and choose *Application log*; the line names the rule and says what is wrong. Fix the file and the rules reload at once. If a rule or plugin you wrote is missing, look there first.
+
 ## Where, require, unless and if: which one do I use?
 
 All four are conditions, and a rule runs only when all of the ones it has are met. They ask different questions:

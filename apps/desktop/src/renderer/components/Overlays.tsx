@@ -132,6 +132,27 @@ export function Toasts({ ctl }: { ctl: Controller }): JSX.Element {
       {ctl.toasts.value.map((t) => (
         <div class="toast" key={t.id} role="status">
           <span>{t.text}</span>
+          {t.mute && (
+            <span class="toast-menu-wrap">
+              <button
+                class="toast-close toast-more"
+                aria-label="More about this message"
+                aria-haspopup="menu"
+                aria-expanded={t.menuOpen === true}
+                onClick={() => ctl.setToastMenu(t.id, t.menuOpen !== true)}
+                onKeyDown={(e) => { if (e.key === 'Escape' && t.menuOpen) { e.stopPropagation(); ctl.setToastMenu(t.id, false); } }}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.4" fill="currentColor" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="13" cy="8" r="1.4" fill="currentColor" /></svg>
+              </button>
+              {t.menuOpen && (
+                <div class="toast-menu" role="menu">
+                  <button role="menuitem" class="toast-menu-item" onClick={() => { ctl.muteToasts(t.mute!.key, t.mute!.label); ctl.dismissToast(t.id); }}>
+                    Hide messages like this
+                  </button>
+                </div>
+              )}
+            </span>
+          )}
           {t.action && (
             <button
               class="toast-action"

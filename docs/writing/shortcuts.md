@@ -17,6 +17,7 @@ In the app: the main menu's **Help** (or `Ctrl+/`, or `F1`) → **Keyboard short
 | `Ctrl+W` | Close the tab |
 | `Ctrl+Tab / Ctrl+Shift+Tab` | Next / previous tab, in tab order |
 | `Ctrl+PageDown / Ctrl+PageUp` | Next / previous tab, in tab order |
+| `Alt+1` … `Alt+8` / `Alt+9` | Go to the first … eighth tab / the last tab, in tab order, as in a browser |
 | `Alt+W` | Switch to the tab you used before this one; keep Alt down and press W again to go further back (Shift+Alt+W goes the other way) |
 | `Alt+Left / Alt+Right` | Back / forward in this tab |
 | `Ctrl+,` | Preferences |

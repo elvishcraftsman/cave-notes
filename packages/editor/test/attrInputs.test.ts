@@ -106,6 +106,9 @@ describe('expressions and input cells in a table', () => {
     const input = cells.find((c) => c.dataset.attr === 'shop')!;
     expect(input.textContent).toBe('50');
     expect(input.classList.contains('cm-attr-cell')).toBe(true);
+    expect(input.dataset.placeholder).toBe('shop'); // an empty field shows its name
+    const header = ed.view.dom.querySelector<HTMLElement>('th.cm-table-cell')!;
+    expect(header.dataset.placeholder).toBeUndefined();
     expect(cells.find((c) => c.textContent === '<this.shop - 3>')).toBeDefined();
   });
 
@@ -122,6 +125,35 @@ describe('expressions and input cells in a table', () => {
     expect(text).toContain('shop: 75\n');
     expect(text).toContain('| Shop | ${=this.shop} | ${this.shop - 3} |');
     expect(ed.view.dom.querySelector<HTMLElement>('td[data-attr="shop"]')!.textContent).toBe('75');
+  });
+
+  it('shows and saves the attribute when the cell is clicked with the mouse', async () => {
+    const ed = make(DOC);
+    await settle();
+    const input = ed.view.dom.querySelector<HTMLElement>('td[data-attr="shop"]')!;
+    input.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }));
+    input.dispatchEvent(new FocusEvent('focus'));
+    expect(input.textContent).toBe('50'); // not ${=this.shop}
+    input.textContent = '64';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new FocusEvent('blur'));
+    expect(ed.view.state.doc.toString()).toContain('shop: 64\n');
+    // clicked and left without typing: the attribute keeps its value
+    const again = ed.view.dom.querySelector<HTMLElement>('td[data-attr="shop"]')!;
+    again.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }));
+    again.dispatchEvent(new FocusEvent('blur'));
+    expect(ed.view.state.doc.toString()).toContain('shop: 64\n');
+  });
+
+  it('treats a field saved into its own attribute by mistake as empty', async () => {
+    const ed = make('---\nshop: ${=this.shop}\n---\n| A | B |\n| --- | --- |\n| x | ${=this.shop} |\n\nend');
+    await settle();
+    const td = ed.view.dom.querySelector<HTMLElement>('td[data-attr="shop"]')!;
+    expect(td.textContent).toBe('');
+    // clicking into it and out again repairs the attribute
+    td.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }));
+    td.dispatchEvent(new FocusEvent('blur'));
+    expect(ed.view.state.doc.toString()).toContain('---\nshop:\n---');
   });
 
   it('shows the new value when the attribute is changed elsewhere', async () => {

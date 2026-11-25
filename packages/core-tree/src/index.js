@@ -12,6 +12,7 @@ export {
   extOf,
   normalizeName,
   fileStem,
+  safeStem,
   normalizePagePath,
   pageFolder,
   pageName,

@@ -99,6 +99,26 @@ export function fileStem(name) {
   return normalizeName(n);
 }
 
+/**
+ * A file name made from any title: what a file name cannot hold is swapped for something it can (slashes and backslashes
+ * become a hyphen, control characters a space), question marks and leading/trailing dots go, and a name that is too long
+ * is cut. The title itself is not touched; only the file gets this name.
+ */
+export function safeStem(title) {
+  let n = String(title ?? '')
+    .normalize('NFC')
+    .replace(/[/\\]/g, '-')
+    .replace(/[\u0000-\u001f]/g, ' ')
+    .replace(/\?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\.+/, '')
+    .replace(/\.+$/, '')
+    .trim();
+  while (n && utf8Length(n) > MAX_NAME_BYTES) n = n.slice(0, -1).trimEnd();
+  return n === '' ? 'Untitled' : n;
+}
+
 /** Validate a page path. Returns it unchanged. Does not touch the filesystem. */
 export function normalizePagePath(p) {
   if (typeof p !== 'string' || p === '') {

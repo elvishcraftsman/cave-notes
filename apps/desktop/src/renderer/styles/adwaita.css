@@ -353,6 +353,10 @@ button:focus-visible, .tree:focus-visible, [tabindex]:focus-visible, input:focus
 .toast-action:hover { background: rgba(255, 255, 255, 0.1); }
 .toast-close { border: 0; background: transparent; color: #fff; opacity: 0.6; width: 24px; height: 24px; border-radius: 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .toast-close:hover { opacity: 1; background: rgba(255, 255, 255, 0.1); }
+.toast-menu-wrap { position: relative; display: inline-flex; }
+.toast-menu { position: absolute; right: 0; bottom: calc(100% + 8px); min-width: 12rem; padding: 4px; border-radius: 12px; background: var(--toast-bg); box-shadow: 0 4px 18px var(--shadow); z-index: 1; }
+.toast-menu-item { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: #fff; padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; }
+.toast-menu-item:hover, .toast-menu-item:focus-visible { background: rgba(255, 255, 255, 0.12); }
 
 /* ---- CodeMirror pieces that live outside the editor theme ---- */
 .cm-tooltip.cm-tooltip-autocomplete { background: var(--popover-bg); color: var(--window-fg); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 2px 10px var(--shadow), 0 8px 30px var(--shadow); padding: 6px; overflow: hidden; font-family: var(--ui-font); }
