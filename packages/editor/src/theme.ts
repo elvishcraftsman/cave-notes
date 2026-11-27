@@ -166,6 +166,7 @@ export const noteTheme = EditorView.theme({
   '.cm-image-wrap': { display: 'block' },
   '.cm-image-alt, .cm-image-missing': { color: 'var(--dim-fg)', fontStyle: 'italic' },
 
+  '.cm-frontmatter-more': { marginLeft: '10px', padding: '0 8px', borderRadius: '10px', border: '1px solid var(--border)', fontFamily: 'var(--ui-font, inherit)', fontSize: '11px', color: 'var(--dim-fg)', cursor: 'pointer', whiteSpace: 'nowrap' },
   '.cm-attrbar': { letterSpacing: 'normal', wordSpacing: 'normal', padding: '2px 0 4px', fontFamily: 'var(--ui-font, inherit)', fontSize: '14px', lineHeight: '1.3' },
   '.cm-attrbar-row': { display: 'flex', alignItems: 'center', gap: '6px', height: '22px', opacity: '0', transition: 'opacity 0.12s' },
   '.cm-attrbar:hover .cm-attrbar-row, .cm-attrbar:focus-within .cm-attrbar-row, .cm-attrbar-open .cm-attrbar-row': { opacity: '1' },

@@ -1,0 +1,9 @@
+plugin:
+  id: join-wrapped-lines
+  name: Join wrapped lines
+  version: 1.0.0
+  description: "Joins the lines of a paragraph that was broken into short lines, as text copied from a PDF or a license usually is."
+  author: Cave Notes
+  scopes: [app]
+automations:
+  - automations/join-wrapped-lines.yaml

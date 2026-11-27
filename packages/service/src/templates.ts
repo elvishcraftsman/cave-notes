@@ -18,6 +18,33 @@ export interface TemplateInfo {
   rel: string;
   /** a template of the app (the app config folder): its whole path; every workspace offers it, one of the workspace's own with the same name wins */
   abs?: string;
+  /** a template that came with a plugin: the plugin's folder name (see plugins.ts) */
+  plugin?: string;
+  /** (plugin templates) its pages get layout updates: they carry a `pluginPage` attribute */
+  managed?: boolean;
+  /** (plugin templates) used by automations and `childTemplate`, not offered when a person picks a template */
+  hidden?: boolean;
+}
+
+/** The marks of a finished plugin install (see plugins.ts); the loader of settings uses the same one. */
+export const PLUGIN_RECORD_FILE = '.installed.json';
+
+/** The folders of installed plugins that hold templates: `<settings folder>/plugins/<name>/templates`, with the plugin's folder name. */
+export async function pluginTemplateDirs(settingsDir: string): Promise<Array<{ plugin: string; dir: string }>> {
+  const out: Array<{ plugin: string; dir: string }> = [];
+  const base = path.join(settingsDir, 'plugins');
+  for (const n of (await entries(base)).filter((x) => !x.startsWith('.')).sort()) {
+    if (await isFile(path.join(base, n, PLUGIN_RECORD_FILE))) out.push({ plugin: n, dir: path.join(base, n, 'templates') });
+  }
+  return out;
+}
+
+async function isFile(p: string): Promise<boolean> {
+  try {
+    return (await fs.stat(p)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 const frontmatterOf = (text: string): Record<string, unknown> => {
@@ -85,13 +112,34 @@ async function isDir(p: string): Promise<boolean> {
   }
 }
 
-/** Every template usable for sub-pages of `page` (null = the top level), nearest first, one per name. */
-export async function listTemplates(root: string, page: string | null, appDir?: string | null): Promise<TemplateInfo[]> {
+const flag = (v: unknown): boolean => v === true || (typeof v === 'string' && v.trim().toLowerCase() === 'true');
+
+/**
+ * Every template usable for sub-pages of `page` (null = the top level), nearest first, one per name. The order: sub-page
+ * templates, the workspace's `templates/`, the workspace's installed plugins, then the app's `templates/` and the app's
+ * installed plugins. A plugin's `hidden` templates are left out unless `hidden` is asked for (an automation or a
+ * `childTemplate` may use them; a person is not offered them).
+ */
+export async function listTemplates(root: string, page: string | null, appDir?: string | null, opts: { hidden?: boolean } = {}): Promise<TemplateInfo[]> {
   const exts = noteExtensions();
   const found = new Map<string, TemplateInfo>();
   const add = (info: TemplateInfo): void => {
     const k = info.name.toLowerCase();
     if (!found.has(k)) found.set(k, info);
+  };
+  const nameOf = (rel: string): { name: string; ext: string } => {
+    const f = rel.slice(rel.lastIndexOf('/') + 1);
+    const ext = exts.find((e) => f.toLowerCase().endsWith(e))!;
+    return { name: f.slice(0, -ext.length), ext };
+  };
+  /** the marks a plugin's template carries in its frontmatter */
+  const pluginFlags = async (abs: string): Promise<{ managed: boolean; hidden: boolean }> => {
+    try {
+      const fm = frontmatterOf(await fs.readFile(abs, 'utf8'));
+      return { managed: flag(fm.managed), hidden: flag(fm.hidden) };
+    } catch {
+      return { managed: false, hidden: false };
+    }
   };
   for (const folder of templateFolders(page)) {
     for (const f of await entries(join(root, folder))) {
@@ -107,24 +155,28 @@ export async function listTemplates(root: string, page: string | null, appDir?: 
       if (isTemplateText(text)) add({ name: f.slice(0, -ext.length), holder: folder === '' ? null : null, rel });
     }
   }
-  for (const rel of await templateFiles(join(root, TEMPLATES_DIR), exts)) {
-    const f = rel.slice(rel.lastIndexOf('/') + 1);
-    const ext = exts.find((e) => f.toLowerCase().endsWith(e))!;
-    add({ name: f.slice(0, -ext.length), holder: null, rel: `${TEMPLATES_DIR}/${rel}` });
-  }
+  for (const rel of await templateFiles(join(root, TEMPLATES_DIR), exts)) add({ name: nameOf(rel).name, holder: null, rel: `${TEMPLATES_DIR}/${rel}` });
+  const fromPlugins = async (settingsDir: string, make: (plugin: string, rel: string, abs: string) => Omit<TemplateInfo, 'name' | 'holder'>): Promise<void> => {
+    for (const { plugin, dir } of await pluginTemplateDirs(settingsDir)) {
+      for (const rel of await templateFiles(dir, exts)) {
+        const abs = path.join(dir, ...rel.split('/'));
+        const flags = await pluginFlags(abs);
+        if (flags.hidden && !opts.hidden) continue;
+        add({ name: nameOf(rel).name, holder: null, plugin, ...flags, ...make(plugin, rel, abs) });
+      }
+    }
+  };
+  await fromPlugins(path.join(root, '.cave-notes'), (plugin, rel) => ({ rel: `.cave-notes/plugins/${plugin}/templates/${rel}` }));
   // the app's own templates come last: the workspace's win by name
   if (appDir) {
-    for (const rel of await templateFiles(appDir, exts)) {
-      const f = rel.slice(rel.lastIndexOf('/') + 1);
-      const ext = exts.find((e) => f.toLowerCase().endsWith(e))!;
-      add({ name: f.slice(0, -ext.length), holder: null, rel: `app/${rel}`, abs: path.join(appDir, ...rel.split('/')) });
-    }
+    for (const rel of await templateFiles(appDir, exts)) add({ name: nameOf(rel).name, holder: null, rel: `app/${rel}`, abs: path.join(appDir, ...rel.split('/')) });
+    await fromPlugins(path.dirname(appDir), (plugin, rel, abs) => ({ rel: `app/plugins/${plugin}/${rel}`, abs }));
   }
   return [...found.values()];
 }
 
 export async function findTemplate(root: string, page: string | null, name: string, appDir?: string | null): Promise<(TemplateInfo & { text: string }) | null> {
-  const t = (await listTemplates(root, page, appDir)).find((x) => x.name.toLowerCase() === name.trim().toLowerCase());
+  const t = (await listTemplates(root, page, appDir, { hidden: true })).find((x) => x.name.toLowerCase() === name.trim().toLowerCase());
   if (!t) return null;
   try {
     return { ...t, text: await fs.readFile(t.abs ?? join(root, t.rel), 'utf8') };
@@ -184,7 +236,7 @@ const today = (): string => {
  * The text of a new page made from a template: `template: true` is dropped (the page is not a template), `{{title}}` and
  * `{{date}}` are filled in, and a `# title` heading is added when the template has none.
  */
-export function instantiate(templateText: string, title: string): string {
+export function instantiate(templateText: string, title: string, fromPlugin = false): string {
   let fm = '';
   let body = templateText;
   const m = /^---[ \t]*\r?\n([\s\S]*?)\r?\n(---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(templateText);
@@ -194,6 +246,8 @@ export function instantiate(templateText: string, title: string): string {
     if (doc.errors.length === 0 && YAML.isMap(doc.contents)) {
       doc.delete('template');
       doc.delete('childTemplate');
+      // the marks of a plugin's template are about the template, not the page made from it
+      if (fromPlugin) for (const k of ['plugin', 'managed', 'hidden', 'layout']) doc.delete(k);
       const rest = String(doc).trimEnd();
       fm = doc.contents.items.length > 0 ? `---\n${rest}\n---\n` : '';
     } else fm = m[0];

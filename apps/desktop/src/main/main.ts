@@ -14,15 +14,16 @@ import { noLongerWorkspaces, promoteFolder, removeWorkspace, workspaceStatus } f
 import { CONFIG_NOTES, isConfigRoot } from '@cave-notes/service/config-folder';
 import { WorkerClient } from './worker-client';
 import { integrate, removeIntegration } from './appimage-integration';
-import { appConfigFolder, seedDefaults } from '@cave-notes/service/app-config';
+import { appConfigFolder } from '@cave-notes/service/app-config';
+import { syncBuiltins } from '@cave-notes/service/builtins';
 import { UpdateManager } from './update-manager';
 import { variantOf } from './updater';
 import { readConfigSync } from '@cave-notes/core-index/config';
 import { handleJs } from './automation-js';
 import { Approvals, handleShell, type ShellRequest } from './automation-shell';
 import { ScriptTrust, runScript as runScriptBlock } from './script-runner';
-import { BUILTIN_STYLES, stringifyStyleSets } from '@cave-notes/core-export';
-import { importFromFiles } from './importFiles';
+import { BUILTIN_STYLES, stringifyStyleSets, unwrapStyleYaml } from '@cave-notes/core-export';
+import { readPluginSources } from './pluginSource';
 import { zipFolder } from './zip';
 import { listLogSources, readLogSource, type AutomationLogRef } from './logs';
 import { configureLog, isLevel, log, logFile, logLevel, rotateLog, setLogLevel, watchEventLoop, type Level } from '../shared/log';
@@ -393,20 +394,40 @@ const globalStylesFile = (): string => {
   return file;
 };
 
-/** The styles in the other YAML files of that folder (ones that were added from a file): all of them in one text. */
+/**
+ * The styles in the other YAML files of that folder, and in the plugins installed for the app (their `styles/` folders): all of
+ * them in one text, each file written the same way (the styles themselves, whether the file had them under `export-style:` or not).
+ */
 const otherStyleFiles = (): string => {
   const main = globalStylesFile();
   const dir = path.dirname(main);
+  const read = (file: string): string => {
+    try {
+      return unwrapStyleYaml(fs.readFileSync(file, 'utf8'));
+    } catch {
+      return '';
+    }
+  };
+  const yaml = (d: string): string[] => {
+    try {
+      return fs.readdirSync(d).filter((n) => /\.ya?ml$/i.test(n) && !n.startsWith('.')).sort((a, b) => a.localeCompare(b));
+    } catch {
+      return [];
+    }
+  };
+  const out: string[] = yaml(dir).filter((n) => path.join(dir, n) !== main).map((n) => read(path.join(dir, n)));
+  const plugins = path.join(appConfigDir(), 'plugins');
   try {
-    return fs
-      .readdirSync(dir)
-      .filter((n) => /\.ya?ml$/i.test(n) && !n.startsWith('.') && path.join(dir, n) !== main)
-      .sort((a, b) => a.localeCompare(b))
-      .map((n) => fs.readFileSync(path.join(dir, n), 'utf8'))
-      .join('\n');
+    for (const p of fs.readdirSync(plugins).filter((n) => !n.startsWith('.')).sort((a, b) => a.localeCompare(b))) {
+      // only an installed plugin (one with its record) is read
+      if (!fs.existsSync(path.join(plugins, p, '.installed.json'))) continue;
+      const sd = path.join(plugins, p, 'styles');
+      for (const n of yaml(sd)) out.push(read(path.join(sd, n)));
+    }
   } catch {
-    return '';
+    /* no plugins folder */
   }
+  return out.filter((t) => t.trim() !== '').join('\n');
 };
 const shippedDefaultsDir = (): string => (app.isPackaged ? path.join(process.resourcesPath, 'defaults') : path.join(app.getAppPath(), 'defaults'));
 
@@ -964,7 +985,7 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
     },
     async appConfigFolder() {
       const dir = appConfigDir();
-      await seedDefaults(shippedDefaultsDir(), dir);
+      await syncBuiltins(shippedDefaultsDir(), dir);
       return dir;
     },
     async updateStatus() {
@@ -1165,8 +1186,8 @@ const mainApiFor = (w: BrowserWindow | null): MainApi => {
       const r = w ? await dialog.showOpenDialog(w, opts) : await dialog.showOpenDialog(opts);
       return r.canceled ? [] : r.filePaths;
     },
-    async importFromFile(req) {
-      return importFromFiles(req, appConfigDir());
+    async readPluginSource(sources) {
+      return readPluginSources(sources);
     },
     async getGlobalStyleFiles() {
       return otherStyleFiles();

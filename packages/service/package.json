@@ -16,6 +16,8 @@
     "./globals": "./src/globals.ts",
     "./relations": "./src/relations.ts",
     "./templates": "./src/templates.ts",
+    "./plugins": "./src/plugins.ts",
+    "./builtins": "./src/builtins.ts",
     "./workspace-file": "./src/workspace-file.ts",
     "./web-worker-core": "./src/web-worker-core.ts",
     "./web-host": "./src/web-host.ts",

@@ -493,6 +493,14 @@ export interface WorkerApi {
   uninstallPlugin(id: string): Promise<UninstallResult>;
   /** Bring back the default plugins (and templates) that were uninstalled. */
   restoreDefaultPlugins(): Promise<number>;
+  /** What installing a plugin package would do. Writes nothing. */
+  pluginPreview(req: PluginRequest): Promise<PluginPreview>;
+  /** Install a plugin package: one folder with a record, and its starter pages. */
+  pluginInstall(req: PluginRequest): Promise<PluginInstallResult>;
+  /** The plugins installed in this workspace and in the app. */
+  pluginsInstalled(): Promise<InstalledPluginInfo[]>;
+  /** Take an installed plugin out. Its starter pages stay, as ordinary pages. */
+  pluginRemove(folder: string, scope: 'workspace' | 'app'): Promise<UninstallResult>;
   /**
    * Run a plugin on `text` (the selection, or the whole page when `selection` is false) with the answers to its questions.
    * Nothing is written: the changed text comes back for the window to put into the editor.
@@ -874,8 +882,8 @@ export interface MainApi {
   getGlobalStyleFiles(): Promise<string>;
   /** Ask for files (or a folder) to add as a plugin, export style or template; the paths chosen (empty when cancelled). */
   pickImportFiles(mode: 'file' | 'folder'): Promise<string[]>;
-  /** Put the chosen files where the person said (see ImportWhere). */
-  importFromFile(req: ImportRequest): Promise<ImportResult>;
+  /** Read what was chosen (a `.cnplugin`, a zip, a folder, or loose files) as the files of a plugin package. Nothing is written. */
+  readPluginSource(sources: string[]): Promise<{ ok: true; files: Record<string, Uint8Array>; label: string } | { ok: false; error: string }>;
   /** The logs there are now (the application log, and the automation log of each open workspace) and the folder that holds the application log. */
   logSources(): Promise<{ dir: string; sources: LogSource[] }>;
   /** The text of one log (the end of it, when it is large), or of all of them (`all`). */
@@ -1041,7 +1049,7 @@ export interface RawBridge {
 
 export const MAIN_METHODS = [
   'chooseWorkspace', 'getSettings', 'setSettings', 'attachWorkspace', 'detachWorkspace', 'openPath', 'appConfigFolder', 'showInFolder', 'openExternal', 'updateStatus', 'checkForUpdate', 'installUpdate', 'restartApp',
-  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'listIgnoreFiles', 'saveIgnoreFile', 'deleteIgnoreFile', 'addIgnoreFolder', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'saveDataFile', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'importFromFile', 'logSources', 'readLog',
+  'workspaceStatus', 'promoteFolder', 'removeWorkspace', 'scanWorkspaces', 'ignoredWorkspaces', 'listIgnoreFiles', 'saveIgnoreFile', 'deleteIgnoreFile', 'addIgnoreFolder', 'trash', 'setTitle', 'setTheme', 'closeNow', 'getWindowInit', 'setWindowTabs', 'newWindow', 'moveTabToWindow', 'revealPath', 'fileIcon', 'runScript', 'stopScript', 'forgetScriptApprovals', 'setHeaderColor', 'exportSettings', 'exportDocument', 'saveDataFile', 'exportPresentation', 'getDisplays', 'presentStart', 'getGlobalExportStyles', 'setGlobalExportStyles', 'bundledFonts', 'saveFonts', 'installFonts', 'importSettings', 'isFile', 'docsFolder', 'saveDocsZip', 'getGlobalStyleFiles', 'pickImportFiles', 'readPluginSource', 'logSources', 'readLog',
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [
@@ -1049,7 +1057,7 @@ export const WORKER_METHODS = [
   'planMove', 'applyPlan', 'undoLast', 'lastMove', 'deleteInfo', 'afterDelete', 'pageInfo', 'links', 'backlinks',
   'resolveLink', 'suggestPages', 'findPagePaths', 'getInheritedExportStyles', 'search', 'replaceFind', 'replaceApply', 'attributeKeys', 'attributeValues', 'queryView', 'savedQueries', 'saveQuery', 'setAttribute', 'setFileAttributes', 'moveFile', 'mergeTemplateInto', 'templateAttributes', 'editRelation', 'relationCandidates', 'setPageTitle', 'stats', 'getState', 'setState',
   'absolutePath', 'importFile', 'fileInPage', 'importExternal', 'setSyncOptions', 'mergeConflictCopies', 'historyList', 'historyRead', 'snapshot', 'historyTexts',
-  'automationStatus', 'automationRulesFor', 'automationLog', 'automationRun', 'automationButton', 'automationButtonAsk', 'automationRulesResult', 'automationPlugins', 'uninstallPlugin', 'restoreDefaultPlugins', 'automationPluginAsk', 'automationPlugin', 'automationReload',
+  'automationStatus', 'automationRulesFor', 'automationLog', 'automationRun', 'automationButton', 'automationButtonAsk', 'automationRulesResult', 'automationPlugins', 'uninstallPlugin', 'restoreDefaultPlugins', 'pluginPreview', 'pluginInstall', 'pluginsInstalled', 'pluginRemove', 'automationPluginAsk', 'automationPlugin', 'automationReload',
 ] as const satisfies ReadonlyArray<keyof WorkerApi>;
 
 /** One question of a plugin (`ask:` of a rule). */
@@ -1084,19 +1092,73 @@ export interface PluginInfo {
 
 /** Adding plugins, export styles or templates from files (see main/importFiles.ts). */
 export type ImportKind = 'plugin' | 'style' | 'template';
-/** `app`: the app's folder (all workspaces, this computer); `workspace`: this workspace's .cave-notes (this workspace, every computer); `global`: the same, tagged !global (all workspaces, every computer that has this one) */
-export type ImportWhere = 'app' | 'workspace' | 'global';
-export interface ImportRequest {
-  kind: ImportKind;
-  where: ImportWhere;
-  /** absolute paths of what was chosen or dropped: files, folders or .zip files */
-  sources: string[];
-  workspaceRoot?: string;
+
+/** A plugin package to look at or install: its files by path, where it goes and the answers to its setup questions. */
+export interface PluginRequest {
+  files: Record<string, Uint8Array>;
+  scope: 'workspace' | 'app' | 'shared';
+  answers?: Record<string, unknown>;
 }
-export interface ImportResult {
+export interface PluginSetupQuestion {
+  name: string;
+  label: string;
+  type: string;
+  default: unknown;
+  options: string[] | null;
+  min: number | null;
+  max: number | null;
+}
+export type PluginPreview =
+  | {
+      ok: true;
+      id: string;
+      name: string;
+      version: string;
+      description: string;
+      author: string | null;
+      homepage: string | null;
+      scopes: Array<'workspace' | 'app' | 'shared'>;
+      setup: PluginSetupQuestion[];
+      readme: string | null;
+      /** what it adds, in words */
+      adds: string[];
+      /** what it can do, in words */
+      can: Array<{ kind: string; text: string; warn?: boolean }>;
+      conflicts: Array<{ kind: string; name: string; resolution: string; becomes?: string; text: string }>;
+      pages: Array<{ path: string; open: boolean }>;
+      warnings: string[];
+      /** set when the answers do not fit the questions or the plugin cannot go where it was asked to */
+      problem: string | null;
+      /** the answers in force: what the person gave, else (for an update) what they gave before, else the defaults */
+      answers: Record<string, unknown>;
+      /** set when this is a new version of a plugin that is installed already: what it would do to each file */
+      update: {
+        installedVersion: string;
+        direction: 'upgrade' | 'same' | 'older';
+        where: 'workspace' | 'app';
+        replaced: string[];
+        kept: string[];
+        added: string[];
+        removed: string[];
+        left: string[];
+      } | null;
+    }
+  | { ok: false; errors: string[] };
+export interface PluginInstallResult {
   ok: boolean;
   message: string;
-  added: string[];
+  /** a starter page to open */
+  open: string | null;
+  folder: string | null;
+}
+export interface InstalledPluginInfo {
+  folder: string;
+  scope: 'workspace' | 'app' | 'shared';
+  where: 'workspace' | 'app';
+  id: string;
+  name: string;
+  version: string;
+  installed: string;
 }
 
 export interface UninstallResult {

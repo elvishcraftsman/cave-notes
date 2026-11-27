@@ -5,7 +5,7 @@ order: 2
 
 *Part of [Triggers](../triggers.md).*
 
-A plugin is a rule that works on the text you are writing. It is listed in the **Plugins** menu next to the main menu button, and runs on the selected text (or on the whole page if nothing is selected). Give it `on: { plugin: "Name" }`, and, if it needs to know something, an `ask:` list: the window shows a small dialog with those questions first, and the answers are `${ask.name}` in the actions.
+A plugin is a rule that works on the text you are writing. It is listed in the **Plugins** menu next to the main menu button, and runs on the selected text (or on the whole page if nothing is selected). Give it `on: { menu: "Name" }` (`on: { plugin: "Name" }` is the same thing: it is the older name, from before a *plugin* also meant a package you can [add and remove as one thing](../../workspaces/making-plugins.md)), and, if it needs to know something, an `ask:` list: the window shows a small dialog with those questions first, and the answers are `${ask.name}` in the actions.
 
 ```yaml
 rules:

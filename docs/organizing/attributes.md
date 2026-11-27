@@ -81,6 +81,8 @@ due: 2026-12-01
 ---
 ```
 
+In the editor a page with several attributes shows only the **first one**, with a small **+2 more** after it, so a long list does not push the text down the screen. Click the line (or the **+ more** label) to open all of them and edit; they fold again when the cursor leaves the block.
+
 ## `children:` blocks
 
 ```yaml

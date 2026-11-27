@@ -241,3 +241,10 @@ rules:
   assert.equal(plain.icon, undefined, 'an icon name that is not a plain name is left out');
   assert.equal(plain.description, undefined);
 });
+
+test('on: { menu: "Name" } is the same trigger as on: { plugin: "Name" }', () => {
+  const r = parseAutomations('rules:\n  - id: m\n    on: { menu: "Tidy" }\n    do: [ { log: hi } ]\n  - id: p\n    on: { plugin: "Old" }\n    do: [ { log: hi } ]\n');
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.rules.map((x) => [x.id, x.triggers[0].kind, x.triggers[0].label]), [['m', 'plugin', 'Tidy'], ['p', 'plugin', 'Old']]);
+  assert.match(parseAutomations('rules:\n  - id: m\n    on: { menu: "" }\n    do: [ { log: hi } ]\n').warnings.join(' '), /menu is the name/);
+});

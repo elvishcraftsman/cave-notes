@@ -40,8 +40,8 @@ export interface AutomationOptions {
   deviceName: string;
   /** the rules other workspaces share with this one (`rules: !global`) and the person approved */
   inheritedRules?: () => unknown[] | undefined;
-  /** the plugins that come with the app (see app-config.ts); a workspace's own rules with the same id win */
-  defaultRules?: () => unknown[] | undefined;
+  /** the app config folder: the automations of its plugins are the app's layer under the workspace's own rules */
+  baseDir?: string | null;
   emit: <K extends keyof WorkerEvents>(event: K, payload: WorkerEvents[K]) => void;
 }
 
@@ -116,7 +116,7 @@ export class AutomationRunner {
 
   /** Read the rules and begin. Call once the index is ready. */
   async start(): Promise<void> {
-    const text = await rulesText(path.join(this.o.root, '.cave-notes'), this.o.inheritedRules?.(), this.o.defaultRules?.());
+    const text = await rulesText(path.join(this.o.root, '.cave-notes'), this.o.inheritedRules?.(), this.o.baseDir);
     await this.run(async () => {
       await this.engine.load(text);
       this.announce();
@@ -144,7 +144,7 @@ export class AutomationRunner {
 
   /** The settings files of `.cave-notes` changed. */
   async reload(): Promise<void> {
-    const text = await rulesText(path.join(this.o.root, '.cave-notes'), this.o.inheritedRules?.(), this.o.defaultRules?.());
+    const text = await rulesText(path.join(this.o.root, '.cave-notes'), this.o.inheritedRules?.(), this.o.baseDir);
     await this.run(async () => {
       await this.engine.reload(text);
       this.announce();

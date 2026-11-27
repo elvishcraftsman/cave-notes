@@ -1,0 +1,9 @@
+plugin:
+  id: estimate-page-count
+  name: Estimate page count
+  version: 1.0.0
+  description: "The “Estimate page count” automation of the Automations menu."
+  author: Cave Notes
+  scopes: [app]
+automations:
+  - automations/estimate-page-count.yaml

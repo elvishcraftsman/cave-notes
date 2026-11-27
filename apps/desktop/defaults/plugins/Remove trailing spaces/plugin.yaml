@@ -1,0 +1,9 @@
+plugin:
+  id: remove-trailing-spaces
+  name: Remove trailing spaces
+  version: 1.0.0
+  description: "The “Remove trailing spaces” automation of the Automations menu."
+  author: Cave Notes
+  scopes: [app]
+automations:
+  - automations/remove-trailing-spaces.yaml

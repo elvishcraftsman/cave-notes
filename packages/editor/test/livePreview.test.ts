@@ -145,10 +145,25 @@ suite('blocks', () => {
 
 suite('frontmatter', () => {
   it('is one styled block, not a rule plus a heading', () => {
-    const d = describe('---\ntitle: Hello\ntags: [a]\n---\n\n# Body\n\n‸');
-    expect(d.lines.filter((l) => l.endsWith('cm-frontmatter'))).toEqual(['1:cm-frontmatter', '2:cm-frontmatter', '3:cm-frontmatter', '4:cm-frontmatter']);
-    expect(d.lines.filter((l) => l.includes('cm-h'))).toEqual(['6:cm-heading cm-h1']);
+    const d = describe('---\ntitle: Hello\n---\n\n# Body\n\n‸');
+    expect(d.lines.filter((l) => l.endsWith('cm-frontmatter'))).toEqual(['1:cm-frontmatter', '2:cm-frontmatter', '3:cm-frontmatter']);
+    expect(d.lines.filter((l) => l.includes('cm-h'))).toEqual(['5:cm-heading cm-h1']);
     expect(d.hidden).toEqual(['# ']);
+  });
+
+  it('shows one attribute line, with how many more there are, until the cursor is in the block', () => {
+    const doc = '---\ntitle: Hello\ntags: [a]\nstatus: draft\n---\n\n# Body\n\n';
+    const folded = describe(`${doc}‸`);
+    expect(folded.lines.filter((l) => l.endsWith('cm-fence-hidden'))).toEqual(['1:cm-fence-hidden', '3:cm-fence-hidden', '4:cm-fence-hidden', '5:cm-fence-hidden']);
+    expect(folded.widgets).toEqual(['AttributesMoreWidget:']);
+    const open = describe(doc.replace('tags', 'ta‸gs'));
+    expect(open.lines.some((l) => l.endsWith('cm-fence-hidden'))).toBe(false);
+    expect(open.widgets).toEqual([]);
+  });
+
+  it('does not fold a block with a single attribute', () => {
+    const d = describe('---\ntitle: Hello\n---\n\nText‸');
+    expect(d.lines.some((l) => l.endsWith('cm-fence-hidden'))).toBe(false);
   });
 
   it('an unclosed --- is just a rule', () => {

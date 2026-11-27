@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS = {
 
 const isMap = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 
-const TRIGGER_ALIASES = { file_create: 'created', file_modify: 'modified', file_delete: 'deleted', created: 'created', modified: 'modified', deleted: 'deleted', match: 'match', button: 'button', plugin: 'plugin' };
+const TRIGGER_ALIASES = { file_create: 'created', file_modify: 'modified', file_delete: 'deleted', created: 'created', modified: 'modified', deleted: 'deleted', match: 'match', button: 'button', plugin: 'plugin', menu: 'plugin' };
 
 function normalizeOne(raw) {
   // original long form: { on: property_change | time | due_date | file_create ..., property, to, cron, ... }
@@ -47,7 +47,7 @@ function normalizeOne(raw) {
   }
   if (typeof raw === 'string') {
     const kind = TRIGGER_ALIASES[raw];
-    if (!kind) throw new Error(`unknown trigger "${raw}" (try: change, match, schedule, at, created, modified, deleted, button, plugin)`);
+    if (!kind) throw new Error(`unknown trigger "${raw}" (try: change, match, schedule, at, created, modified, deleted, button, menu)`);
     if (kind === 'plugin') return { kind, label: null };
     return kind === 'match' ? { kind, existing: false } : { kind };
   }
@@ -88,12 +88,15 @@ function normalizeOne(raw) {
   // `on: button` (or `on: { button: true }`): the rule runs when someone clicks a button that names it, `[=Label](automation:id)`
   if ('button' in raw) return { kind: 'button' };
   // `on: { plugin: "Name" }`: the rule is listed under the Plugins button of the window and runs on the selected text (or the whole page)
-  if ('plugin' in raw) {
-    if (raw.plugin !== true && (typeof raw.plugin !== 'string' || raw.plugin.trim() === '')) throw new Error('plugin is the name shown in the Plugins menu: on: { plugin: "Numbered list to headings" }');
-    return { kind: 'plugin', label: raw.plugin === true ? null : raw.plugin.trim() };
+  // (`menu` is the same trigger under the name that is no longer taken by installable packages; `plugin` still works)
+  const menuKey = 'menu' in raw ? 'menu' : 'plugin' in raw ? 'plugin' : null;
+  if (menuKey) {
+    const v = raw[menuKey];
+    if (v !== true && (typeof v !== 'string' || v.trim() === '')) throw new Error(`${menuKey} is the name shown in the Automations menu: on: { menu: "Numbered list to headings" }`);
+    return { kind: 'plugin', label: v === true ? null : v.trim() };
   }
   for (const k of ['created', 'modified', 'deleted']) if (k in raw) return { kind: k };
-  throw new Error(`unknown trigger (found ${Object.keys(raw).join(', ') || 'nothing'}; use change, match, schedule, at, created, modified, deleted, button or plugin)`);
+  throw new Error(`unknown trigger (found ${Object.keys(raw).join(', ') || 'nothing'}; use change, match, schedule, at, created, modified, deleted, button or menu)`);
 }
 
 function collectActions(list, out = []) {

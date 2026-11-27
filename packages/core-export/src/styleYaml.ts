@@ -157,6 +157,29 @@ export interface ParsedStyles {
   errors: string[];
 }
 
+/**
+ * The styles themselves, whichever way they were written: directly (`Letterhead: …`) or under an `export-style:` (or
+ * `export-styles:`) heading, as in a settings file. Anything else comes back as it is.
+ */
+export function unwrapStyleSets(top: unknown): unknown {
+  if (top && typeof top === 'object' && !Array.isArray(top)) {
+    const t = top as Record<string, unknown>;
+    for (const key of ['export-style', 'export-styles']) {
+      if (t[key] && typeof t[key] === 'object' && !Array.isArray(t[key])) return { ...(t[key] as Record<string, unknown>) };
+    }
+  }
+  return top;
+}
+
+/** The same for text: YAML of the styles themselves, so several files can be put one after the other without a repeated heading. */
+export function unwrapStyleYaml(text: string): string {
+  const doc = YAML.parseDocument(text, { customTags: [{ tag: '!global', collection: 'map' }] });
+  if (doc.errors.length > 0) return text;
+  const js = doc.toJS() as unknown;
+  const inner = unwrapStyleSets(js);
+  return inner === js ? text : YAML.stringify(inner, { lineWidth: 0 });
+}
+
 /** A file of style sets: a map from a set's name to its definition. Sets that cannot be read are reported, the rest are kept. */
 export function parseStyleSetsYaml(text: string, known: StyleSet[] = BUILTIN_STYLES): ParsedStyles {
   const errors: string[] = [];
@@ -167,17 +190,7 @@ export function parseStyleSetsYaml(text: string, known: StyleSet[] = BUILTIN_STY
     const e = doc.errors[0]!;
     return { sets, errors: [`${e.message.split('\n')[0]}${e.linePos?.[0] ? ` (line ${e.linePos[0].line})` : ''}`] };
   }
-  let top = doc.toJS();
-  // The styles may sit under an `export-style:` (or `export-styles:`) heading, as in a workspace's settings file.
-  if (top && typeof top === 'object' && !Array.isArray(top)) {
-    const t = top as Record<string, unknown>;
-    for (const key of ['export-style', 'export-styles']) {
-      if (t[key] && typeof t[key] === 'object' && !Array.isArray(t[key])) {
-        top = { ...(t[key] as Record<string, unknown>) };
-        break;
-      }
-    }
-  }
+  const top = unwrapStyleSets(doc.toJS());
   if (!top || typeof top !== 'object' || Array.isArray(top)) return { sets, errors: ['This has to be a list of style names, each with its settings (Name: …).'] };
   for (const [name, value] of Object.entries(top as Record<string, unknown>)) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {

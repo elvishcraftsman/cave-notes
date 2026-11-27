@@ -2288,18 +2288,29 @@ function ExportedDialog({ ctl, file }: { ctl: Controller; file: string }): JSX.E
 }
 
 /** Every plugin in one place: switch each on or off (on this computer), uninstall, restore the ones that come with the app. */
-const IMPORT_TEXT: Record<'plugin' | 'style' | 'template', { title: string; what: string; hint: string }> = {
-  plugin: { title: 'Add a Plugin from a File', what: 'plugin', hint: 'A YAML file with rules (and schema, attributes, queries or relations), a folder with a plugin page and its files, or a zip of either.' },
-  style: { title: 'Add Export Styles from a File', what: 'export styles', hint: 'A YAML file of export styles (either the styles themselves, or an export-style: section), or a zip of them.' },
-  template: { title: 'Add a Template from a File', what: 'template', hint: 'A note file (.md), a folder with a template page and the pages of its set, or a zip of either.' },
+const IMPORT_HINT: Record<'plugin' | 'style' | 'template', string> = {
+  plugin: 'A plugin (a .cnplugin, or a folder with a plugin.yaml), a YAML file of automations or definitions, notes that are templates, or a zip of any of these.',
+  style: 'A YAML file of export styles (the styles themselves, or an export-style: section), a plugin that has some, or a zip of them.',
+  template: 'A note file (.md), a folder of notes, a plugin that has some, or a zip of any of these.',
 };
+const SCOPE_TEXT: Record<'workspace' | 'app' | 'shared', [string, string]> = {
+  workspace: ['This workspace', 'Only this workspace, on every computer that has it (it syncs with the notes).'],
+  app: ['The whole app', 'Every workspace, on this computer only.'],
+  shared: ['Shared from this workspace', 'Every workspace, on every computer that has this one: the others ask before they take it.'],
+};
+type Review = Awaited<ReturnType<Controller['pluginPreview']>>;
 
-/** Browse for, or drop, files to add as a plugin, export style or template; then say where they go. */
+/**
+ * Add a plugin: choose or drop what to add, then see what it is and what it would do, answer its setup questions, say where it
+ * goes, and install. Everything that can be added (automations, definitions, templates, export styles) comes through here.
+ */
 function ImportDialog({ ctl, what }: { ctl: Controller; what: 'plugin' | 'style' | 'template' }): JSX.Element {
-  const t = IMPORT_TEXT[what];
   const hasWs = !!ctl.workspace.value && !ctl.activeSingle.value;
   const [sources, setSources] = useState<string[]>([]);
-  const [where, setWhere] = useState<'app' | 'workspace' | 'global'>('app');
+  const [files, setFiles] = useState<Record<string, Uint8Array> | null>(null);
+  const [scope, setScope] = useState<'workspace' | 'app' | 'shared'>('workspace');
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  const [review, setReview] = useState<Review | null>(null);
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -2308,62 +2319,195 @@ function ImportDialog({ ctl, what }: { ctl: Controller; what: 'plugin' | 'style'
     setError(null);
   };
   const browse = async (mode: 'file' | 'folder'): Promise<void> => add(await ctl.pickImportFiles(mode));
-  const submit = async (): Promise<void> => {
+  const next = async (): Promise<void> => {
     if (busy) return;
     setBusy(true);
-    const r = await ctl.runImport({ kind: what, where, sources });
+    const r = await ctl.readPluginSource(sources);
+    setBusy(false);
+    if (!r.ok) setError(r.error);
+    else {
+      setError(null);
+      setFiles(r.files);
+    }
+  };
+  // what installing would do, kept up to date with the answers and the place
+  useEffect(() => {
+    if (!files) return;
+    let gone = false;
+    const t = setTimeout(() => {
+      void ctl.pluginPreview({ files, scope, answers }).then((r) => {
+        if (gone) return;
+        setReview(r);
+        // a plugin that cannot go where it was put is moved to the first place it can
+        if (r.ok && !r.scopes.includes(scope)) setScope(r.scopes[0]!);
+      });
+    }, 150);
+    return () => {
+      gone = true;
+      clearTimeout(t);
+    };
+  }, [files, scope, answers]);
+  const install = async (): Promise<void> => {
+    if (busy || !files) return;
+    setBusy(true);
+    const r = await ctl.installPlugin({ files, scope, answers });
     setBusy(false);
     if (r.ok) ctl.closeDialog();
     else setError(r.message);
   };
-  const place = (value: 'app' | 'workspace' | 'global', title: string, detail: string, disabled = false): JSX.Element => (
-    <label class={`import-place ${disabled ? 'disabled' : ''}`}>
-      <input type="radio" name="import-where" value={value} checked={where === value} disabled={disabled} onChange={() => setWhere(value)} />
-      <span class="import-place-text">
-        <span class="pref-label">{title}</span>
-        <span class="pref-hint">{detail}</span>
-      </span>
-    </label>
-  );
+
+  if (!files) {
+    return (
+      <Modal title="Add a Plugin" wide onClose={() => ctl.closeDialog()}>
+        <p class="pref-hint">{IMPORT_HINT[what]}</p>
+        <div
+          class={`import-drop ${over ? 'over' : ''}`}
+          onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setOver(false);
+            add(ctl.pathsOfDropped(e.dataTransfer?.files ?? []));
+          }}
+        >
+          <p>Drag a file, a folder or a zip here</p>
+          <p>
+            <button type="button" class="pill-button" onClick={() => void browse('file')}>Browse for files…</button>{' '}
+            <button type="button" class="pill-button" onClick={() => void browse('folder')}>Browse for a folder…</button>
+          </p>
+        </div>
+        {sources.length > 0 && (
+          <ul class="import-list" aria-label="What will be added">
+            {sources.map((p) => (
+              <li key={p}>
+                <span class="import-path" title={p}>{p.split('/').pop()}</span>
+                <button type="button" class="pill-button" aria-label={`Leave out ${p.split('/').pop()}`} onClick={() => setSources(sources.filter((x) => x !== p))}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {!hasWs && <p class="pref-hint">Open a workspace first: a plugin is added to a workspace, or to the app from inside one.</p>}
+        {error && <p class="pref-error" role="alert">{error}</p>}
+        <div class="dialog-actions">
+          <button type="button" class="pill-button" onClick={() => ctl.closeDialog()}>Cancel</button>
+          <button type="button" class="pill-button suggested" disabled={busy || sources.length === 0 || !hasWs} onClick={() => void next()}>Continue</button>
+        </div>
+      </Modal>
+    );
+  }
+
+  const back = (): void => {
+    setFiles(null);
+    setReview(null);
+    setAnswers({});
+    setError(null);
+  };
+  if (!review) {
+    return (
+      <Modal title="Add a Plugin" wide onClose={() => ctl.closeDialog()}>
+        <p class="pref-hint">Looking at it…</p>
+      </Modal>
+    );
+  }
+  if (!review.ok) {
+    return (
+      <Modal title="This Cannot Be Added" wide onClose={() => ctl.closeDialog()}>
+        <p class="pref-hint">Nothing was changed. What is wrong with it:</p>
+        <ul class="import-list">{review.errors.map((m, i) => <li key={i}><span class="import-path">{m}</span></li>)}</ul>
+        <div class="dialog-actions">
+          <button type="button" class="pill-button" onClick={back}>Back</button>
+          <button type="button" class="pill-button" onClick={() => ctl.closeDialog()}>Close</button>
+        </div>
+      </Modal>
+    );
+  }
+  const r = review;
+  const questions = r.setup.filter((q) => q.type !== 'info' || q.label);
+  const value = (name: string, dflt: unknown): unknown => (name in answers ? answers[name] : r.update && name in r.answers ? r.answers[name] : dflt);
+  const set = (name: string, v: unknown): void => setAnswers({ ...answers, [name]: v });
   return (
-    <Modal title={t.title} wide onClose={() => ctl.closeDialog()}>
-      <p class="pref-hint">{t.hint}</p>
-      <div
-        class={`import-drop ${over ? 'over' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setOver(false);
-          add(ctl.pathsOfDropped(e.dataTransfer?.files ?? []));
-        }}
-      >
-        <p>Drag a file, a folder or a zip here</p>
-        <p>
-          <button type="button" class="pill-button" onClick={() => void browse('file')}>Browse for files…</button>{' '}
-          <button type="button" class="pill-button" onClick={() => void browse('folder')}>Browse for a folder…</button>
-        </p>
-      </div>
-      {sources.length > 0 && (
-        <ul class="import-list" aria-label="What will be added">
-          {sources.map((p) => (
-            <li key={p}>
-              <span class="import-path" title={p}>{p.split('/').pop()}</span>
-              <button type="button" class="pill-button" aria-label={`Leave out ${p.split('/').pop()}`} onClick={() => setSources(sources.filter((x) => x !== p))}>Remove</button>
-            </li>
-          ))}
-        </ul>
+    <Modal title={`${r.update ? 'Update' : 'Add'} “${r.name}”`} wide onClose={() => ctl.closeDialog()}>
+      <p>{r.description}</p>
+      {r.update && (
+        <>
+          <p class="pref-hint">
+            {r.update.direction === 'upgrade' ? `This is a new version of a plugin that is installed (${r.update.installedVersion} → ${r.version}).` : r.update.direction === 'same' ? `This version (${r.version}) is installed already; adding it again puts back what you have not changed.` : `This is an older version (${r.version}) than the one installed (${r.update.installedVersion}).`}{' '}
+            Files you changed stay as you made them; the plugin’s new version of them is kept in its base/ folder to compare.
+          </p>
+          <ul class="import-list">
+            {r.update.replaced.map((f) => <li key={`r${f}`}><span class="import-path">{f}: replaced by the new version</span></li>)}
+            {r.update.added.map((f) => <li key={`a${f}`}><span class="import-path">{f}: new</span></li>)}
+            {r.update.removed.map((f) => <li key={`d${f}`}><span class="import-path">{f}: no longer part of the plugin, removed</span></li>)}
+            {r.update.kept.map((f) => <li key={`k${f}`}><span class="import-path">{f}: you changed it, so yours stays</span></li>)}
+            {r.update.left.map((f) => <li key={`l${f}`}><span class="import-path">{f}: left as it is (you removed or changed it)</span></li>)}
+          </ul>
+        </>
       )}
-      <fieldset class="import-where">
-        <legend class="look-h">Put the {t.what} in</legend>
-        {place('app', 'The app folder', 'All workspaces, on this computer only.')}
-        {place('workspace', 'This workspace’s folder', hasWs ? `Only ${ctl.workspace.value!.name}, on every computer that has it (it syncs with the notes).` : 'Open a workspace to use this.', !hasWs)}
-        {what !== 'template' && place('global', 'This workspace’s folder, shared (!global)', hasWs ? 'Every workspace, on every computer that has this workspace: the other workspaces ask before they take it.' : 'Open a workspace to use this.', !hasWs)}
-      </fieldset>
+      <p class="pref-hint">Version {r.version}{r.author ? ` · ${r.author}` : ''}{r.homepage ? ` · ${r.homepage}` : ''}</p>
+      {questions.length > 0 && (
+        <fieldset class="import-where">
+          <legend class="look-h">Setup</legend>
+          {questions.map((q) => (
+            <label key={q.name} class="pref-row">
+              {q.type === 'info' ? (
+                <span class="pref-hint">{q.label}</span>
+              ) : (
+                <>
+                  <span class="pref-label">{q.label}</span>
+                  {q.type === 'select' ? (
+                    <select value={String(value(q.name, q.default ?? q.options?.[0]))} onChange={(e) => set(q.name, (e.currentTarget as HTMLSelectElement).value)}>
+                      {(q.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : q.type === 'boolean' ? (
+                    <input type="checkbox" checked={value(q.name, q.default) === true} onChange={(e) => set(q.name, (e.currentTarget as HTMLInputElement).checked)} />
+                  ) : (
+                    <input
+                      type={q.type === 'number' ? 'number' : 'text'}
+                      value={String(value(q.name, q.default) ?? '')}
+                      {...(q.min !== null ? { min: q.min } : {})}
+                      {...(q.max !== null ? { max: q.max } : {})}
+                      onInput={(e) => set(q.name, (e.currentTarget as HTMLInputElement).value)}
+                    />
+                  )}
+                </>
+              )}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {!r.update && <fieldset class="import-where">
+        <legend class="look-h">Put it in</legend>
+        {(['workspace', 'app', 'shared'] as const).filter((k) => r.scopes.includes(k)).map((k) => (
+          <label key={k} class="import-place">
+            <input type="radio" name="plugin-scope" checked={scope === k} onChange={() => setScope(k)} />
+            <span class="import-place-text">
+              <span class="pref-label">{SCOPE_TEXT[k][0]}</span>
+              <span class="pref-hint">{SCOPE_TEXT[k][1]}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>}
+      {r.problem && <p class="pref-error" role="alert">{r.problem}</p>}
+      {r.adds.length > 0 && (
+        <>
+          <h3 class="look-h">It adds</h3>
+          <ul class="import-list">{r.adds.map((a, i) => <li key={i}><span class="import-path">{a}</span></li>)}</ul>
+        </>
+      )}
+      <h3 class="look-h">It can</h3>
+      <ul class="import-list">{r.can.map((c, i) => <li key={i}><span class={`import-path ${c.warn ? 'pref-error' : ''}`}>{c.text}</span></li>)}</ul>
+      {r.conflicts.length > 0 && (
+        <>
+          <h3 class="look-h">Names that are taken</h3>
+          <ul class="import-list">{r.conflicts.map((c, i) => <li key={i}><span class="import-path">{c.text}</span></li>)}</ul>
+        </>
+      )}
+      {r.warnings.length > 0 && <p class="pref-hint">{r.warnings.join(' ')}</p>}
       {error && <p class="pref-error" role="alert">{error}</p>}
       <div class="dialog-actions">
+        <button type="button" class="pill-button" onClick={back}>Back</button>
         <button type="button" class="pill-button" onClick={() => ctl.closeDialog()}>Cancel</button>
-        <button type="button" class="pill-button suggested" disabled={busy || sources.length === 0} onClick={() => void submit()}>Add</button>
+        <button type="button" class="pill-button suggested" disabled={busy || r.problem !== null} onClick={() => void install()}>{r.update ? 'Update' : 'Install'}</button>
       </div>
     </Modal>
   );
@@ -2395,6 +2539,10 @@ function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
   const offered = all.filter((p) => p.pending && hit(p));
   const shipped = all.filter((p) => p.origin === 'default' && hit(p));
   const muted = ctl.mutedToastsHere();
+  const installed = ctl.installedPlugins.value;
+  useEffect(() => {
+    void ctl.refreshInstalledPlugins();
+  }, []);
   const row = (p: (typeof all)[number]): JSX.Element => (
     <li key={p.id} class="plugin-row">
       {p.pending ? (
@@ -2432,6 +2580,22 @@ function PluginsDialog({ ctl }: { ctl: Controller }): JSX.Element {
         {group('Come with the app', shipped, 'Kept in the app config folder, where you can edit them.')}
         {own.length + offered.length + shipped.length === 0 && <p class="pref-hint">{all.length === 0 ? 'There are no plugins.' : 'No plugin matches.'}</p>}
       </div>
+      {installed.length > 0 && (
+        <section class="plugin-group">
+          <h3 class="look-h">Installed packages</h3>
+          <ul class="plugin-list">
+            {installed.map((i) => (
+              <li key={`${i.where}/${i.folder}`} class="plugin-row">
+                <span class="pref-text">
+                  <span class="pref-label">{i.name}</span>
+                  <span class="pref-hint">Version {i.version} · {i.scope === 'app' ? 'the whole app' : i.scope === 'shared' ? 'this workspace, shared' : 'this workspace'}</span>
+                </span>
+                <button type="button" class="pill-button" onClick={() => void ctl.removePlugin(i.folder, i.where)}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {muted.length > 0 && (
         <section class="plugin-group">
           <h3 class="look-h">Hidden messages</h3>

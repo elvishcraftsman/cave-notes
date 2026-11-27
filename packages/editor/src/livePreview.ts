@@ -55,6 +55,25 @@ class BulletWidget extends WidgetType {
   }
 }
 
+/** At the end of the one attribute line shown while the attributes are folded: how many more there are. Clicking puts the cursor there, which opens them. */
+class AttributesMoreWidget extends WidgetType {
+  constructor(readonly count: number) {
+    super();
+  }
+  override eq(other: AttributesMoreWidget): boolean {
+    return other.count === this.count;
+  }
+  override toDOM(): HTMLElement {
+    const el = document.createElement('span');
+    el.className = 'cm-frontmatter-more';
+    el.textContent = `+${this.count} more`;
+    return el;
+  }
+  override ignoreEvent(): boolean {
+    return false;
+  }
+}
+
 class CheckboxWidget extends WidgetType {
   constructor(
     readonly checked: boolean,
@@ -202,9 +221,29 @@ export function computeDecorations(
         }
 
         switch (name) {
-          case 'Frontmatter':
+          case 'Frontmatter': {
             lines(from, to, 'cm-frontmatter');
+            // Folded: only the first attribute shows (with how many more there are) until the cursor is put in the block, so
+            // a page with many attributes does not push its text down the screen. Not in a fully rendered page.
+            const first = doc.lineAt(from).number;
+            const last = doc.lineAt(Math.max(from, to - 1)).number;
+            const inner: number[] = [];
+            for (let n = first + 1; n < last; n++) if (doc.line(n).text.trim() !== '') inner.push(n);
+            if (!full && inner.length > 1 && last - first >= 2) {
+              const opened = sel.some((r) => reveal && r.to >= doc.line(first + 1).from && r.from <= to);
+              if (!opened) {
+                const shown = inner[0]!;
+                for (let n = first; n <= last; n++) {
+                  if (n === shown) continue;
+                  const l = doc.line(n);
+                  add(line('cm-fence-hidden'), l.from);
+                  hide(l.from, l.to);
+                }
+                add(Decoration.widget({ widget: new AttributesMoreWidget(inner.length - 1), side: 1 }), doc.line(shown).to);
+              }
+            }
             return false;
+          }
           case 'FencedCode':
             lines(from, to, 'cm-codeblock');
             add(line('cm-codeblock-first'), doc.lineAt(from).from);

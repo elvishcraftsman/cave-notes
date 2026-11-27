@@ -223,6 +223,11 @@ declare module '@cave-notes/core-automation' {
   export function stringifyValue(v: unknown): string;
   export function truthy(v: unknown): boolean;
   export function numbersInText(text: string): number[];
+  export const FILE_CHANGING: Set<string>;
+  export function normalizeAsk(raw: unknown): Array<{ name: string; label: string; type: string; default: unknown; options: string[] | null; min: number | null; max: number | null }>;
+  export function coerceAnswers(ask: unknown[], answers: Record<string, unknown> | null | undefined): Record<string, unknown>;
+  export function previewAnswers(ask: unknown[], answers: Record<string, unknown> | null | undefined): Record<string, unknown>;
+  export function parseAutomations(text: string): { rules: Array<Record<string, any>>; settings: Record<string, unknown>; warnings: string[]; errors: string[] };
   export interface AutomationPageInfo {
     path: string;
     title: string;
@@ -351,13 +356,20 @@ declare module '@cave-notes/core-index/config' {
     owners: Record<string, string[]>;
     warnings: string[];
     invalid: boolean;
+    /** the app's layer (plugins and styles of the app config folder), when `baseDir` was given; never written to */
+    base?: Omit<WorkspaceConfig, 'dir' | 'base'>;
   }
   export const SECTIONS: Record<string, 'map' | 'seq' | 'scalar'>;
   export const DEFAULT_FILE: Record<string, string>;
   export function configFileNames(names: string[]): string[];
   export function parseConfig(files: Array<{ name: string; text: string }>): Omit<WorkspaceConfig, 'dir'>;
-  export function readConfig(dir: string): Promise<WorkspaceConfig>;
-  export function readConfigSync(dir: string): WorkspaceConfig;
+  export function readConfig(dir: string, opts?: { baseDir?: string }): Promise<WorkspaceConfig>;
+  export function readConfigSync(dir: string, opts?: { baseDir?: string }): WorkspaceConfig;
+  /** the workspace's settings with the app's layer under them */
+  export function effectiveSections(config: Pick<WorkspaceConfig, 'sections' | 'present' | 'base'>): { sections: Record<string, any>; present: Set<string> };
+  export const PLUGIN_MANIFEST: string;
+  export const PLUGIN_RECORD: string;
+  export function folderKind(name: string): string | null;
   export function homeFor(config: Pick<WorkspaceConfig, 'files' | 'owners'>, key: string): string;
 }
 

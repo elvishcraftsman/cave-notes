@@ -90,19 +90,15 @@ Plugins, export styles and templates come as files, so you can pass them around,
 | **File → Export Styles…** | **Add From a File…** |
 | the **New Page** window | **Start from → Add a template from a file…** |
 
-Each opens the same window. **Drag** a file, a folder or a zip onto it, or use **Browse for files…** or **Browse for a folder…** (the system's chooser cannot do both at once). Then choose where it goes:
+Each opens the same window, **Add a Plugin**. **Drag** a file, a folder or a zip onto it, or use **Browse for files…** or **Browse for a folder…** (the system's chooser cannot do both at once). The next step shows what it is: its description, the questions it asks you (see [Making a plugin](making-plugins.md)), **what it adds**, **what it can do** (it says so plainly when it changes pages, runs on its own, runs JavaScript or runs programs) and any name that is taken. Then choose where it goes:
 
-- **The app folder** (the `plugins/`, `styles/` or `templates/` folder of the app config folder): every workspace on this computer, and only this computer.
-- **This workspace's folder** (`.cave-notes/plugins/`, `styles/` or `templates/`): this workspace only, on every computer that has it, because it syncs with the notes.
-- **This workspace's folder, shared (`!global`)**: like the one above, and every section of the file that can be shared (`rules`, `schema`, `attributes`, `queries`, `relations`, `export-style`) is tagged `!global`, so every workspace on every computer that has this workspace is offered it (they ask first; see *Settings shared with every workspace* in [Attributes and inheritance](../organizing/attributes.md)). Templates are pages and cannot be shared this way, so this choice is not offered for them.
+- **This workspace**: this workspace only, on every computer that has it, because it syncs with the notes. It goes into one folder of `.cave-notes/plugins/`.
+- **The whole app**: every workspace on this computer, and only this computer. It goes into the same kind of folder in the app config folder.
+- **Shared from this workspace**: like the first, and every section that can be shared (`rules`, `schema`, `attributes`, `queries`, `relations`, `export-style`) is tagged `!global`, so every workspace on every computer that has this workspace is offered it (they ask first; see *Settings shared with every workspace* in [Attributes and inheritance](../organizing/attributes.md)).
 
-What is accepted:
+A plugin can bring automations, definitions (attributes, saved searches, relations), export styles, templates, a starter page and pictures, all in one folder, and **Plugins → All plugins… → Installed packages** takes it out again in one step (its starter pages stay, as ordinary pages). Loose files work too: a YAML file is split by what its sections are for, a note becomes a template, and the result is added like any other plugin.
 
-- A **plugin** is a YAML file with at least one of `rules`, `schema`, `attributes`, `queries`, `relations`, `files` or `settings`; a folder (a plugin page, its YAML files and helper files); or a zip of either. A file with nothing a plugin can use, or YAML that does not parse, is refused with the reason.
-- **Export styles** are YAML: the styles themselves (`My Report:` with its settings), or the `export-style:` section of a workspace's file. They are written in the form the place needs (the app's folder holds the styles themselves; a workspace's holds them under `export-style:`).
-- A **template** is a note file, a folder (a template page with its set), or a zip of them.
-
-Nothing that is already there is overwritten: a name that is taken gets a number (`Shout 2.yaml`). A zip is read by the app itself and refused if it holds a path that leaves its folder or is unreasonably big. Adding from a file needs the desktop app.
+Nothing that is already there is overwritten. A name that is taken (an export style, a template, a saved search) is kept by the one that was there, and the plugin's gets **(plugin name)** after it; a page that exists gets a number. A zip is read by the app itself and refused if it holds a path that leaves its folder or is unreasonably big. Adding from a file needs the desktop app.
 
 ## Several files
 
@@ -128,18 +124,19 @@ Any section can be tagged `!global`, in whichever file it is (see *Settings shar
 
 ## The app config folder
 
-Besides each workspace's `.cave-notes` folder, the app has one of its own, for what is the same in every workspace: the **plugins and templates that come with Cave Notes**. It is a settings folder like any other and opens in a tab: in the page tree's toolbar, the arrow beside *Show unlisted files and templates* has **Open App Config Folder**. It lives in the app's data folder (`app-config/.cave-notes/`):
+Besides each workspace's `.cave-notes` folder, the app has one of its own, for what is the same in every workspace: the **plugins and templates that come with Cave Notes**, and what you install for the whole app. **It is read exactly like a workspace's folder**, with the same layout and the same file formats, and lies under the workspace's own settings: a workspace's own entry with the same `id` or name wins, and an empty `rules:` in a workspace does not switch off the app's. It opens in a tab: in the page tree's toolbar, the arrow beside *Show unlisted files and templates* has **Open App Config Folder**. It lives in the app's data folder (`app-config/.cave-notes/`).
 
 | Folder | What it holds |
 |---|---|
-| `plugins/` | YAML files with a `rules:` list, each rule a plugin (`on: { plugin: "Name" }`, see [Plugins](../automation/triggers/plugins.md)). Every workspace offers them in its Plugins menu, after its own. |
+| `plugins/` | Automations (`on: { menu: "Name" }`, see [Plugins](../automation/triggers/plugins.md)), definitions and installed plugin folders, as in a workspace. |
+| `styles/` | Export styles, under `export-style:` as in a workspace. (A file of the styles themselves, written the old way for this folder, is still read.) |
 | `templates/` | Pages that every workspace offers as templates, after the workspace's own (see [Templates](../organizing/templates.md)). |
 
-What ships with the app is copied there the first time (the app's own copy is read-only, inside the AppImage), so you can edit it:
+What ships with the app is installed there as [plugin packages](making-plugins.md) (the app's own copy is read-only, inside the AppImage), so you can edit it, and it is kept up to date the way any plugin is:
 
 - a file you have **changed** is never touched when the app updates;
-- a file you have **not** changed is replaced by a newer shipped version when the app brings one;
-- a file you **delete** stays deleted (that is what *Uninstall* does to a default plugin). **Plugins → All plugins… → Restore default plugins** brings back what was deleted.
+- a file you have **not** changed is replaced by the newer version when the app brings one;
+- a plugin you **remove** stays removed (**Plugins → All plugins… → Installed packages → Remove**, or *Uninstall* on it in the list). **Restore default plugins** brings back what was removed.
 
 A workspace's own plugin, style or template with the same `id` or name wins over the app's.
 

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { World, FakeWorkspace, makeEngine } from './helpers.js';
 
-const RULES = fs.readFileSync(new URL('../../../apps/desktop/defaults/plugins/join-wrapped-lines.yaml', import.meta.url), 'utf8');
+const RULES = fs.readFileSync(new URL('../../../apps/desktop/defaults/plugins/Join wrapped lines/automations/join-wrapped-lines.yaml', import.meta.url), 'utf8');
 
 const run = async (text, selection = true) => {
   const world = new World();

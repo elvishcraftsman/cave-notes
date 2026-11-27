@@ -1,6 +1,6 @@
 import { fs, path } from '@cave-notes/platform';
 import YAML from 'yaml';
-import { homeFor, mergeSection, readConfig, type WorkspaceConfig } from '@cave-notes/core-index/config';
+import { effectiveSections, homeFor, mergeSection, readConfig, type WorkspaceConfig } from '@cave-notes/core-index/config';
 
 /** The folder that marks a workspace, and the files the app keeps in it. */
 export const INFO_DIR = '.cave-notes';
@@ -29,21 +29,24 @@ export async function editSection(dir: string, key: string, change: (doc: YAML.D
   return name;
 }
 
-/** The automation rules (`rules:` and `settings:`) of the settings files, with the shared ones, as YAML text for the engine, or null when there are none. */
-export async function rulesText(dir: string, inherited?: unknown[], defaults?: unknown[]): Promise<string | null> {
-  const cfg = await readConfig(dir);
+/**
+ * The automation rules (`rules:` and `settings:`) of the settings files, with the shared ones and those of the app config
+ * folder (`baseDir`), as YAML text for the engine, or null when there are none.
+ */
+export async function rulesText(dir: string, inherited?: unknown[], baseDir?: string | null): Promise<string | null> {
+  const cfg = await readConfig(dir, baseDir ? { baseDir } : {});
+  const eff = effectiveSections(cfg);
   const shared = inherited && inherited.length > 0 ? inherited : undefined;
-  const shipped = defaults && defaults.length > 0 ? defaults : undefined;
-  if (!cfg.present.has('rules') && !cfg.present.has('settings') && !shared && !shipped) return null;
-  // rules other workspaces share (`rules: !global`) join the workspace's own, which win by `id`; an empty `rules:` switches them off
-  const rules = mergeSection(cfg.sections.rules, cfg.present.has('rules'), shared, 'seq') ?? [];
-  // the plugins that come with the app (the app config folder) come last: anything of the workspace's with the same id wins, and
-  // an empty `rules:` does not switch them off (they are turned off, or uninstalled, in the Plugins menu)
-  if (shipped) {
-    const have = new Set((rules as Array<{ id?: unknown }>).map((r) => r?.id));
-    for (const r of shipped) if (!have.has((r as { id?: unknown }).id)) rules.push(r);
-  }
-  return YAML.stringify({ ...(cfg.sections.settings ? { settings: cfg.sections.settings } : {}), rules });
+  if (!eff.present.has('rules') && !eff.present.has('settings') && !shared) return null;
+  // rules other workspaces share (`rules: !global`) join the workspace's own, which win by `id`; an empty `rules:` switches them off.
+  // The app's own (the plugins in its folder) come in with the workspace's and are never switched off that way.
+  const own = cfg.present.has('rules') ? (cfg.sections.rules ?? []) : undefined;
+  const appRules = (cfg.base?.sections.rules as unknown[] | undefined) ?? [];
+  const merged = mergeSection(own, cfg.present.has('rules'), shared, 'seq') ?? [];
+  const have = new Set((merged as Array<{ id?: unknown }>).map((r) => r?.id));
+  const rules = [...appRules.filter((r) => !have.has((r as { id?: unknown })?.id)), ...(merged as unknown[])];
+  const settings = eff.sections.settings;
+  return YAML.stringify({ ...(settings ? { settings } : {}), rules });
 }
 
 /** Read a YAML file as a plain object ({} when it is missing or not a mapping). */

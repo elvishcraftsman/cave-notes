@@ -10,7 +10,8 @@ import { type DropPlan, type DropZone, TreeModel, type TreeAction } from '@cave-
 import { expandSaved, newPageContent, newPageDefaults, placementOf, savedViewTemplate, sortRowsBy, splitForeign, withoutSort, type Row } from '@cave-notes/ui-views';
 import YAML from 'yaml';
 import { BUILTIN_STYLES, countWords, tableToCsv, tableToOds, tableToXlsx, imagesInLines, paginate, sheetPrintCss, parseDoc, renderHtml, splitSlides, withImageAttrs, type ImageAttrs, type ImageRef, cleanRules, cleanStyleSet, editorCss, namedList, parseStyleSetsYaml, renderSlidesHtml, SLIDE_PT, setSlideLayout, slideCss, themeWarnings, themesFromConfig, type PlacedSlide, type SlideTheme, type StyleSet } from '@cave-notes/core-export';
-import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, ImportRequest, ImportResult, IgnoreFileInfo, WindowDefaults } from '../shared/api';
+import type { ReplaceFound, FileItem, PageSource, NoteTypes, WindowState, ApplyResult, AttrValue, AttributeKey, AutomationRuleHit, BacklinkInfo, ConflictMerge, FontKind, FontStyle, HistoryEntry, LinkInfo, LinkPlan, MainApi, PageSuggestion, RelationConflict, RelationPage, RelationResolution, SavedQueries, SearchResult, Settings, TreeItem, ViewData, ViewRow, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, YamlSection, PluginInfo, PluginAsk, UpdateStatus, ImportKind, PluginRequest, PluginPreview, PluginInstallResult, InstalledPluginInfo, IgnoreFileInfo, WindowDefaults } from '../shared/api';
+import type { UninstallResult } from '../shared/api';
 import { type Deps, capabilitiesOf, explain } from './bridge';
 import { accentRoles, headerColorFor } from './color';
 import { drawerPane, narrow } from './layout';
@@ -3115,12 +3116,46 @@ export class Controller {
     return [...files].map((f) => this.deps.pathForFile?.(f) ?? '').filter(Boolean);
   }
 
-  async runImport(req: Omit<ImportRequest, 'workspaceRoot'>): Promise<ImportResult> {
-    const r = await this.main.importFromFile({ ...req, ...(this.active ? { workspaceRoot: this.active.root } : {}) }).catch((e) => ({ ok: false, message: explain(e), added: [] }));
+  /** What was chosen, as the files of a plugin package (nothing is written). */
+  async readPluginSource(sources: string[]): Promise<{ ok: true; files: Record<string, Uint8Array>; label: string } | { ok: false; error: string }> {
+    return this.main.readPluginSource(sources).catch((e) => ({ ok: false as const, error: explain(e) }));
+  }
+
+  /** What installing the package would do, with these answers and in this place. */
+  async pluginPreview(req: PluginRequest): Promise<PluginPreview> {
+    try {
+      return await this.ws.pluginPreview(req);
+    } catch (e) {
+      return { ok: false, errors: [explain(e)] };
+    }
+  }
+
+  /** Install a package; when it worked the lists and the page that was made are brought up to date. */
+  async installPlugin(req: PluginRequest): Promise<PluginInstallResult> {
+    const r = await this.ws.pluginInstall(req).catch((e) => ({ ok: false, message: explain(e), open: null, folder: null }) as PluginInstallResult);
     if (r.ok) {
       this.toast(r.message);
-      if (req.kind === 'plugin') await this.refreshPlugins();
-      else if (req.kind === 'style') await this.loadExportStyles();
+      await Promise.all([this.refreshPlugins(), this.loadExportStyles(), this.refreshInstalledPlugins()]);
+      if (r.open && this.active) await this.showAutomationPage(r.open, this.active.root).catch(() => undefined);
+    }
+    return r;
+  }
+
+  /** The plugins installed in the workspace and in the app. */
+  readonly installedPlugins = signal<InstalledPluginInfo[]>([]);
+  async refreshInstalledPlugins(): Promise<void> {
+    try {
+      this.installedPlugins.value = this.workspace.value && !this.activeSingle.value ? await this.ws.pluginsInstalled() : [];
+    } catch {
+      this.installedPlugins.value = [];
+    }
+  }
+
+  async removePlugin(folder: string, scope: 'workspace' | 'app'): Promise<UninstallResult> {
+    const r = await this.ws.pluginRemove(folder, scope).catch((e) => ({ ok: false, message: explain(e) }));
+    if (r.ok) {
+      this.toast(r.message);
+      await Promise.all([this.refreshPlugins(), this.loadExportStyles(), this.refreshInstalledPlugins()]);
     }
     return r;
   }
@@ -3165,7 +3200,7 @@ export class Controller {
     const shipped = plugin.origin === 'default';
     const ok = await this.confirm({
       title: `Uninstall “${plugin.label}”?`,
-      body: shipped ? 'It comes with the app. Its file is deleted from the app config folder, and it is not copied back when the app updates. “Restore default plugins” brings it back.' : 'Its rule is deleted from this workspace’s settings file (the rest of the file is left as it is). Syncing carries this to your other computers.',
+      body: shipped ? 'It comes with the app. Its folder is removed from the app config folder, and it is not installed again when the app updates. “Restore default plugins” brings it back.' : 'Its rule is deleted from this workspace’s settings file (the rest of the file is left as it is). Syncing carries this to your other computers.',
       confirm: 'Uninstall',
       destructive: true,
     });

@@ -1,0 +1,9 @@
+plugin:
+  id: number-headings
+  name: Number headings at this level
+  version: 1.0.0
+  description: "The “Number headings at this level” automation of the Automations menu."
+  author: Cave Notes
+  scopes: [app]
+automations:
+  - automations/number-headings.yaml

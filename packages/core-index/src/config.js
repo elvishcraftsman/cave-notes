@@ -100,7 +100,19 @@ export const folderOf = (name) => (name.includes('/') ? name.slice(0, name.index
 export const FOLDER_SECTIONS = {
   plugins: ['attributes', 'files', 'schema', 'queries', 'relations', 'rules', 'settings'],
   styles: ['export-style', 'styles', 'css', 'presentation-themes', 'presentation-rules'],
+  // inside an installed plugin's folder (see plugins.ts of the service): automations, definitions and styles each have their own sections
+  automations: ['rules', 'settings'],
+  definitions: ['attributes', 'files', 'schema', 'queries', 'relations'],
 };
+
+/** The files of an installed plugin that are read as settings, by folder: `plugins/<name>/automations/x.yaml` and so on. */
+const PLUGIN_PART = /^plugins\/[^/]+\/(automations|definitions|styles)\/[^/]+$/;
+/** Which section list governs a file: the plugin part it is in, else its subfolder (`plugins`, `styles`), else none (the main folder). */
+export const folderKind = (name) => PLUGIN_PART.exec(name)?.[1] ?? folderOf(name);
+
+/** The marks of an installed plugin's folder: what the package said (`plugin.yaml`) and what the app wrote when it was done (`.installed.json`). */
+export const PLUGIN_MANIFEST = 'plugin.yaml';
+export const PLUGIN_RECORD = '.installed.json';
 
 /** Files in the folder that are not settings. */
 const NOT_CONFIG = new Set(['state.yaml', 'state.yml']);
@@ -141,7 +153,7 @@ export function parseConfig(files) {
   const itemLayer = new WeakMap(); // list entries (rules, relations) -> the layer they came from
   for (const f of files) {
     const layer = layerOf(f.name);
-    const folder = folderOf(f.name);
+    const folder = folderKind(f.name);
     const parsed = parseTagged(f.text ?? '');
     if (parsed.error) {
       out.files.push({ name: f.name, keys: [], error: parsed.error });
@@ -225,40 +237,61 @@ export function parseConfig(files) {
 const isYaml = (n) => /\.ya?ml$/i.test(n) && !n.startsWith('.');
 const byName = (a, b) => a.toLowerCase().localeCompare(b.toLowerCase());
 
-/** Read every settings file of a `.cave-notes` folder (async): the subfolders' first, then the main folder's (which wins). A missing folder is an empty setup. */
-export async function readConfig(dir) {
-  const files = [];
-  const add = async (rel) => {
-    const st = await fsp.stat(path.join(dir, ...rel.split('/'))).catch(() => null);
-    if (st?.isFile()) files.push({ name: rel, text: await fsp.readFile(path.join(dir, ...rel.split('/')), 'utf8').catch(() => '') });
-  };
-  // plugins/: YAML files, and the YAML files inside a plugin's own folder (its notes page, helper files and so on are not settings)
-  const walk = async (rel, depth) => {
-    const ents = await fsp.readdir(path.join(dir, ...rel.split('/')), { withFileTypes: true }).catch(() => []);
-    for (const e of [...ents].sort((x, y) => byName(x.name, y.name))) {
-      if (e.name.startsWith('.') || e.isSymbolicLink()) continue;
-      if (e.isFile() && isYaml(e.name)) await add(`${rel}/${e.name}`);
-      else if (e.isDirectory() && depth < 3) await walk(`${rel}/${e.name}`, depth + 1);
+/**
+ * The settings files of the `plugins/` and `styles/` folders of a settings folder, as paths relative to it, in reading order.
+ * `list(rel)` gives the entries of a folder, `has(rel)` says whether a file is there. An installed plugin (a folder with a
+ * `.installed.json`) is read from its `automations/`, `definitions/` and `styles/` folders only; a folder with a `plugin.yaml` but
+ * no record was not finished (or was never installed) and is left alone; any other folder is read as before (YAML files, a few
+ * levels down).
+ */
+function layerFiles(list, has) {
+  const out = [];
+  const sorted = (rel) => [...list(rel)].sort((x, y) => byName(x.name, y.name)).filter((e) => !e.name.startsWith('.') && !e.isSymbolicLink());
+  const walk = (rel, depth) => {
+    for (const e of sorted(rel)) {
+      if (e.isFile() && isYaml(e.name)) out.push(`${rel}/${e.name}`);
+      else if (e.isDirectory() && depth < 3) {
+        const sub = `${rel}/${e.name}`;
+        if (depth === 1 && has(`${sub}/${PLUGIN_MANIFEST}`) && !has(`${sub}/${PLUGIN_RECORD}`)) continue; // not installed (yet)
+        if (depth === 1 && has(`${sub}/${PLUGIN_RECORD}`)) {
+          for (const part of ['automations', 'definitions', 'styles']) for (const f of sorted(`${sub}/${part}`)) if (f.isFile() && isYaml(f.name)) out.push(`${sub}/${part}/${f.name}`);
+          continue;
+        }
+        walk(sub, depth + 1);
+      }
     }
   };
-  await walk('plugins', 1);
-  // styles/: one level only
-  for (const n of (await fsp.readdir(path.join(dir, 'styles')).catch(() => [])).filter(isYaml).sort(byName)) await add(`styles/${n}`);
-  for (const name of configFileNames(await fsp.readdir(dir).catch(() => []))) await add(name);
-  return { ...parseConfig(files), dir };
+  walk('plugins', 1);
+  for (const e of sorted('styles')) if (e.isFile() && isYaml(e.name)) out.push(`styles/${e.name}`);
+  return out;
 }
 
-/** The same, without waiting (for the few places that cannot: the main process asking whether a workspace has rules). */
-export function readConfigSync(dir) {
-  const files = [];
-  const add = (rel) => {
-    try {
-      const abs = path.join(dir, ...rel.split('/'));
-      if (fs.statSync(abs).isFile()) files.push({ name: rel, text: fs.readFileSync(abs, 'utf8') });
-    } catch {
-      /* unreadable: left out */
-    }
+const readDirAsync = (dir) => async (rel) => fsp.readdir(path.join(dir, ...rel.split('/')), { withFileTypes: true }).catch(() => []);
+
+/** The `plugins/` and `styles/` files of a folder (async). */
+async function collectLayer(dir) {
+  const cache = new Map();
+  const ls = readDirAsync(dir);
+  // the listing is needed synchronously by layerFiles, so every folder it could ask about is read first
+  const need = async (rel, depth) => {
+    const ents = await ls(rel);
+    cache.set(rel, ents);
+    for (const e of ents) if (e.isDirectory() && !e.name.startsWith('.') && depth < 3) await need(`${rel}/${e.name}`, depth + 1);
   };
+  await need('plugins', 1);
+  cache.set('styles', await ls('styles'));
+  const marks = new Set();
+  for (const [rel, ents] of cache) for (const e of ents) if (e.isFile() && (e.name === PLUGIN_MANIFEST || e.name === PLUGIN_RECORD)) marks.add(`${rel}/${e.name}`);
+  for (const part of ['automations', 'definitions', 'styles']) {
+    for (const [rel] of [...cache]) if (/^plugins\/[^/]+$/.test(rel) && marks.has(`${rel}/${PLUGIN_RECORD}`)) cache.set(`${rel}/${part}`, await ls(`${rel}/${part}`));
+  }
+  const names = layerFiles((rel) => cache.get(rel) ?? [], (f) => marks.has(f));
+  const files = [];
+  for (const rel of names) files.push({ name: rel, text: await fsp.readFile(path.join(dir, ...rel.split('/')), 'utf8').catch(() => '') });
+  return files;
+}
+
+function collectLayerSync(dir) {
   const list = (rel) => {
     try {
       return fs.readdirSync(path.join(dir, ...rel.split('/')), { withFileTypes: true });
@@ -266,23 +299,88 @@ export function readConfigSync(dir) {
       return [];
     }
   };
-  const walk = (rel, depth) => {
-    for (const e of [...list(rel)].sort((x, y) => byName(x.name, y.name))) {
-      if (e.name.startsWith('.') || e.isSymbolicLink()) continue;
-      if (e.isFile() && isYaml(e.name)) add(`${rel}/${e.name}`);
-      else if (e.isDirectory() && depth < 3) walk(`${rel}/${e.name}`, depth + 1);
+  const has = (rel) => {
+    try {
+      return fs.statSync(path.join(dir, ...rel.split('/'))).isFile();
+    } catch {
+      return false;
     }
   };
-  walk('plugins', 1);
-  for (const e of list('styles').filter((x) => x.isFile() && isYaml(x.name)).sort((x, y) => byName(x.name, y.name))) add(`styles/${e.name}`);
+  const files = [];
+  for (const rel of layerFiles(list, has)) {
+    try {
+      files.push({ name: rel, text: fs.readFileSync(path.join(dir, ...rel.split('/')), 'utf8') });
+    } catch {
+      /* unreadable: left out */
+    }
+  }
+  return files;
+}
+
+/**
+ * Read every settings file of a `.cave-notes` folder (async): the subfolders' first, then the main folder's (which wins). A
+ * missing folder is an empty setup. With `baseDir` (the app config folder) the plugins and styles found there are read too,
+ * with the same code, and kept apart as `base`: the app's layer lies under the workspace's own settings and is never written
+ * to, so it is not in `files`, `owners` or `present`. `effectiveSections(config)` puts the two together.
+ */
+export async function readConfig(dir, opts = {}) {
+  const files = await collectLayer(dir);
+  for (const name of configFileNames(await fsp.readdir(dir).catch(() => []))) {
+    const text = await fsp.readFile(path.join(dir, name), 'utf8').catch(() => '');
+    const st = await fsp.stat(path.join(dir, name)).catch(() => null);
+    if (st?.isFile()) files.push({ name, text });
+  }
+  const cfg = { ...parseConfig(files), dir };
+  if (opts.baseDir) cfg.base = parseConfig(await collectLayer(opts.baseDir));
+  return cfg;
+}
+
+/** The same, without waiting (for the few places that cannot: the main process asking whether a workspace has rules). */
+export function readConfigSync(dir, opts = {}) {
+  const files = collectLayerSync(dir);
   let names = [];
   try {
     names = configFileNames(fs.readdirSync(dir));
   } catch {
     /* no folder */
   }
-  for (const n of names) add(n);
-  return { ...parseConfig(files), dir };
+  for (const n of names) {
+    try {
+      if (fs.statSync(path.join(dir, n)).isFile()) files.push({ name: n, text: fs.readFileSync(path.join(dir, n), 'utf8') });
+    } catch {
+      /* unreadable: left out */
+    }
+  }
+  const cfg = { ...parseConfig(files), dir };
+  if (opts.baseDir) cfg.base = parseConfig(collectLayerSync(opts.baseDir));
+  return cfg;
+}
+
+/**
+ * The workspace's settings with the app's layer under them: maps are merged by name (the workspace's entry wins), lists are
+ * joined with the app's entries first, except those whose `id` or `name` the workspace gives itself. Unlike an inherited
+ * (`!global`) section, the app's layer is not switched off by an empty section of the workspace.
+ * @returns {{ sections: Record<string, any>, present: Set<string> }}
+ */
+export function effectiveSections(config) {
+  const own = config.sections ?? {};
+  const base = config.base?.sections ?? {};
+  const sections = { ...own };
+  const present = new Set(config.present);
+  for (const [key, b] of Object.entries(base)) {
+    if (b === null || b === undefined) continue;
+    const kind = SECTIONS[key];
+    const o = own[key];
+    if (kind === 'map' && isMapObj(b)) sections[key] = { ...b, ...(isMapObj(o) ? o : {}) };
+    else if (kind === 'seq' && Array.isArray(b)) {
+      const nameOf = (r) => String(r?.id ?? r?.name ?? '').toLowerCase();
+      const mine = Array.isArray(o) ? o : [];
+      const taken = new Set(mine.map(nameOf));
+      sections[key] = [...b.filter((r) => !taken.has(nameOf(r))), ...mine];
+    } else continue;
+    present.add(key);
+  }
+  return { sections, present };
 }
 
 /**

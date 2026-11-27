@@ -10,7 +10,7 @@ import type { PageSource,
   FileItem, AttributeSource, NoteTypes, ApplyResult, DeleteInfo, IndexStats, LinkInfo, LinkPlan, PageData, PageInfo, PageSuggestion, ResolvedLink,
   SearchResponse, TreeItem, WireError, WorkerApi, WorkerEvents, WorkspaceAppearance, WorkspaceInfo, WorkspaceState, WriteResult, BacklinkInfo, AttributeKey, AttrValue, ViewData, SavedQueries,
   RelationEditRequest, RelationEditResult, RelationPage, ReplaceChoice, ReplaceDone, ReplaceFound, ReplacePage, ReplaceRequest,
-  ConflictMerge, FontSizes, HistoryEntry, AutomationStatus, AutomationRuleHit, AutomationLogEntry, YamlSection, PluginInfo, PluginAsk, PluginResult, UninstallResult } from './api';
+  ConflictMerge, FontSizes, HistoryEntry, AutomationStatus, AutomationRuleHit, AutomationLogEntry, YamlSection, PluginInfo, PluginAsk, PluginResult, UninstallResult, PluginRequest, PluginPreview, PluginInstallResult, InstalledPluginInfo } from './api';
 import YAML from 'yaml';
 import { log, timed } from './log';
 import { REPLACE_KINDS, applyMatches, compileFind, findMatches, matchName, type ReplaceKind, type ReplaceOptions } from './replace';
@@ -25,8 +25,10 @@ import { AutomationRunner, defaultDeviceName, type AutomationDeps } from './auto
 import { cleanWindow } from './settings';
 import { CONFIG_NOTES, configCreateExt, ensureConfigFolder, isConfigRoot } from './config-folder';
 import { INFO_DIR, STATE_FILE, editSection, editYaml, infoPath, readSections, readSettings, rulesText, setKey } from './workspace-file';
-import { homeFor, readConfig } from '@cave-notes/core-index/config';
-import { loadDefaultPlugins, removeDefaultPlugin, removeRuleFromFile, removedDefaults, seedDefaults, type DefaultPlugins } from './app-config';
+import { effectiveSections, homeFor, readConfig } from '@cave-notes/core-index/config';
+import { appRuleFiles, removeAppRule, removeRuleFromFile } from './app-config';
+import { markBuiltinRemoved, restoreBuiltins, shippedIds, syncBuiltins } from './builtins';
+import { listInstalled, parsePackage, planInstall, planUpdate, removeInstalled, updateRecord, writeInstall, writeUpdate, type ExistingNames, type InstallPlan, type InstalledPlugin, type PluginScope, type UpdatePlan } from './plugins';
 
 const sha1 = (data: Uint8Array | string): string => sha1Of(data);
 
@@ -89,9 +91,9 @@ interface Open {
   /** the automation rules taken from other workspaces */
   inheritedRules: unknown[] | undefined;
   /** the plugins that come with the app, read from the app config folder (null: there is none, or this workspace takes none) */
-  defaultPlugins?: DefaultPlugins | null;
   /** a fingerprint of them, to notice when a file there changed */
-  defaultsSig?: string;
+  /** the ids of the app's automations as last read, to tell when they changed */
+  appRulesSig?: string;
   /** export style sets taken from other workspaces (`export-style: !global`), as a map by name */
   inheritedExport?: Record<string, unknown>;
   /** set when one Markdown file is open on its own: its file name (the workspace is then its folder, and nothing is saved beside it) */
@@ -204,6 +206,8 @@ export class WorkspaceService implements WorkerApi {
     this.globalIgnoreText = await this.readGlobalIgnore();
     const index = await openIndex(root, {
       ignore: ['node_modules'],
+      // the app config folder: its plugins (their definitions too) lie under the workspace's own settings
+      ...(!lite && !single && !config && opts.appConfigDir ? { baseConfigDir: opts.appConfigDir } : {}),
       globalIgnore: () => this.globalIgnoreText,
       ...(this.options.driver ? { driver: this.options.driver } : {}),
       workers: lite ? 0 : (this.options.workers ?? Math.max(0, Math.min(3, cores - 1))),
@@ -537,13 +541,13 @@ export class WorkspaceService implements WorkerApi {
   private async ensureAutomation(o: Open): Promise<void> {
     if (o.single || o.config) return;
     try {
-      await this.refreshDefaultPlugins(o);
+      await this.refreshAppLayer(o);
       if (o.automation) {
         await o.automation.reload();
         return;
       }
-      if ((await rulesText(infoPath(o.root), o.inheritedRules, o.defaultPlugins?.rules)) === null) return;
-      const runner = await AutomationRunner.create(this.automationDeps(), { root: o.root, dataDir: o.dataDir, deviceName: o.deviceName, inheritedRules: () => o.inheritedRules, defaultRules: () => o.defaultPlugins?.rules, emit: this.emit });
+      if ((await rulesText(infoPath(o.root), o.inheritedRules, this.appConfigDir)) === null) return;
+      const runner = await AutomationRunner.create(this.automationDeps(), { root: o.root, dataDir: o.dataDir, deviceName: o.deviceName, inheritedRules: () => o.inheritedRules, baseDir: this.appConfigDir, emit: this.emit });
       if (this.ws !== o) return;
       o.automation = runner;
       log.info(`automations: starting for ${o.root} on "${o.deviceName}" (device ${runner.deviceId})`);
@@ -598,23 +602,21 @@ export class WorkspaceService implements WorkerApi {
    * The Plugins menu: this workspace's own, and the plugins another workspace offers to all (a `rules:` entry tagged `!global`)
    * that this one has not accepted. Those are listed with `pending` set: choosing one asks first.
    */
-  /** Read the plugins that come with the app again; true when they are not what they were. */
-  private async refreshDefaultPlugins(o: Open): Promise<boolean> {
+  /** Look at the app config folder again (copying in what ships with the app first); true when its automations are not what they were. */
+  private async refreshAppLayer(o: Open): Promise<boolean> {
     if (!this.appConfigDir || o.single || o.config) return false;
-    await seedDefaults(this.shippedDefaultsDir, this.appConfigDir).catch((e) => log.warn(`app defaults: ${(e as Error).message}`));
-    const loaded = await loadDefaultPlugins(this.appConfigDir);
-    for (const p of loaded.problems) log.warn(`app plugin file skipped: ${p}`);
-    const sig = JSON.stringify(loaded.rules);
-    const changed = sig !== (o.defaultsSig ?? '[]');
-    o.defaultPlugins = loaded;
-    o.defaultsSig = sig;
+    if (this.shippedDefaultsDir) await syncBuiltins(this.shippedDefaultsDir, this.appConfigDir).catch((e) => log.warn(`app defaults: ${(e as Error).message}`));
+    const sig = JSON.stringify([...(await appRuleFiles(this.appConfigDir)).entries()]);
+    const changed = sig !== (o.appRulesSig ?? '[]');
+    o.appRulesSig = sig;
     return changed;
   }
 
   async automationPlugins(): Promise<PluginInfo[]> {
     const o = this.open;
-    if (await this.refreshDefaultPlugins(o)) await this.ensureAutomation(o);
-    const shipped = o.defaultPlugins?.fileOf ?? new Map<string, string>();
+    if (await this.refreshAppLayer(o)) await this.ensureAutomation(o);
+    // the app's automations, and which file of the app config folder each is in (the workspace's own with the same id replace them)
+    const shipped = this.appConfigDir && !o.single && !o.config ? await appRuleFiles(this.appConfigDir) : new Map<string, string>();
     const own = new Set<string>();
     if (shipped.size > 0) {
       const cfg = await readConfig(infoPath(o.root)).catch(() => null);
@@ -656,7 +658,15 @@ export class WorkspaceService implements WorkerApi {
     if (!plugin) return { ok: false, message: 'There is no such plugin.' };
     if (plugin.pending) return { ok: false, message: `This plugin is offered by the workspace “${plugin.pending.name}”. Remove it there, or leave it off here.` };
     if (plugin.origin === 'default') {
-      if (!this.appConfigDir || !(await removeDefaultPlugin(this.appConfigDir, id))) return { ok: false, message: 'The plugin’s file could not be found in the app config folder.' };
+      if (!this.appConfigDir) return { ok: false, message: 'The plugin’s file could not be found in the app config folder.' };
+      // a plugin package of its own (the built-ins are): the whole package goes; a rule in a loose file: that rule
+      const rel = (await appRuleFiles(this.appConfigDir)).get(id);
+      const folder = rel ? /^plugins\/([^/]+)\/(?:automations|definitions|styles)\//.exec(rel)?.[1] : undefined;
+      if (folder) {
+        const r = await this.pluginRemove(folder, 'app');
+        return r.ok ? { ok: true, message: `“${plugin.label}” was uninstalled. Plugins > All plugins can bring back the ones that come with the app.` } : r;
+      }
+      if (!(await removeAppRule(this.appConfigDir, id))) return { ok: false, message: 'The plugin’s file could not be found in the app config folder.' };
       await this.ensureAutomation(o);
       return { ok: true, message: `“${plugin.label}” was uninstalled. Plugins > All plugins can bring back the ones that come with the app.` };
     }
@@ -669,13 +679,233 @@ export class WorkspaceService implements WorkerApi {
     return { ok: true, message: `“${plugin.label}” was removed from the workspace’s settings.` };
   }
 
-  /** Copy back the plugins and templates that came with the app and were deleted. How many came back. */
+  /** Bring back the plugins that came with the app and were removed. How many came back. */
   async restoreDefaultPlugins(): Promise<number> {
-    if (!this.appConfigDir) return 0;
-    const gone = (await removedDefaults(this.shippedDefaultsDir, this.appConfigDir)).length;
-    await seedDefaults(this.shippedDefaultsDir, this.appConfigDir, { restore: true });
+    if (!this.appConfigDir || !this.shippedDefaultsDir) return 0;
+    const back = await restoreBuiltins(this.shippedDefaultsDir, this.appConfigDir);
     await this.ensureAutomation(this.open);
-    return gone;
+    return back;
+  }
+
+  // ------------------------------------------------------------ plugin packages (see plugins.ts)
+
+  /** The settings folder a plugin of this scope goes to: the workspace's `.cave-notes` (also for a shared one) or the app config folder. */
+  private pluginDir(scope: PluginScope): string {
+    const o = this.open;
+    if (o.single || o.config) throw new Error('Plugins cannot be installed in this kind of workspace.');
+    if (scope === 'app') {
+      if (!this.appConfigDir) throw new Error('This app has no folder for settings of its own, so a plugin cannot be installed for the whole app here.');
+      return this.appConfigDir;
+    }
+    return infoPath(o.root);
+  }
+
+  /** What is taken, in the place a plugin would go: for the checks of `planInstall`. */
+  private async pluginExisting(scope: PluginScope): Promise<ExistingNames & { schema: ReadonlySet<string> }> {
+    const o = this.open;
+    const dir = this.pluginDir(scope);
+    const cfg = await readConfig(infoPath(o.root), this.appConfigDir ? { baseDir: this.appConfigDir } : {}).catch(() => null);
+    const eff = cfg ? effectiveSections(cfg) : { sections: {} as Record<string, unknown>, present: new Set<string>() };
+    const keys = (section: string): Set<string> => {
+      const v = eff.sections[section];
+      return new Set(v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).map((k) => k.toLowerCase()) : []);
+    };
+    const folders = new Map<string, string | null>();
+    const have = new Map((await listInstalled(dir)).map((i) => [i.folder, i.record.plugin]));
+    try {
+      for (const e of (await fs.readdir(path.join(dir, 'plugins'), { withFileTypes: true })) as Array<{ name: string; isDirectory(): boolean; isFile(): boolean }>) {
+        if (!e.name.startsWith('.')) folders.set(e.name, have.get(e.name) ?? null);
+      }
+    } catch {
+      /* no plugins folder yet */
+    }
+    const templates = new Set((await listTemplates(o.root, null, this.appTemplates, { hidden: true })).map((t) => t.name.toLowerCase()));
+    const exts = noteExtensions();
+    return {
+      styles: keys('export-style'), queries: keys('queries'), schema: keys('schema'), templates, folders,
+      pageTaken: (p) => {
+        const lookup = this.getLookup();
+        return exts.some((e) => lookup.byPath.has(`${p}${e}`)) || lookup.byPath.has(p);
+      },
+    };
+  }
+
+  /** The installed plugin with this id: in the place the request names if it is there, else in the other. */
+  private async findInstalledPlugin(id: string, scope: PluginScope): Promise<(InstalledPlugin & { settingsDir: string; where: 'workspace' | 'app' }) | null> {
+    const order: Array<'workspace' | 'app'> = scope === 'app' ? ['app', 'workspace'] : ['workspace', 'app'];
+    for (const where of order) {
+      let dir: string;
+      try {
+        dir = this.pluginDir(where);
+      } catch {
+        continue;
+      }
+      const hit = (await listInstalled(dir)).find((i) => i.record.plugin === id);
+      if (hit) return { ...hit, settingsDir: dir, where };
+    }
+    return null;
+  }
+
+  /** What is taken, without what the installed plugin itself brought (an update is not a clash with its own earlier version). */
+  private async pluginExistingFor(scope: PluginScope, own: InstalledPlugin | null): Promise<ExistingNames & { schema: ReadonlySet<string> }> {
+    const ex = await this.pluginExisting(scope);
+    if (!own) return ex;
+    const drop = (set: ReadonlySet<string>, names: string[]): ReadonlySet<string> => new Set([...set].filter((n) => !names.includes(n)));
+    const lc = (xs: Array<string | undefined>): string[] => xs.filter((x): x is string => typeof x === 'string').map((x) => x.toLowerCase());
+    const items = own.record.items;
+    return {
+      ...ex,
+      templates: drop(ex.templates, lc(items.filter((i) => i.kind === 'template').map((i) => i.name))),
+      styles: drop(ex.styles, lc(items.filter((i) => i.kind === 'export-style').flatMap((i) => i.names ?? []))),
+      queries: drop(ex.queries, lc(items.filter((i) => i.kind === 'definitions').flatMap((i) => i.names ?? []))),
+    };
+  }
+
+  private async pluginPlan(req: PluginRequest): Promise<{ plan: InstallPlan; update: (UpdatePlan & { folder: string; settingsDir: string; where: 'workspace' | 'app' }) | null; warnings: string[]; answers: Record<string, unknown> }> {
+    const parsed = parsePackage(req.files);
+    if (!parsed.ok) throw Object.assign(new Error(parsed.errors.join('\n')), { errors: parsed.errors });
+    this.pluginDir(req.scope); // refuses a place that cannot hold plugins before anything is shown
+    const have = await this.findInstalledPlugin(parsed.plugin.manifest.id, req.scope);
+    if (have) {
+      const up = await planUpdate(parsed.plugin, have, { ...(req.answers ? { answers: req.answers } : {}), existing: await this.pluginExistingFor(have.record.scope, have) });
+      return { plan: up.plan, update: { ...up, folder: have.folder, settingsDir: have.settingsDir, where: have.where }, warnings: parsed.warnings, answers: up.plan.record.setup };
+    }
+    const plan = planInstall(parsed.plugin, { scope: req.scope, ...(req.answers ? { answers: req.answers } : {}), existing: await this.pluginExisting(req.scope) });
+    return { plan, update: null, warnings: parsed.warnings, answers: plan.record.setup };
+  }
+
+  async pluginPreview(req: PluginRequest): Promise<PluginPreview> {
+    const parsed = parsePackage(req.files);
+    if (!parsed.ok) return { ok: false, errors: parsed.errors };
+    const m = parsed.plugin.manifest;
+    const base = {
+      ok: true as const, id: m.id, name: m.name, version: m.version, description: m.description, author: m.author, homepage: m.homepage, scopes: m.scopes,
+      setup: m.setup, readme: parsed.plugin.readme, warnings: parsed.warnings,
+    };
+    try {
+      const { plan, update, answers } = await this.pluginPlan(req);
+      const label = (rel: string): string => rel;
+      return {
+        ...base, scopes: update ? [update.plan.scope] : base.scopes, adds: update ? [] : plan.adds, can: plan.can, conflicts: plan.conflicts, pages: update ? [] : plan.pages.map((g) => ({ path: g.path, open: g.open })), problem: null, answers,
+        update: update ? { installedVersion: update.from, direction: update.direction, where: update.where, replaced: update.replaced.map(label), kept: update.kept.map(label), added: update.added.map(label), removed: update.removed.map(label), left: update.left.map(label) } : null,
+      };
+    } catch (e) {
+      return { ...base, adds: [], can: [], conflicts: [], pages: [], problem: (e as Error).message, answers: {}, update: null };
+    }
+  }
+
+  async pluginInstall(req: PluginRequest): Promise<PluginInstallResult> {
+    let planned: Awaited<ReturnType<WorkspaceService['pluginPlan']>>;
+    try {
+      planned = await this.pluginPlan(req);
+    } catch (e) {
+      return { ok: false, message: (e as Error).message, open: null, folder: null };
+    }
+    const { plan, update } = planned;
+    if (update) {
+      try {
+        await writeUpdate(update.settingsDir, update.folder, update);
+      } catch (e) {
+        log.warn(`plugin update failed: ${(e as Error).message}`);
+        return { ok: false, message: `“${plan.manifest.name}” could not be updated, and nothing was changed: ${(e as Error).message}`, open: null, folder: null };
+      }
+      await this.onFilesChanged(new Set(), new Set(), true, false, true);
+      const parts = [update.replaced.length > 0 ? `${update.replaced.length} replaced` : '', update.added.length > 0 ? `${update.added.length} added` : '', update.removed.length > 0 ? `${update.removed.length} removed` : '', update.kept.length > 0 ? `${update.kept.length} of yours kept` : ''].filter(Boolean);
+      const what = update.direction === 'upgrade' ? `updated from ${update.from} to ${update.to}` : update.direction === 'same' ? `put in again (${update.to})` : `set back to ${update.to} (from ${update.from})`;
+      return { ok: true, message: `“${plan.manifest.name}” was ${what}${parts.length > 0 ? `: ${parts.join(', ')}` : ''}.`, open: null, folder: update.folder };
+    }
+    const o = this.open;
+    const dir = this.pluginDir(req.scope);
+    try {
+      await writeInstall(dir, plan);
+    } catch (e) {
+      log.warn(`plugin install failed: ${(e as Error).message}`);
+      return { ok: false, message: `“${plan.manifest.name}” could not be installed: ${(e as Error).message}`, open: null, folder: null };
+    }
+    // the starter pages: made from the plugin's own templates, with the mark that ties a page to its template
+    let open: string | null = null;
+    const made: Array<{ pageId: string; path: string }> = [];
+    const texts = new Map(plan.files.map((f) => [f.rel, new TextDecoder().decode(f.data)]));
+    for (const g of plan.pages) {
+      try {
+        const item = plan.record.items.find((i) => i.kind === 'template' && i.name === g.template);
+        const source = item ? texts.get(item.path) : undefined;
+        if (source === undefined) continue;
+        const segs = g.path.split('/');
+        for (let i = 1; i < segs.length; i++) {
+          const here = segs.slice(0, i).join('/');
+          const lookup = this.getLookup();
+          if (!noteExtensions().some((e) => lookup.byPath.has(`${here}${e}`))) await this.createPage(i > 1 ? await this.pagePathOf(segs.slice(0, i - 1).join('/')) : null, segs[i - 1]!, undefined, null, false, true);
+        }
+        const title = segs[segs.length - 1]!;
+        let text = instantiate(source, title, true);
+        if (g.managed) text = setFrontmatterValue(text, 'pluginPage', g.pageId);
+        const parent = segs.length > 1 ? await this.pagePathOf(segs.slice(0, -1).join('/')) : null;
+        const created = await this.createPage(parent, title, text, null, false, true);
+        made.push({ pageId: g.pageId, path: created });
+        if (g.open && open === null) open = created;
+      } catch (e) {
+        log.warn(`starter page ${g.path} was not made: ${(e as Error).message}`);
+      }
+    }
+    if (made.length > 0) await updateRecord(dir, plan.folder, (r) => { r.pages = r.pages.map((p) => ({ ...p, path: made.find((m) => m.pageId === p.pageId)?.path ?? p.path })); }).catch(() => undefined);
+    await this.onFilesChanged(new Set(), new Set(), true, false, true);
+    const note = plan.conflicts.some((c) => c.kind !== 'schema') ? ' Names that were taken got “(plugin name)” after them.' : '';
+    return { ok: true, message: `“${plan.manifest.name}” is installed.${note}`, open, folder: plan.folder };
+  }
+
+  /** The path (with its extension) of the page at `p` as written without one. */
+  private async pagePathOf(p: string): Promise<string | null> {
+    const lookup = this.getLookup();
+    for (const e of noteExtensions()) if (lookup.byPath.has(`${p}${e}`)) return `${p}${e}`;
+    return lookup.byPath.has(p) ? p : null;
+  }
+
+  async pluginsInstalled(): Promise<InstalledPluginInfo[]> {
+    const o = this.open;
+    if (o.single || o.config) return [];
+    const out: InstalledPluginInfo[] = [];
+    for (const where of ['workspace', 'app'] as const) {
+      let dir: string;
+      try {
+        dir = this.pluginDir(where);
+      } catch {
+        continue;
+      }
+      for (const i of await listInstalled(dir)) {
+        out.push({ folder: i.folder, scope: i.record.scope, where, id: i.record.plugin, name: i.record.name, version: i.record.version, installed: i.record.installed });
+      }
+    }
+    return out;
+  }
+
+  async pluginRemove(folder: string, scope: 'workspace' | 'app'): Promise<UninstallResult> {
+    const o = this.open;
+    let dir: string;
+    try {
+      dir = this.pluginDir(scope);
+    } catch (e) {
+      return { ok: false, message: (e as Error).message };
+    }
+    const found = (await listInstalled(dir)).find((i) => i.folder === folder);
+    if (!found) return { ok: false, message: 'That plugin is not installed.' };
+    // the starter pages stay, as ordinary pages: only the mark that tied them to the plugin goes
+    for (const pg of found.record.pages) {
+      try {
+        const p = normalizePagePath(pg.path);
+        const text = await fs.readFile(this.abs(p), 'utf8');
+        const next = setFrontmatterValue(text, 'pluginPage', null);
+        if (next !== text) await this.writePage(p, next, sha1(text));
+      } catch {
+        /* the page is gone or was moved: nothing to untie */
+      }
+    }
+    await removeInstalled(dir, folder);
+    // one that comes with the app stays removed until it is restored
+    if (scope === 'app' && this.shippedDefaultsDir && (await shippedIds(this.shippedDefaultsDir)).includes(found.record.plugin)) await markBuiltinRemoved(dir, found.record.plugin);
+    await this.onFilesChanged(new Set(), new Set(), true, false, true);
+    void o;
+    return { ok: true, message: `“${found.record.name}” was removed. Its pages are still there.` };
   }
 
   async automationPluginAsk(ruleId: string, p: string, text: string, selection: boolean, answers: Record<string, unknown> | null = null): Promise<PluginAsk[]> {
@@ -1502,7 +1732,7 @@ export class WorkspaceService implements WorkerApi {
       const want = template ?? (await defaultTemplateName(o.root, parent));
       const t = want ? await findTemplate(o.root, parent, want, this.appTemplates) : null;
       if (t) {
-        const made = instantiate(t.text, title);
+        const made = instantiate(t.text, title, t.plugin !== undefined);
         text = content === undefined ? made : mergeWithTemplate(made, content);
       }
     }
@@ -1520,7 +1750,7 @@ export class WorkspaceService implements WorkerApi {
     const o = this.open;
     const list: TemplateInfo[] = await listTemplates(o.root, parent, this.appTemplates);
     return {
-      templates: list.map((t) => ({ name: t.name, where: t.abs ? 'the app' : t.rel.startsWith('.cave-notes/') ? 'the workspace' : t.rel })),
+      templates: list.map((t) => ({ name: t.name, where: t.plugin ? `the plugin ${t.plugin}` : t.abs ? 'the app' : t.rel.startsWith('.cave-notes/') ? 'the workspace' : t.rel })),
       default: await defaultTemplateName(o.root, parent),
     };
   }
@@ -1532,7 +1762,7 @@ export class WorkspaceService implements WorkerApi {
     const t = await findTemplate(o.root, parentPage(p), name, this.appTemplates);
     if (!t) return { ok: false, error: `There is no template called “${name}” here.` };
     const row = this.getLookup().byPath.get(p);
-    return { ok: true, text: instantiate(t.text, row?.title ?? pageName(p)) };
+    return { ok: true, text: instantiate(t.text, row?.title ?? pageName(p), t.plugin !== undefined) };
   }
 
   /** Where an embed points: the file and (for `@name`) the template found for the page it sits on. */
@@ -1612,7 +1842,7 @@ export class WorkspaceService implements WorkerApi {
     if (mergeDefault) {
       const want = await defaultTemplateName(o.root, parent);
       const t = want ? await findTemplate(o.root, parent, want, this.appTemplates) : null;
-      if (t) text = mergeWithTemplate(instantiate(t.text, titleOfTyped(name, stem)), content);
+      if (t) text = mergeWithTemplate(instantiate(t.text, titleOfTyped(name, stem), t.plugin !== undefined), content);
     }
     const created = await o.tree.createPage(parent, `${stem}.${n}`, text);
     await o.index.refresh([created]);

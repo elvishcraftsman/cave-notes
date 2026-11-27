@@ -3,7 +3,7 @@ import { openTree, pageName, pageFolder, normalizePagePath, ancestors, noteExten
 import { parse as mdParse, parseCanvasFile, setPageExtensions, splitWorkspaceTarget } from '@cave-notes/core-md';
 import { openDatabase } from './db.js';
 import { mergeSection } from './global-tag.js';
-import { readConfig } from './config.js';
+import { effectiveSections, readConfig } from './config.js';
 import { EMPTY_TYPE, buildAttrs, linkTarget, normalizeGlobals, normalizeSchema, ownAttributes, parseSchemaText, parseState, resolveInheritance, rootState, serializeState } from './attrs.js';
 import { toPlain, makeSnippet } from './plain.js';
 import { buildLookup, resolvePageLink, resolveFilePath } from './resolve.js';
@@ -23,6 +23,7 @@ const escapeLike = (s) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
  * @param {object} [options]
  * @param {string}   [options.dbPath]      default <root>/.cave-notes/index.db (":memory:" works)
  * @param {string}   [options.configDir]   default <root>/.cave-notes: every YAML file in it is read for settings (see config.js)
+ * @param {string}   [options.baseConfigDir] the app config folder: its plugins and styles lie under the workspace's own settings
  * @param {string[]} [options.ignore]      names hidden from the tree, as in core-tree
  * @param {string[]} [options.only]        show only these top-level page files (single-file mode, as in core-tree)
  * @param {number}   [options.workers]     parse in this many worker threads (default 0 = in-process)
@@ -136,9 +137,10 @@ export async function openIndex(rootDir, options = {}) {
    * `invalid` means a file could not be read as YAML: the caller keeps what it had.
    */
   async function readSettings() {
-    const cfg = await readConfig(configDir);
-    const sec = cfg.sections;
-    const has = (k) => cfg.present.has(k);
+    const cfg = await readConfig(configDir, options.baseConfigDir ? { baseDir: options.baseConfigDir } : {});
+    const eff = effectiveSections(cfg);
+    const sec = eff.sections;
+    const has = (k) => eff.present.has(k);
 
     // the schema: `schema:` is a map of attribute names to their types
     const schemaRaw = mergeSection(sec.schema, has('schema'), inherited.schemaAttributes, 'map');

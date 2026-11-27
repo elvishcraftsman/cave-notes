@@ -5,4 +5,4 @@ export { SCHEMA_VERSION, setDefaultDriver } from './db.js';
 export { buildLookup, resolvePageLink } from './resolve.js';
 export { pageByStem, stripNoteExt, hasNoteExt } from './exts.js';
 export { GLOBAL_TAG, mergeSection, offered, parseTagged } from './global-tag.js';
-export { SECTIONS, DEFAULT_FILE, configFileNames, parseConfig, readConfig, readConfigSync, homeFor } from './config.js';
+export { SECTIONS, DEFAULT_FILE, configFileNames, parseConfig, readConfig, readConfigSync, effectiveSections, homeFor } from './config.js';

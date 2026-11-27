@@ -3,7 +3,7 @@ export { renderHtml, styleCss } from './html';
 export { renderDocx } from './docx';
 export { renderOdt } from './odt';
 export { BUILTIN_NAMED, BUILTIN_STYLES, PAGE_CM, cleanNamedStyles, cleanStyleSet, resolveNamed, hasHeaderFooter, headerFooterDiffers, hfText, hfTokens, type HeaderFooter, type HeaderFooterText, type HfToken, type NamedStyle, type StyleSet, type TextStyle, type Units } from './styles';
-export { lengthToCm, lengthToPt, namedStylesFromYaml, parseStyleSetsYaml, stringifyStyleSets, styleSetFromYaml, styleSetToYaml, type ParsedStyles } from './styleYaml';
+export { lengthToCm, lengthToPt, namedStylesFromYaml, parseStyleSetsYaml, stringifyStyleSets, unwrapStyleSets, unwrapStyleYaml, styleSetFromYaml, styleSetToYaml, type ParsedStyles } from './styleYaml';
 import { parseDoc } from './doc';
 import { renderDocx } from './docx';
 import { renderHtml } from './html';

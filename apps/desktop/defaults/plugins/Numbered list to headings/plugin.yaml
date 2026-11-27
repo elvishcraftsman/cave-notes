@@ -1,0 +1,9 @@
+plugin:
+  id: list-to-headings
+  name: Numbered list to headings
+  version: 1.0.0
+  description: "The “Numbered list to headings” automation of the Automations menu."
+  author: Cave Notes
+  scopes: [app]
+automations:
+  - automations/list-to-headings.yaml
