@@ -1,7 +1,7 @@
 // Bundles the app into dist/: main, preload and worker with esbuild, and the renderer as one script and one stylesheet.
 import { build } from 'esbuild';
 import { cp, mkdir, readFile, rm } from 'node:fs/promises';
-import { workerExternal } from './build-config.mjs';
+import { cjsMeta, workerExternal } from './build-config.mjs';
 
 const watch = process.argv.includes('--minify');
 const version = JSON.parse(await readFile('package.json', 'utf8')).version;
@@ -11,8 +11,8 @@ await mkdir('dist/renderer', { recursive: true });
 const common = { bundle: true, sourcemap: true, logLevel: 'warning', minify: watch, target: 'node22' };
 
 await Promise.all([
-  build({ ...common, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
-  build({ ...common, entryPoints: ['src/preload/preload.ts'], outfile: 'dist/preload.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
+  build({ ...common, ...cjsMeta, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
+  build({ ...common, ...cjsMeta, entryPoints: ['src/preload/preload.ts'], outfile: 'dist/preload.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
   // The worker is ESM: the plain-JavaScript core packages (and native SQLite) stay external so they load from node_modules as
   // they are. core-export is TypeScript with extensionless imports, which Node cannot load, so it is bundled in.
   build({

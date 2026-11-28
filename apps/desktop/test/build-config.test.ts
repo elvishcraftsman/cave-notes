@@ -19,3 +19,18 @@ describe('the worker bundle', () => {
     }
   });
 });
+
+import { build } from 'esbuild';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { cjsMeta } from '../build-config.mjs';
+
+it('a CommonJS bundle can use import.meta.url at load time (main.cjs bundles packages that do)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cave-cjs-'));
+  writeFileSync(join(dir, 'entry.js'), "export const url = new URL('./sandbox-worker.js', import.meta.url).href;\n");
+  await build({ entryPoints: [join(dir, 'entry.js')], outfile: join(dir, 'out.cjs'), bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent', ...cjsMeta });
+  const out = createRequire(import.meta.url)(join(dir, 'out.cjs')) as { url: string };
+  expect(out.url).toMatch(/^file:\/\/.*\/sandbox-worker\.js$/);
+});

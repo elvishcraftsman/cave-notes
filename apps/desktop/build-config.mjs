@@ -14,3 +14,12 @@ export const plainJsPackages = readdirSync(packages, { withFileTypes: true })
   .map((p) => p.name);
 
 export const workerExternal = ['better-sqlite3', ...plainJsPackages];
+
+// `import.meta.url` does not exist in a CommonJS bundle (esbuild leaves it empty, and `new URL(undefined)` then throws as the app
+// starts). Some packages the main process pulls in use it at load time, for files only the worker ever opens, so it is given the
+// bundle's own address.
+export const cjsMeta = {
+  define: { 'import.meta.url': '__importMetaUrl' },
+  banner: { js: "const __importMetaUrl = require('node:url').pathToFileURL(__filename).href;" },
+};
+
