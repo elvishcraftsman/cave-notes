@@ -34,3 +34,11 @@ it('a CommonJS bundle can use import.meta.url at load time (main.cjs bundles pac
   const out = createRequire(import.meta.url)(join(dir, 'out.cjs')) as { url: string };
   expect(out.url).toMatch(/^file:\/\/.*\/sandbox-worker\.js$/);
 });
+
+it('the preload bundle gets no import.meta banner: it runs in the sandbox, where __filename and require("node:url") do not exist', () => {
+  const script = fs.readFileSync(new URL('../build.mjs', import.meta.url), 'utf8');
+  const preload = script.split('\n').find((l) => l.includes('src/preload/preload.ts'));
+  expect(preload).toBeDefined();
+  expect(preload).not.toContain('cjsMeta');
+  expect(cjsMeta.banner.js).toContain('__filename'); // which is why it must stay out of the preload
+});

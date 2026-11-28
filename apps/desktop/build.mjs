@@ -12,7 +12,7 @@ const common = { bundle: true, sourcemap: true, logLevel: 'warning', minify: wat
 
 await Promise.all([
   build({ ...common, ...cjsMeta, entryPoints: ['src/main/main.ts'], outfile: 'dist/main.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
-  build({ ...common, ...cjsMeta, entryPoints: ['src/preload/preload.ts'], outfile: 'dist/preload.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
+  build({ ...common, entryPoints: ['src/preload/preload.ts'], outfile: 'dist/preload.cjs', platform: 'node', format: 'cjs', external: ['electron'] }),
   // The worker is ESM: the plain-JavaScript core packages (and native SQLite) stay external so they load from node_modules as
   // they are. core-export is TypeScript with extensionless imports, which Node cannot load, so it is bundled in.
   build({
