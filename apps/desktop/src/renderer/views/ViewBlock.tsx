@@ -1,5 +1,5 @@
-import type { ViewBlockApi, ViewBlockHost } from '@cave-notes/editor';
-import { BUILTIN, BUILTIN_COLUMNS, VIEW_TYPES, addViewToSource, clausesOf, fieldsFor, ownQueryOf, parseViewSet, pickColumns, relationAliases, removeViewFromSource, resolveQuery, setOpenView, shortcodeOf, toCsv, updateViewSource, type Row, type ViewConfig, type ViewType } from '@cave-notes/ui-views';
+import type { ViewBlockApi, ViewBlockHost, ViewFileEditorHost } from '@cave-notes/editor';
+import { BUILTIN, BUILTIN_COLUMNS, VIEW_TYPES, addViewToSource, clausesOf, csvRecords, duplicateViewInSource, newPageContent, newPageDefaults, fieldsFor, ownQueryOf, parseViewSet, pickColumns, viewColumns, withComputed, relationAliases, removeViewFromSource, resolveQuery, shortcodeOf, toCsv, updateViewSource, viewFileConfig, withViewFileConfig, type Row, type ViewConfig, type ViewType } from '@cave-notes/ui-views';
 import { type JSX, render } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { AttributeKey } from '../../shared/api';
@@ -46,6 +46,23 @@ function PanelBox({ id, label, children, onClose }: { id: string; label: string;
 /** The editor unmounts blocks that scroll far out of sight; keep their last results so they come back instantly. */
 const lastData = new Map<string, Data>();
 
+/**
+ * Which tab of a block of several views was open is remembered on this computer, not in the page text. A view tagged
+ * `open: true` is the exception: the tag decides, every time the page opens, and choosing another tab lasts only until the page closes.
+ */
+function rememberedKey(page: string | null, views: { title?: string }[]): string {
+  // names and count only: changing a view's filter or type must not forget which tab it was
+  return `cave-notes.view-tab.${page ?? ''}::${views.map((v) => v.title ?? '').join('|')}`;
+}
+function readRemembered(key: string, count: number): number {
+  try {
+    const n = Number(localStorage.getItem(key));
+    return Number.isInteger(n) && n >= 0 && n < count ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
 interface Data {
   rows: Row[];
   total: number | null;
@@ -54,11 +71,14 @@ interface Data {
   failure: string | null;
 }
 
-export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: string; api: ViewBlockApi }): JSX.Element {
+/** `self`: the page the view is written in, when that is not the page showing it (an embedded view file or template). */
+export function ViewBlock({ ctl, source, api, self }: { ctl: Controller; source: string; api: ViewBlockApi; self?: string | null }): JSX.Element {
   const parsed = useMemo(() => parseViewSet(source), [source]);
   const set = parsed.ok ? parsed.set : null;
   // a block can hold several views (see `view:` in docs/organizing/queries.md); one is shown at a time
-  const [activeIdx, setActiveIdx] = useState(set?.openIndex ?? 0);
+  const tagged = set ? set.views.some((v) => v.open === true) : false;
+  const tabKey = set ? rememberedKey(ctl.current.value?.path ?? null, set.views) : '';
+  const [activeIdx, setActiveIdx] = useState(set ? (tagged ? set.openIndex : readRemembered(tabKey, set.views.length)) : 0);
   const idx = set ? Math.min(activeIdx, set.views.length - 1) : 0;
   const config = set ? set.views[idx]! : null;
   const [expanded, setExpanded] = useState(false);
@@ -88,8 +108,8 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
   const pageSize = !config ? 0 : paged ? config.pageSize ?? 25 : 0;
   // grouped rows must arrive grouped, so the group is the first sort key
   const groupSort = config && config.group && (config.type === 'table' || config.type === 'list') ? [`${config.groupDir === 'desc' ? '-' : ''}${config.group}`, config.sort].filter(Boolean).join(',') : config?.sort;
-  const query = config ? resolveQuery({ query: config.query, ...(groupSort ? { sort: groupSort } : {}) }, { page, saved: savedMap }) : '';
-  const colorRules = useMemo(() => (config?.colors ?? []).map((r) => ({ color: r.color, when: resolveQuery({ query: r.when }, { page, saved: savedMap }) })), [config?.colors, page, savedMap]);
+  const query = config ? resolveQuery({ query: config.query, ...(groupSort ? { sort: groupSort } : {}) }, { page, saved: savedMap, ...(self !== undefined ? { self } : {}) }) : '';
+  const colorRules = useMemo(() => (config?.colors ?? []).map((r) => ({ color: r.color, when: resolveQuery({ query: r.when }, { page, saved: savedMap, ...(self !== undefined ? { self } : {}) }) })), [config?.colors, page, savedMap]);
   const colorKey = JSON.stringify(colorRules);
   const limit = pageSize > 0 ? pageSize : config?.limit ?? 200;
   const offset = pageSize > 0 ? (pageNo - 1) * pageSize : 0;
@@ -126,6 +146,29 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
     };
   }, [query, limit, offset, colorKey, tick, page]);
 
+  // computed columns (rollups, lookups, formulas): each is worked out per row by the workspace and joins the rows as an attribute
+  const computedKey = JSON.stringify(config?.computed ?? []);
+  const [computedRes, setComputedRes] = useState<Map<string, Map<string, { text: string; list: string[]; kind: string }>>>(new Map());
+  useEffect(() => {
+    const defs = config?.computed ?? [];
+    const paths = data.rows.filter((r) => !r.workspace && !r.isVirtual).map((r) => r.path);
+    if (defs.length === 0 || paths.length === 0) { setComputedRes(new Map()); return; }
+    let live = true;
+    void Promise.all(defs.map(async (c) => {
+      const res = await ctl.ws.evaluateColumn(paths, c.expr).catch((e: unknown) => paths.map(() => ({ ok: false as const, error: String(e) })));
+      return [c.name, new Map(paths.map((p, i) => { const r = res[i]!; return [p, r.ok ? r : { text: `⚠ ${r.error}`, list: [`⚠ ${r.error}`], kind: 'text' }] as const; }))] as const;
+    })).then((entries) => { if (live) setComputedRes(new Map(entries)); });
+    return () => { live = false; };
+  }, [computedKey, data.rows, tick]);
+  // the quick filter narrows the rows already loaded, without changing the view's own filter
+  const [quick, setQuick] = useState('');
+  const allRows = useMemo(() => (config?.computed ?? []).reduce((rs, c) => withComputed(rs, c.name, computedRes.get(c.name) ?? new Map()), data.rows), [data.rows, computedRes, computedKey]);
+  const rowsShown = useMemo(() => {
+    const q = quick.trim().toLowerCase();
+    if (!q) return allRows;
+    return allRows.filter((r) => r.title.toLowerCase().includes(q) || Object.values(r.attrs).some((a) => a.some((x) => x.text.toLowerCase().includes(q))));
+  }, [allRows, quick]);
+
   if (!config) {
     return (
       <div class="view-block error" data-view-error>
@@ -161,7 +204,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
       }
     : undefined;
   const picked = [...selected];
-  const cols = pickColumns(config.columns, data.rows, 4, relationAliases(saved.relations));
+  const cols = viewColumns(config, data.rows, 4, relationAliases(saved.relations));
   const sortCount = (config.sort ?? '').split(',').filter((x) => x.trim()).length;
   const sortable = [...BUILTIN.filter((b) => b !== 'path'), 'filename', 'filetype', ...keys.map((k) => k.key).filter((k) => k !== 'filename' && k !== 'filetype')];
   const total = data.total ?? data.rows.length;
@@ -172,7 +215,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
   /** Every row of the view (not just this page) as a CSV file. */
   const exportCsv = async (): Promise<void> => {
     const all: Row[] = [];
-    const base = resolveQuery({ query: config.query, ...(groupSort ? { sort: groupSort } : {}) }, { page, saved: savedMap });
+    const base = resolveQuery({ query: config.query, ...(groupSort ? { sort: groupSort } : {}) }, { page, saved: savedMap, ...(self !== undefined ? { self } : {}) });
     for (let off = 0; off < 50000; off += 1000) {
       const r = await ctl.queryView(base, null, 1000, off);
       all.push(...(r.rows as Row[]));
@@ -182,6 +225,33 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
     await ctl.saveDataFile({ data: toCsv(all, columns), base: (config.title ?? 'view').replace(/[\\/:*?"<>|]+/g, '-'), extension: 'csv' });
   };
 
+  /** Each record of a CSV becomes a page in this view: the `title` column (or the first) is the title, the other columns become attributes. */
+  const fileInput = useRef<HTMLInputElement>(null);
+  const importCsv = async (file: File): Promise<void> => {
+    const { columns, records } = csvRecords(await file.text());
+    if (records.length === 0) { ctl.toast('That file has no records.'); return; }
+    const batch = records.slice(0, 500);
+    const titleCol = columns.find((c) => c.toLowerCase() === 'title') ?? (config.hideTitle ? undefined : columns[0]);
+    const ok = await ctl.confirm({
+      title: `Import ${batch.length} ${batch.length === 1 ? 'record' : 'records'}?`,
+      body: `${file.name}: each row becomes a page here${titleCol ? `, titled by “${titleCol}”` : ' (named with a number)'}; the other columns (${columns.filter((c) => c !== titleCol).join(', ') || 'none'}) become attributes.${records.length > batch.length ? ` Only the first ${batch.length} are imported.` : ''}`,
+      confirm: 'Import',
+    });
+    if (!ok) return;
+    const defaults = newPageDefaults(query);
+    const types = Object.fromEntries(keys.map((k) => [k.key, { type: k.type, list: !!k.list }]));
+    let made = 0;
+    for (const rec of batch) {
+      const title = titleCol ? (rec[titleCol] ?? '') : '';
+      if (!title && !config.hideTitle) continue;
+      const values: Record<string, string> = { ...defaults.attrs };
+      for (const [c, v] of Object.entries(rec)) if (c !== titleCol) values[c] = types[c]?.list ? v.split(/;|,/).map((x) => x.trim()).filter(Boolean).join(', ') : v;
+      const created = await ctl.createViewPage(title, newPageContent(title, values, types, {}, !config.hideTitle), defaults.under, { numbered: config.hideTitle === true, startAt: total + 1 + made, quiet: true });
+      if (created) made++;
+    }
+    ctl.toast(`Imported ${made} ${made === 1 ? 'record' : 'records'}.`);
+  };
+
   const panelButton = (id: 'filter' | 'props' | 'sort' | 'colors', content: JSX.Element): JSX.Element => (
     <button class={`pill-button small vb-panel-button ${panel === id ? 'on' : ''}`} data-panel={id} aria-expanded={panel === id} onClick={() => setPanel(panel === id ? null : id)}>
       {content}
@@ -189,15 +259,16 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
   );
   const views = set!.views;
   const controlsOpen = expanded || panel !== null; // the controls row shows while it is expanded or a settings pane is open
-  // the tab that was chosen is remembered in the block (`open: true`), so the page opens on it next time
+  // the chosen tab is remembered on this computer (never written into the page); a view tagged `open: true` always wins when the page opens
   const chooseView = (i: number): void => {
     setActiveIdx(i);
-    if (!api.readOnly) api.updateSource(setOpenView(source, i));
+    if (!tagged) {
+      try { localStorage.setItem(tabKey, String(i)); } catch { /* storage unavailable: the choice lasts until the page closes */ }
+    }
   };
   const addView = (): void => {
     const named = views[idx]!.title;
-    const added = addViewToSource(source, { type: 'table', query: named ? `!${/^[\w-]+$/.test(named) ? named : `"${named}"`}` : builderQuery || ownQuery });
-    api.updateSource(api.readOnly ? added : setOpenView(added, views.length));
+    api.updateSource(addViewToSource(source, { type: 'table', query: named ? `!${/^[\w-]+$/.test(named) ? named : `"${named}"`}` : builderQuery || ownQuery }));
     setActiveIdx(views.length);
   };
 
@@ -263,6 +334,11 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
           </button>
         ))}
         <span class="vb-spacer" />
+        {data.rows.length > 0 && config.type !== 'calendar' && (
+          <input class="vb-input vb-quick" type="search" aria-label="Filter the rows shown" placeholder="Filter rows" value={quick} onKeyDown={(e) => e.stopPropagation()} onInput={(e) => setQuick((e.currentTarget as HTMLInputElement).value)} />
+        )}
+        <input ref={fileInput} type="file" accept=".csv,text/csv" hidden data-import-csv onChange={(e) => { const f = (e.currentTarget as HTMLInputElement).files?.[0]; (e.currentTarget as HTMLInputElement).value = ''; if (f) void importCsv(f); }} />
+        {!api.readOnly && <button class="icon-button small vb-csv" title="Import records from a CSV file" aria-label="Import from CSV" onClick={() => fileInput.current?.click()}><Icon name="upload" size={13} /></button>}
         <button class="icon-button small vb-csv" title="Export all rows as CSV" aria-label="Export as CSV" data-export-csv onClick={() => void exportCsv()}><Icon name="download" size={13} /></button>
         <button class="icon-button small" title="Edit settings as text" aria-label="Edit view settings" onClick={() => api.edit()}>
           <Icon name="code" size={13} />
@@ -320,6 +396,7 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
             </div>
             <span class="vb-spacer" />
             <button class="pill-button small" data-add-view title="Add another view of these pages as a tab" onClick={addView}>+ View</button>
+            <button class="pill-button small" data-duplicate-view title="Copy this view, with all its settings, as a new tab" onClick={() => { api.updateSource(duplicateViewInSource(source, idx)); setActiveIdx(idx + 1); }}>Duplicate view</button>
             {views.length > 1 && (
               <button class="pill-button small" data-remove-view title="Remove this view" onClick={() => { api.updateSource(removeViewFromSource(source, idx)); setActiveIdx(Math.max(0, idx - 1)); }}>Remove view</button>
             )}
@@ -360,8 +437,9 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
           query={query}
           columns={config.newFields && config.newFields.length ? config.newFields : cols}
           onlyListed={!!(config.newFields && config.newFields.length)}
+          hideTitle={config.hideTitle === true}
           keys={keys}
-          onCreate={(title, content, under) => (ctl.newFocus = { query, at: Date.now() }, ctl.createViewPage(title, content, under, { quiet: config.noDuplicateWarning === true, rememberQuiet: () => update({ noDuplicateWarning: true }) }))}
+          onCreate={(title, content, under) => (ctl.newFocus = { query, at: Date.now() }, ctl.createViewPage(title, content, under, { numbered: config.hideTitle === true, startAt: total + 1, quiet: config.noDuplicateWarning === true, rememberQuiet: () => update({ noDuplicateWarning: true }) }))}
           onClose={() => {
             setAdding(false);
             // inside dynamic content the whole text is drawn again after a save, which replaces this button:
@@ -418,12 +496,12 @@ export function ViewBlock({ ctl, source, api }: { ctl: Controller; source: strin
               onClear={() => setSelected(new Set())}
             />
           )}
-          <BodyView ctl={ctl} config={config} rows={data.rows} keys={keys} update={update} selection={selection} query={query} />
+          <BodyView ctl={ctl} config={config} rows={rowsShown} keys={keys} update={update} selection={selection} query={query} />
         </div>
       )}
       {paged && <Pager page={pageNo} size={pageSize} total={total} onPage={setPageNo} onSize={(n) => update({ pageSize: n })} />}
       <div class="vb-foot">
-        <span>{total.toLocaleString()} {total === 1 ? 'page' : 'pages'}{total > data.rows.length ? ` (showing ${offset + 1}–${offset + data.rows.length})` : ''}</span>
+        <span>{quick.trim() ? `${rowsShown.length} of ${data.rows.length} shown · ` : ''}{total.toLocaleString()} {total === 1 ? 'page' : 'pages'}{total > data.rows.length ? ` (showing ${offset + 1}–${offset + data.rows.length})` : ''}</span>
       </div>
       {menu && (
         <FloatingMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
@@ -446,6 +524,30 @@ export function createViewHost(ctl: Controller): ViewBlockHost {
       return {
         // new settings arrive as new text; re-render the same component so its panels and position are kept
         update: (next) => render(<ViewBlock ctl={ctl} source={next} api={api} />, el),
+        destroy: () => render(null, el),
+      };
+    },
+  };
+}
+
+/** Draws a view file (a `.view` page) as a view that fills the editor: its settings are the file's front matter. */
+export function createViewFileHost(ctl: Controller): ViewFileEditorHost {
+  return {
+    mount(el, text, api) {
+      el.classList.add('vb-file');
+      let current = text;
+      const paint = (): void => {
+        const blockApi: ViewBlockApi = {
+          updateSource: (next) => { if (!api.readOnly) api.setText(withViewFileConfig(current, next)); },
+          edit: () => api.edit(),
+          remove: () => ctl.toast('Delete a view file from the page tree.'),
+          readOnly: api.readOnly,
+        };
+        render(<ViewBlock ctl={ctl} source={viewFileConfig(current).config} api={blockApi} />, el);
+      };
+      paint();
+      return {
+        update: (next) => { current = next; paint(); },
         destroy: () => render(null, el),
       };
     },

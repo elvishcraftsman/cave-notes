@@ -6,6 +6,7 @@ import type { AttributeSource } from '../../shared/api';
 import type { Controller } from '../controller';
 import { createViewHost } from '../views/ViewBlock';
 import { createCanvasHost } from '../canvas/host';
+import { createViewFileHost } from '../views/ViewBlock';
 import { createEmbedHost } from '../views/embedHost';
 import { ChildrenBar } from './ChildrenBar';
 import { FloatingMenu, MenuItem, StatusPage } from './Overlays';
@@ -191,6 +192,7 @@ export function EditorPane({ ctl }: { ctl: Controller }): JSX.Element {
       viewBlock: createViewHost(ctl),
       embed: createEmbedHost(ctl),
       canvas: createCanvasHost(ctl),
+      viewFile: createViewFileHost(ctl),
       onCanvas: (cv, present) => ctl.setCanvasView(cv, present),
     });
     ctl.attachEditor(ed);

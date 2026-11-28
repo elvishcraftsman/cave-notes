@@ -1,9 +1,12 @@
 export { COLOR_NAMES, colorValue, type ColorRule } from './config';
-export { NEW_VIEW_TEMPLATE, addViewToSource, ownQueryOf, parseViewConfig, parseViewSet, protectShortcodes, removeViewFromSource, setOpenView, savedViewTemplate, shortcodeOf, updateConfigSource, updateViewSource, VIEW_TYPES, type ParseResult, type ViewConfig, type ViewSet, type ViewType } from './config';
+export type { ComputedColumn } from './config';
+export { FOOTER_NAMES, FORMAT_NAMES, applyFormat, coerceValue, csvRecords, parseCsv, summarize, withComputed, type Shown } from './format';
+export { duplicateViewInSource } from './config';
+export { NEW_VIEW_FILE, VIEW_FILE_EXT, viewFileConfig, withViewFileConfig, NEW_VIEW_TEMPLATE, addViewToSource, ownQueryOf, parseViewConfig, parseViewSet, protectShortcodes, removeViewFromSource, setOpenView, savedViewTemplate, shortcodeOf, updateConfigSource, updateViewSource, VIEW_TYPES, type ParseResult, type ViewConfig, type ViewSet, type ViewType } from './config';
 export { parseForeign, splitForeign, withoutSort, type ForeignRef, type Split } from './federate';
 export { expandSaved, newPageContent, newPageDefaults, placementOf, resolveQuery } from './query';
 export {
-  BUILTIN, BUILTIN_COLUMNS, attrsOf, calendarMonth, dayOf, formatAttr, groupRows, clipTitle, initialMonth, pickColumns, relationAliases, shiftMonth, sortRows, sortRowsBy, toCsv, valuesOf,
+  BUILTIN, BUILTIN_COLUMNS, attrsOf, calendarMonth, dayOf, formatAttr, groupRows, clipTitle, initialMonth, pickColumns, viewColumns, relationAliases, shiftMonth, sortRows, sortRowsBy, toCsv, valuesOf,
   type Attr, type CalendarDay, type CalendarMonth, type Group, type Row,
 } from './shape';
 export {

@@ -1600,6 +1600,11 @@ export class Controller {
     return /\.canvas$/i.test(path);
   }
 
+  /** Is the page a view file (a `.view` file, drawn as a database view instead of as text)? */
+  private isViewFilePage(path: string): boolean {
+    return /\.view$/i.test(path);
+  }
+
   /** A file that a canvas card shows was opened: a page opens as a page, anything else with its own program. */
   async openCanvasFile(path: string): Promise<void> {
     const info = await this.ws.pageInfo(path).catch(() => null);
@@ -2457,7 +2462,7 @@ export class Controller {
     // (opening a workspace, or restoring tabs at start): without this the page is "open" but the editor stays blank.
     const cur = this.current.value;
     if (cur?.exists) {
-      editor.load(this.baseText, { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path) });
+      editor.load(this.baseText, { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path), viewFile: this.isViewFilePage(cur.path) });
       this.outline.value = editor.outline(); this.annotations.value = editor.annotations();
       requestAnimationFrame(() => this.updateActiveHeading());
     }
@@ -2583,7 +2588,7 @@ export class Controller {
         // back to the line that was at the top, not to a pixel offset: heights of views and images are only estimates until drawn
         restore = () => ed.restoreScroll(cached.anchor);
       } else {
-        ed.load(data.exists ? data.text : '', { plain: this.isPlainPage(path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(path) });
+        ed.load(data.exists ? data.text : '', { plain: this.isPlainPage(path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(path), viewFile: this.isViewFilePage(path) });
         // the page changed while it was away (or it was never open here): stay near where it was left
         const line = data.exists ? this.scrollLines.get(this.stateKey(path)) : undefined;
         if (line && line > 1) restore = () => ed.scrollToLine(line);
@@ -2644,7 +2649,7 @@ export class Controller {
     this.conflict.value = null;
     this.saveState.value = 'saved';
     this.current.value = { path: cur.path, exists: data.exists };
-    this.editor?.load(data.exists ? data.text : '', { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path) });
+    this.editor?.load(data.exists ? data.text : '', { plain: this.isPlainPage(cur.path), readOnly: this.readOnlyPages, canvas: this.isCanvasPage(cur.path), viewFile: this.isViewFilePage(cur.path) });
     if (this.editor) this.outline.value = this.editor.outline(); if (this.editor) this.annotations.value = this.editor.annotations();
     void this.loadLinks();
   }
@@ -4774,6 +4779,36 @@ export class Controller {
     };
   }
 
+  /** Make a view file where a page would go (the same placement as New Page). */
+  async newViewFile(mode?: NewPageMode): Promise<void> {
+    if (!this.workspace.value) return;
+    const m = mode ?? this.newPageMode;
+    const ref = this.current.value?.path ?? this.tree.selected;
+    const parent = m === 'top' || !ref ? null : m === 'nested' ? ref : this.tree.parentPath(ref);
+    const where = parent ? stripExt(parent).split('/').pop() : this.workspace.value.name;
+    this.dialog.value = {
+      kind: 'prompt',
+      title: 'New View',
+      body: parent ? `It will be created inside “${where}”.` : 'It will be created at the top level.',
+      label: 'Name',
+      value: '',
+      confirm: 'Create',
+      submit: async (name) => {
+        const typed = name.trim().replace(/\.view$/i, '');
+        if (!typed) return 'Enter a name.';
+        try {
+          const created = await this.ws.createPage(parent, `${typed}.view`);
+          if (parent) await this.tree.expand(parent);
+          await this.tree.refresh([parent]);
+          await this.openPage(created, { reveal: true });
+          return null;
+        } catch (e) {
+          return explain(e);
+        }
+      },
+    };
+  }
+
   async newPageIn(target: string | null): Promise<void> {
     if (!this.workspace.value) return;
     const where = target ? stripExt(target).split('/').pop() : this.workspace.value.name;
@@ -4818,7 +4853,7 @@ export class Controller {
    * Make a page from a view's "New" row: inside the page `under` names (when the view looks under one), else at the
    * top level. The page is not opened; it appears in the view. Resolves false (and tells the person why) on failure.
    */
-  async createViewPage(title: string, content: string, under: string | null, opts: { quiet?: boolean; rememberQuiet?: () => void } = {}): Promise<boolean> {
+  async createViewPage(title: string, content: string, under: string | null, opts: { quiet?: boolean; rememberQuiet?: () => void; numbered?: boolean; startAt?: number } = {}): Promise<boolean> {
     try {
       const cur = this.current.value?.path ?? null;
       // a page made with a view's New button goes under the page its `under:` names; with no `under:` it goes
@@ -4835,6 +4870,16 @@ export class Controller {
           }
         }
       } else parent = cur;
+      if (opts.numbered) {
+        // a view without titles: the file is named with the next free number, which is also its title
+        let n = Math.max(1, opts.startAt ?? 1);
+        while (await this.ws.pageNameTaken(parent, String(n))) n++;
+        await this.ws.createPage(parent, String(n), content, undefined, true, true);
+        await this.tree.refresh([parent]);
+        this.viewTick.value++;
+        void this.loadChildren();
+        return true;
+      }
       const name = safeStemOf(title);
       const taken = name !== '' && (await this.ws.pageNameTaken(parent, name));
       if (taken && !opts.quiet) {

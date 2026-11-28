@@ -97,7 +97,8 @@ views:
 ````
 
 - `!Name` at the start of a query takes the query of the view with that name; more filters can follow. Use `!"Two words"` for a name with spaces.
-- The tab that is open is remembered in the block: choosing another tab puts `open: true` on that view and takes it off the others, and the block opens on the view that has it (the first view when none does; the first view never needs the mark). You can set it by hand too. It is not written in a page that cannot be edited.
+- `hideTitle: true` hides the title: a table has no title column (an ↗ button at the start of each row opens the page), the New row does not ask for a title, and each new page is named with the next free number (it has no heading, so its title is that number). Other layouts always show titles.
+- Which tab opens: a view with `open: true` is the one the block opens on every time, and choosing another tab lasts only until the page closes (the page text is never changed by clicking tabs). When no view has the mark, the app remembers the tab you chose on this computer, outside the page, and the block opens on it next time (the first view at first). The first view never needs the mark. Put `open: true` on one view by hand to pin it.
 - A block with no `views:` list is a single view whose settings stand at the top. (The older way of repeating `view:` lines is not valid YAML and is no longer read; the editor says so if it finds it.)
 - At the right of the toolbar are the CSV export, the code button (edit the block as text) and an expander that shows every other control: type (a dropdown), name, grouping, Filter, Properties, Sort, Colors, and **+ View** / **Remove view**. An open pane's button is highlighted and the pane has a close button in its corner.
 
@@ -384,3 +385,50 @@ Queries find notes by default. Other files in the workspace (images, PDFs, audio
 - `is:file (png OR jpg)` finds files by name; `path:Attachments is:file` limits it to a folder.
 - `is:note` or `-is:file` leaves files out. `is:file OR is:note` brings back both.
 - Files have no text of their own, so only their names, folders and any attributes given to them in a `files:` block can be searched.
+
+## View files
+
+A view can be a page of its own: a file ending in `.view` (**New → New View…**). Its settings are its front matter, written the same way as inside a view block, with several views under `views:`:
+
+    ---
+    views:
+      - name: Tasks
+        type: table
+        query: under:$this status:todo
+    ---
+
+- Opened by itself, the view fills the editor area. Its toolbar stays put and the records scroll. **Edit settings** shows the file as text; **Show as a view** goes back.
+- A view file can have children like any page (a folder of the same name). `under:$this` in a view file lists them, which makes the file a small database.
+- Other front matter keys and any text after the front matter belong to the page (attributes, a description).
+- `![[Tasks.view]]` embeds it in a page, drawn as the view. There `$this` is the page that holds the embed, so one view file can serve many pages; tab and filter changes made in an embed last only while it is shown. **Open** goes to the file itself.
+
+## Spreadsheet-style features
+
+All of these are settings of a view (written in its YAML), except where a button is named.
+
+- **`$self`** is the page the view is written in. It is `$this` except in an embedded view file or template, where `$this` is the page showing it and `$self` the view file or template page itself: `under:$self` lists the view file's own children from any page.
+- **Computed columns** work out a value for each row, with `this` being the row's page. Use them for rollups, lookups and formulas; the whole [expression language](expressions.md) is available:
+
+      computed:
+        Spent: ${sum("project:$this", "cost")}
+        Left: ${this.budget - sum("project:$this", "cost")}
+        Owner status: ${page(this.owner).status}
+
+  They come after the other columns (or where `columns:` puts them), are read-only, and can be sorted, grouped and summarised like any column.
+- **`formats:`** draws a column as `currency` (or `currency:EUR`), `percent`, `number:2`, `rating` (`rating:10`), `progress` (`progress:200`), `url` or `email`. Double-click a cell, or press Enter, to edit its text; click a star to rate.
+
+      formats:
+        cost: currency
+        stars: rating
+        site: url
+- **`footer:`** adds a summary row under a table and under each group: `sum`, `avg`, `min`, `max`, `median`, `count`, `filled`, `empty`, `unique` or `percent` (filled). It covers the rows on the current page.
+
+      footer:
+        cost: sum
+        title: count
+- **`wrap: true`** lets long text wrap; **`freeze: 1`** (up to 3) keeps the first columns in place while the others scroll sideways.
+- **Record peek:** the ↗ beside a title (or in the first column when titles are hidden) opens the record beside the table with every property editable. Alt+Up and Alt+Down step through the records; Ctrl+Click opens the page itself.
+- **Keyboard:** click a table cell and use the arrow keys to move, Enter or F2 to edit, Space to tick a box, Delete to clear, Ctrl+D to fill down from the cell above. Pasting text copied from a spreadsheet fills cells from the focused one, down and across.
+- **Quick filter:** the box in the toolbar narrows the rows already loaded without changing the view's own filter.
+- **Groups fold** with the arrow in their heading.
+- **Import and duplicate:** the upload button makes a page of this view from each line of a CSV (the `title` column, or the first, is the title; the other columns become attributes; up to 500 lines). **Duplicate view** copies a view with all its settings.

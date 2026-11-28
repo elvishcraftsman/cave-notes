@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { resolveQuery } from '../src/query';
 import { addViewToSource, parseViewSet, removeViewFromSource, setOpenView, updateViewSource } from '../src/config';
 
 const SRC = `views:
@@ -115,5 +116,55 @@ describe('remembering the open view', () => {
     expect(setOpenView(b, 1)).toBe(b);
     const one = 'type: table\nquery: under:$this\n';
     expect(setOpenView(one, 0)).toBe(one);
+  });
+});
+
+import { parseViewConfig } from '../src/config';
+import { newPageContent } from '../src/query';
+import { viewColumns } from '../src/shape';
+
+describe('hideTitle', () => {
+  it('is read from the settings', () => {
+    const r = parseViewConfig('type: table\nquery: under:$this\nhideTitle: true');
+    expect(r.ok && r.config.hideTitle).toBe(true);
+  });
+  it('drops the title column', () => {
+    expect(viewColumns({ columns: ['title', 'status'], hideTitle: true }, [])).toEqual(['status']);
+    expect(viewColumns({ columns: ['title', 'status'] }, [])).toEqual(['title', 'status']);
+  });
+  it('makes a page without a heading', () => {
+    expect(newPageContent('', { status: 'todo' }, {}, {}, false)).toBe('---\nstatus: todo\n---\n');
+  });
+});
+
+import { viewFileConfig, withViewFileConfig, NEW_VIEW_FILE } from '../src/config';
+
+describe('view files', () => {
+  it('reads the settings from the front matter and leaves the rest alone', () => {
+    const text = '---\ntype: table\nquery: under:$this\n---\nA description.\n';
+    expect(viewFileConfig(text).config).toBe('type: table\nquery: under:$this');
+    expect(withViewFileConfig(text, 'type: list\nquery: tag:x\n')).toBe('---\ntype: list\nquery: tag:x\n---\nA description.\n');
+  });
+  it('reads a file with no front matter whole', () => {
+    expect(viewFileConfig('type: table\nquery: a').config).toBe('type: table\nquery: a');
+    expect(withViewFileConfig('type: table\n', 'type: list')).toBe('type: list\n');
+  });
+  it('a new view file parses as a view', () => {
+    const r = parseViewSet(viewFileConfig(NEW_VIEW_FILE).config);
+    expect(r.ok && r.set.views[0]!.type).toBe('table');
+    expect(r.ok && r.set.views[0]!.query).toBe('under:$this');
+  });
+});
+
+describe('$self', () => {
+  it('is the page the view is written in, and $this the page showing it', () => {
+    const ctx = { page: 'Notes/Today.md', self: 'Views/Tasks.view' };
+    expect(resolveQuery({ query: 'under:$self' }, ctx)).toBe('under:Views/Tasks');
+    expect(resolveQuery({ query: 'under:$this' }, ctx)).toContain('Notes/Today');
+    expect(resolveQuery({ query: 'project:$self' }, ctx)).toContain('[[Views/Tasks]]');
+  });
+  it('is $this when nothing says otherwise, and drops the term when there is no page', () => {
+    expect(resolveQuery({ query: 'under:$self' }, { page: 'A.md' })).toBe(resolveQuery({ query: 'under:$this' }, { page: 'A.md' }));
+    expect(resolveQuery({ query: 'a under:$self' }, { page: 'A.md', self: null })).toBe('a');
   });
 });

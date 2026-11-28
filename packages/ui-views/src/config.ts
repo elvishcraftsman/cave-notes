@@ -12,6 +12,12 @@ export type ViewType = (typeof VIEW_TYPES)[number];
  *     group: status
  *     ```
  */
+export interface ComputedColumn {
+  name: string;
+  /** an expression as written in `${ }` (without the `${ }`) */
+  expr: string;
+}
+
 export interface ViewConfig {
   type: ViewType;
   /** `open: true` in one view of a block of several: the tab that shows when the page opens (the app moves it as tabs are chosen) */
@@ -32,6 +38,18 @@ export interface ViewConfig {
   columns?: string[];
   /** the fields the + New row asks for, in order (without it: the shown properties) */
   newFields?: string[];
+  /** true: the title is not shown (no title column; the New row does not ask for one and names each new file with the next free number) */
+  hideTitle?: boolean;
+  /** columns worked out for each row by an expression (`this` is the row's page): rollups over related pages, lookups, formulas. See docs. */
+  computed?: ComputedColumn[];
+  /** how a column is shown, by column name (lower case): `currency`, `currency:EUR`, `percent`, `number:2`, `url`, `email`, `rating`, `rating:10`, `progress`, `progress:200` */
+  formats?: Record<string, string>;
+  /** a summary under a table column (and under each group): `sum`, `avg`, `min`, `max`, `median`, `count`, `filled`, `empty`, `unique`, `percent` (filled), by column name (lower case) */
+  footer?: Record<string, string>;
+  /** table: true lets long text wrap onto more lines instead of being cut off */
+  wrap?: boolean;
+  /** table: how many columns, from the left, stay in place while the rest scroll sideways (0 to 3) */
+  freeze?: number;
   limit?: number;
   /** rows per page of a table, list or gallery; 0 shows everything (up to `limit`) */
   pageSize?: number;
@@ -102,6 +120,7 @@ function readViewObject(raw: unknown): ParseResult {
     if (v) config[k] = v;
   }
   if (o.open === true || (typeof o.open === 'string' && o.open.trim().toLowerCase() === 'true')) config.open = true;
+  if (o.hideTitle === true || (typeof o.hideTitle === 'string' && o.hideTitle.trim().toLowerCase() === 'true')) config.hideTitle = true;
   if (o.noDuplicateWarning === true || (typeof o.noDuplicateWarning === 'string' && o.noDuplicateWarning.trim().toLowerCase() === 'true')) config.noDuplicateWarning = true;
   if (typeof o.relationFiles === 'string' && ['link', 'skip'].includes(o.relationFiles.trim().toLowerCase())) config.relationFiles = o.relationFiles.trim().toLowerCase() as 'link' | 'skip';
   if (typeof o.groupDir === 'string' && o.groupDir.trim().toLowerCase() === 'desc') config.groupDir = 'desc';
@@ -116,6 +135,34 @@ function readViewObject(raw: unknown): ParseResult {
     if (!cols) return { ok: false, error: '"newFields" should be a list, like [title, status, due].' };
     const clean = cols.map((c) => c.trim()).filter(Boolean);
     if (clean.length) config.newFields = clean;
+  }
+  if (o.computed !== undefined) {
+    const bare = (s: string): string => { const m = /^\s*\$\{([\s\S]*)\}\s*$/.exec(s); return (m ? m[1]! : s).trim(); };
+    const list: ComputedColumn[] = [];
+    const src = o.computed;
+    const entries: Array<[unknown, unknown]> = Array.isArray(src)
+      ? src.map((x) => (x && typeof x === 'object' ? [(x as Record<string, unknown>).name, (x as Record<string, unknown>).expr ?? (x as Record<string, unknown>).formula] : [undefined, undefined]))
+      : src && typeof src === 'object' ? Object.entries(src as Record<string, unknown>) : [];
+    for (const [n, e] of entries) {
+      const name = asString(n);
+      const expr = typeof e === 'string' ? bare(e) : '';
+      if (!name || !expr) return { ok: false, error: '"computed" needs a name and an expression for each column, like  Total: ${sum("project:$this", "cost")}' };
+      list.push({ name, expr });
+    }
+    if (list.length) config.computed = list;
+  }
+  for (const k of ['formats', 'footer'] as const) {
+    const v = o[k];
+    if (v === undefined) continue;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return { ok: false, error: `"${k}" should list a column and its ${k === 'formats' ? 'format' : 'summary'}, like  cost: ${k === 'formats' ? 'currency' : 'sum'}` };
+    const m: Record<string, string> = {};
+    for (const [col, val] of Object.entries(v as Record<string, unknown>)) if (typeof val === 'string' && val.trim()) m[col.trim().toLowerCase()] = val.trim().toLowerCase();
+    if (Object.keys(m).length) config[k] = m;
+  }
+  if (o.wrap === true || (typeof o.wrap === 'string' && o.wrap.trim().toLowerCase() === 'true')) config.wrap = true;
+  if (o.freeze !== undefined) {
+    const n = Number(o.freeze === true ? 1 : o.freeze);
+    if (Number.isFinite(n) && n >= 1) config.freeze = Math.min(3, Math.floor(n));
   }
   if (o.limit !== undefined) {
     const n = Number(o.limit);
@@ -344,6 +391,30 @@ export function addViewToSource(source: string, view: { name?: string; type: Vie
   return dump(doc);
 }
 
+/** Copy view number `index` (all its settings) to the end of the block, named "<name> copy". The block becomes a block of several views when it was one flat view. */
+export function duplicateViewInSource(source: string, index: number): string {
+  const doc = YAML.parseDocument(protectShortcodes(source));
+  if (doc.errors.length > 0) return source;
+  let seq = viewsSeq(doc);
+  if (!seq) {
+    const flat = YAML.isMap(doc.contents) ? doc.contents : (doc.createNode({}) as YAML.YAMLMap);
+    renameKey(flat, 'title', 'name');
+    seq = new YAML.YAMLSeq();
+    seq.items.push(flat);
+    const root = new YAML.YAMLMap();
+    root.set('views', seq);
+    doc.contents = root as never;
+  }
+  const from = seq.items[index];
+  if (!YAML.isMap(from)) return source;
+  const copy = from.clone() as YAML.YAMLMap;
+  copy.delete('open'); // the copy is not the one the block opens on
+  const name = from.get('name');
+  copy.set('name', typeof name === 'string' && name ? `${name} copy` : 'Copy');
+  seq.items.splice(index + 1, 0, copy);
+  return dump(doc);
+}
+
 /** Take a view out of a block of several (the last one stays; a block of one view turns flat again). */
 export function removeViewFromSource(source: string, index: number): string {
   const doc = YAML.parseDocument(protectShortcodes(source));
@@ -355,4 +426,30 @@ export function removeViewFromSource(source: string, index: number): string {
     doc.contents = seq.items[0] as never;
   }
   return dump(doc);
+}
+
+/** The extension of a view file: a page that is a database view and nothing else. */
+export const VIEW_FILE_EXT = '.view';
+
+/** What a new view file holds: a table of the pages under the view file itself (its children). The settings sit under `views:` so that they are not page attributes. */
+export const NEW_VIEW_FILE = '---\nviews:\n  - type: table\n    query: under:$this\n---\n';
+
+/**
+ * A view file is a page whose front matter holds the view's settings (the same keys as inside a ```view block, or a `view:`
+ * list of several), with any other front matter keys serving as the page's own attributes; text after the front matter is a
+ * description. A file with no front matter is read whole as settings. Returns the settings text and where it sits in the file.
+ */
+export function viewFileConfig(text: string): { config: string; from: number; to: number } {
+  const m = /^(---[ \t]*\r?\n)([\s\S]*?)(\r?\n)?^---[ \t]*(?:\r?\n|$)/m.exec(text);
+  if (m && m.index === 0) {
+    const from = m[1]!.length;
+    return { config: m[2]!, from, to: from + m[2]!.length };
+  }
+  return { config: text, from: 0, to: text.length };
+}
+
+/** The file text with its settings replaced (everything outside them, the description included, stays as it is). */
+export function withViewFileConfig(text: string, next: string): string {
+  const at = viewFileConfig(text);
+  return `${text.slice(0, at.from)}${next.replace(/\n+$/, '')}${at.from === 0 && at.to === text.length ? '\n' : ''}${text.slice(at.to)}`;
 }

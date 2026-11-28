@@ -1,6 +1,6 @@
 import { AUTOMATION_LINK, drawExpression, fillQueryLinks, findExpressions, type EmbedHost, type EmbedSpec } from '@cave-notes/editor';
 import { effect } from '@preact/signals';
-import { resolveQuery } from '@cave-notes/ui-views';
+import { resolveQuery, viewFileConfig } from '@cave-notes/ui-views';
 import { CanvasView, boundsOf, parseCanvas } from '@cave-notes/ui-canvas';
 import { createCanvasHost } from '../canvas/host';
 import { h, render } from 'preact';
@@ -236,6 +236,8 @@ export function createEmbedHost(ctl: Controller): EmbedHost {
           render(h(ViewBlock, {
             ctl,
             source: current,
+            // `$self` is the page the text (or view file) comes from
+            self: state && state.ok ? state.source : null,
             api: {
               // changes to the settings of a view inside embedded text last only while it is shown: the source is not touched
               updateSource: (next: string) => { current = next; paint(); },
@@ -318,6 +320,25 @@ export function createEmbedHost(ctl: Controller): EmbedHost {
         if (spec.block && state && state.ok && /\.canvas$/i.test(state.source)) {
           el.classList.remove('cm-embed-bad');
           drawCanvas(state);
+          return;
+        }
+        if (spec.block && state && state.ok && /\.view$/i.test(state.source)) {
+          // a view file named by an embed is drawn as its view; `$this` is the page the embed is in, and tab or filter changes last only while it is shown
+          dropCanvas();
+          el.textContent = '';
+          el.classList.remove('cm-embed-bad');
+          const box = document.createElement('div');
+          box.className = 'embed-body embed-view';
+          el.append(box);
+          const ok = state;
+          viewFill(box, viewFileConfig(ok.text).config);
+          const open = document.createElement('button');
+          open.type = 'button';
+          open.className = 'embed-edit';
+          open.textContent = 'Open';
+          open.setAttribute('aria-label', `Open the view ${spec.raw}`);
+          open.onclick = () => void ctl.ws.resolveEmbed(from(), spec.target, null, false).then((r) => { if (r.ok) void ctl.openPage(r.source, { reveal: true }); });
+          el.append(open);
           return;
         }
         dropCanvas();

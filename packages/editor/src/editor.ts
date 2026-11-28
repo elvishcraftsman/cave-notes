@@ -13,6 +13,7 @@ import { viewBlockHost, type ViewBlockHost } from './blocks';
 import { tableExportHost, type TableExportHandler } from './tables';
 import { parseCanvas } from '@cave-notes/ui-canvas';
 import { canvasFlag, canvasMode, canvasTheme, canvasViewOf, type CanvasEditorHost } from './canvas';
+import { viewFileFlag, viewFileMode, viewFileTheme, type ViewFileEditorHost } from './viewFile';
 import { conflicts } from './conflicts';
 import { divs } from './divs';
 import { codeActions, codeActionsTheme, codeRunHost, type CodeRunHost } from './codeActions';
@@ -134,6 +135,8 @@ export interface EditorOptions {
   dashes?: boolean;
   /** Draws a `.canvas` file as a canvas (see `load`'s `canvas` option). Without it such a file is shown as plain text. */
   canvas?: CanvasEditorHost;
+  /** Draws a `.view` file as a database view that fills the editor (see `load`'s `viewFile` option). Without it such a file is shown as text. */
+  viewFile?: ViewFileEditorHost;
   /** The canvas on screen, when a `.canvas` file is shown (`present`), and when it goes. */
   onCanvas?: (cv: import('@cave-notes/ui-canvas').CanvasView, present: boolean) => void;
   /** Right-click opens the formatting menu (default true). */
@@ -565,12 +568,14 @@ export class NoteEditor {
   }
 
   /** A fresh editor state (own undo history) for a document. Keep it to restore the page later. `plain`: show it as plain text. */
-  createState(doc: string, plain = false, readOnly = false, canvas = false): EditorState {
+  createState(doc: string, plain = false, readOnly = false, canvas = false, viewFile = false): EditorState {
     // a file that is not a canvas (not JSON, say) stays text: drawing on it would overwrite what someone wrote
     const asCanvas = canvas && !!this.opts.canvas && parseCanvas(doc).ok;
-    const base = plain || canvas ? this.plainExtensions : this.extensions; // a canvas file is never Markdown: a canvas, or (if broken) plain text
+    const asViewFile = viewFile && !!this.opts.viewFile;
+    const base = plain || canvas || viewFile ? this.plainExtensions : this.extensions; // a canvas file is never Markdown: a canvas, or (if broken) plain text
     const extra: Extension[] = [];
     if (asCanvas) extra.push(canvasTheme, canvasMode({ host: this.opts.canvas as CanvasEditorHost, readOnly, onSave: this.opts.onSave, ...(this.opts.onCanvas ? { onCanvas: this.opts.onCanvas } : {}) }));
+    if (asViewFile) extra.push(viewFileTheme, viewFileMode({ host: this.opts.viewFile as ViewFileEditorHost, readOnly, onSave: this.opts.onSave }));
     if (readOnly) extra.push(this.readOnlyExtensions());
     return EditorState.create({ doc, extensions: extra.length > 0 ? [base, ...extra] : base });
   }
@@ -647,10 +652,10 @@ export class NoteEditor {
   }
 
   /** Show a document in a fresh state; `plain` shows it as plain text, as a settings file is shown. */
-  load(text: string, opts: { plain?: boolean; readOnly?: boolean; canvas?: boolean } = {}): void {
-    this.setState(this.createState(text, opts.plain === true, opts.readOnly === true, opts.canvas === true));
+  load(text: string, opts: { plain?: boolean; readOnly?: boolean; canvas?: boolean; viewFile?: boolean } = {}): void {
+    this.setState(this.createState(text, opts.plain === true, opts.readOnly === true, opts.canvas === true, opts.viewFile === true));
     // footnotes that are out of order are put in order when a page is opened
-    const fixes = opts.plain || opts.readOnly ? [] : openingFixes(text);
+    const fixes = opts.plain || opts.readOnly || opts.viewFile ? [] : openingFixes(text);
     if (fixes.length > 0) this.applyChanges(fixes);
     this.titleTouched = false;
   }

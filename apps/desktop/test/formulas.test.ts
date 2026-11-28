@@ -109,3 +109,13 @@ it('highlight() gives the value, and the colour when its test is true', async ()
 it('numbers() reads amounts pasted into an attribute', async () => {
   expect(await svc.evaluateExpression(null, 'sum(numbers("12.50 30\\n$7.25"))')).toMatchObject({ ok: true, text: '49.75' });
 });
+
+it('works out one expression for many pages, `this` being each in turn (computed columns)', async () => {
+  const out = await svc.evaluateColumn(['Budget/Rent.md', 'Budget/Food.md', 'Budget/Nowhere.md'], 'percent(this.cost, [[Budget]].total, 0)');
+  expect(out[0]).toMatchObject({ ok: true, text: '67' }); // 1000 of 1500
+  expect(out[1]).toMatchObject({ ok: true, text: '23' }); // 350.5 of 1500
+  expect(out).toHaveLength(3);
+  // a rollup over what links here, per row
+  const sums = await svc.evaluateColumn(['Budget.md'], 'sum("under:$this", "cost")');
+  expect(sums[0]).toMatchObject({ ok: true, text: '1500', kind: 'number' });
+});

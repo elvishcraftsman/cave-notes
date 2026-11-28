@@ -1,14 +1,15 @@
 import type { AttributeKey, RelationDef } from '../../shared/api';
 import {
-  attrsOf, calendarMonth, colorValue, dayOf, formatAttr, clipTitle, groupRows, initialMonth, pickColumns, relationAliases, shiftMonth, sortRows, valuesOf,
+  attrsOf, summarize, calendarMonth, colorValue, dayOf, formatAttr, clipTitle, groupRows, initialMonth, pickColumns, viewColumns, relationAliases, shiftMonth, sortRows, valuesOf,
   type Row, type ViewConfig,
 } from '@cave-notes/ui-views';
 import type { JSX } from 'preact';
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Controller } from '../controller';
 import { Icon, WorkspaceIcon, isIconName } from '../components/icons';
 import { stripExt } from '../paths';
-import { EditableCell, EditableTitle, RelationCell, keyInfo } from './cells';
+import { EditableCell, EditableTitle, FormattedCell, RelationCell, keyInfo } from './cells';
+import { onGridKeyDown, onGridPaste } from './gridNav';
 
 export interface BodyProps {
   ctl: Controller;
@@ -68,11 +69,48 @@ function Cell({ ctl, row, k, keys, config, update }: { ctl: Controller; row: Row
       </span>
     );
   }
+  const computed = !!config.computed?.some((c) => c.name.toLowerCase() === k.toLowerCase());
+  const spec = config.formats?.[k.toLowerCase()];
+  // a computed column is worked out, never typed over; a formatted column is drawn as its format and edited as text on double-click
+  if (computed || (spec && !row.workspace)) return <FormattedCell ctl={ctl} row={row} k={k} keys={keys} spec={spec} readOnly={computed} />;
   if (row.workspace) return <span class="vb-dim">{(row.attrs[k] ?? []).map((a) => a.text).join(', ') || '—'}</span>; // a page of another workspace: shown, not edited here
   return (
     <span class="vb-edit" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <EditableCell ctl={ctl} row={row} k={k} keys={keys} />
     </span>
+  );
+}
+
+/**
+ * A record opened beside the view: every property of the page, editable, without leaving the table. The arrows step to the
+ * previous and next record shown; Escape closes; "Open page" goes to the page itself.
+ */
+function RecordPeek({ ctl, config, row, order, keys, update, onStep, onClose }: { ctl: Controller; config: ViewConfig; row: Row; order: string[]; keys: AttributeKey[]; update: BodyProps['update']; onStep: (d: number) => void; onClose: () => void }): JSX.Element {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => box.current?.focus(), [row.path]);
+  const hidden = new Set(['title']);
+  const names = [...new Set([...order, ...Object.keys(row.attrs), ...Object.keys(row.related ?? {})])].filter((n) => !hidden.has(n) && !(n.toLowerCase() === 'modified'));
+  return (
+    <aside ref={box} class="vb-peek" role="dialog" aria-label={`Record: ${row.title}`} tabIndex={-1}
+      onKeyDown={(e) => { if ((e.target as HTMLElement).closest('input, textarea, select')) { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } return; } if (e.key === 'Escape') { e.stopPropagation(); onClose(); } else if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); onStep(1); } else if (e.key === 'ArrowUp' && e.altKey) { e.preventDefault(); onStep(-1); } }}>
+      <header class="vb-peek-head">
+        <button class="icon-button small" aria-label="Previous record" title="Previous record (Alt+Up)" onClick={() => onStep(-1)}>↑</button>
+        <button class="icon-button small" aria-label="Next record" title="Next record (Alt+Down)" onClick={() => onStep(1)}>↓</button>
+        <span class="vb-spacer" />
+        <button class="pill-button small" onClick={() => open(ctl, row)}>Open page</button>
+        <button class="icon-button small" aria-label="Close" title="Close (Esc)" onClick={onClose}><Icon name="close" size={12} /></button>
+      </header>
+      <div class="vb-peek-title">{config.hideTitle ? <span class="vb-dim">{row.title}</span> : <EditableTitle ctl={ctl} row={row} />}</div>
+      <dl class="vb-peek-props">
+        {names.map((n) => (
+          <div key={n} class="vb-peek-prop">
+            <dt>{label(n)}</dt>
+            <dd><Cell ctl={ctl} row={row} k={n} keys={keys} config={config} update={update} /></dd>
+          </div>
+        ))}
+        <div class="vb-peek-prop"><dt>Modified</dt><dd><span class="vb-dim">{valuesOf(row, 'modified')[0]}</span></dd></div>
+      </dl>
+    </aside>
   );
 }
 
@@ -219,7 +257,8 @@ function GroupCheck({ paths, selection, name, class: cls }: { paths: string[]; s
 }
 
 export function TableBody({ ctl, config, rows, keys, update, selection, query }: BodyProps): JSX.Element {
-  const cols = pickColumns(config.columns, rows, 4, relationAliases(ctl.saved.value.relations));
+  const cols = viewColumns(config, rows, 4, relationAliases(ctl.saved.value.relations));
+  const hideTitle = config.hideTitle === true;
   const [dragCol, setDragCol] = useState<string | null>(null);
   const dropCol = (target: string): void => {
     if (!dragCol || dragCol === target) return setDragCol(null);
@@ -234,9 +273,52 @@ export function TableBody({ ctl, config, rows, keys, update, selection, query }:
   const into = useHoverDropInto(ctl);
   const info = keyInfo(keys, config.group);
   const groups = useMemo(() => (config.group ? groupRows(shown, config.group, info?.values ?? [], config.groupDir ?? 'asc').filter((g) => g.rows.length > 0) : [{ value: '', rows: shown }]), [shown, config.group, config.groupDir, info]);
+  // groups can be folded away (remembered while the view is on screen)
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const toggleFold = (v: string): void => setFolded((s) => { const n = new Set(s); if (n.has(v)) n.delete(v); else n.add(v); return n; });
+  // the record opened beside the table (by path, so it follows the row when the view reloads)
+  const [peekPath, setPeekPath] = useState<string | null>(null);
+  const flat = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+  const peeked = peekPath ? flat.find((r) => r.path === peekPath) ?? null : null;
+  const stepPeek = (d: number): void => { const i = flat.findIndex((r) => r.path === peekPath); const n = flat[Math.max(0, Math.min(flat.length - 1, i + d))]; if (n) setPeekPath(n.path); };
+  const footer = config.footer && cols.some((c) => config.footer![c.toLowerCase()]) ? config.footer : null;
+  const footerRow = (rs: Row[], cls: string): JSX.Element => (
+    <tr class={`vb-footer ${cls}`}>
+      {selection && <td class="vb-select" />}
+      {hideTitle && <td class="vb-open" />}
+      {cols.map((c) => {
+        const how = footer![c.toLowerCase()];
+        const v = how ? summarize(rs, c, how, attrsOf as never, config.formats?.[c.toLowerCase()]) : null;
+        return <td key={c} class={isFit(ctl, c, keys) ? 'fit' : ''}>{v !== null && <span class="vb-sum" title={how}><span class="vb-sum-how">{how}</span> {v}</span>}</td>;
+      })}
+    </tr>
+  );
+  // the first columns can stay in place while the rest scroll sideways: their offsets are measured
+  const table = useRef<HTMLTableElement>(null);
+  const grid = { ctl, keys, computed: new Set((config.computed ?? []).map((c) => c.name.toLowerCase())), isRelation: (k: string) => !!relationOf(ctl, k) };
+  const frozen = Math.min(3, config.freeze ?? 0);
+  useLayoutEffect(() => {
+    const t = table.current;
+    if (!t) return;
+    const lead = (selection ? 1 : 0) + (hideTitle ? 1 : 0);
+    const stick = lead + frozen;
+    const head = t.querySelectorAll<HTMLElement>('thead th');
+    const lefts: number[] = [];
+    let x = 0;
+    head.forEach((th, i) => { lefts[i] = x; x += th.getBoundingClientRect().width; });
+    t.querySelectorAll<HTMLTableRowElement>('tr').forEach((tr) => {
+      if (tr.classList.contains('vb-group-row')) return;
+      [...tr.children].forEach((cell, i) => {
+        const el = cell as HTMLElement;
+        const on = frozen > 0 && i < stick;
+        el.classList.toggle('vb-frozen', on);
+        el.style.left = on ? `${lefts[i] ?? 0}px` : '';
+      });
+    });
+  });
   return (
     <div class="vb-scroll">
-      <table class="vb-table">
+      <table ref={table} class={`vb-table ${config.wrap ? 'vb-wrap' : ''}`} onKeyDown={(e) => onGridKeyDown(e as KeyboardEvent, grid)} onPaste={(e) => onGridPaste(e as ClipboardEvent, grid)}>
         <thead>
           <tr>
             {selection && (
@@ -244,6 +326,7 @@ export function TableBody({ ctl, config, rows, keys, update, selection, query }:
                 <input type="checkbox" aria-label="Select all shown" checked={own(rows).length > 0 && own(rows).every((r) => selection.selected.has(r.path))} onChange={(e) => selection.setMany(own(rows).map((r) => r.path), (e.currentTarget as HTMLInputElement).checked)} />
               </th>
             )}
+            {hideTitle && <th class="vb-open" aria-label="Open" />}
             {cols.map((c) => (
               <th key={c} class={`${isFit(ctl, c, keys) ? 'fit' : ''} ${dragCol && dragCol !== c ? 'drop' : ''}`} draggable onDragStart={() => setDragCol(c)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); dropCol(c); }} onDragEnd={() => setDragCol(null)} aria-sort={sort?.key === c ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                 <button class="vb-th" onClick={() => setSort(sort?.key === c ? (sort.dir === 'asc' ? { key: c, dir: 'desc' } : null) : { key: c, dir: 'asc' })}>
@@ -263,18 +346,25 @@ export function TableBody({ ctl, config, rows, keys, update, selection, query }:
                     <GroupCheck paths={own(g.rows).map((r) => r.path)} selection={selection} name={g.value ?? `No ${config.group}`} />
                   </th>
                 )}
-                <th colSpan={cols.length}>{g.value ?? `No ${config.group}`} <span class="vb-group-count">{g.rows.length}</span></th>
+                <th colSpan={cols.length + (hideTitle ? 1 : 0)}>
+                  <button class="vb-fold" aria-expanded={!folded.has(g.value ?? '')} aria-label={`${folded.has(g.value ?? '') ? 'Show' : 'Hide'} ${g.value ?? `No ${config.group}`}`} onClick={() => toggleFold(g.value ?? '')}>{folded.has(g.value ?? '') ? '▸' : '▾'}</button>
+                  {g.value ?? `No ${config.group}`} <span class="vb-group-count">{g.rows.length}</span>
+                </th>
               </tr>
             )}
-            {g.rows.map((r) => (
+            {!folded.has(g.value ?? '') && g.rows.map((r) => (
               <tr key={rowKey(r)} class={`${r.color ? 'has-color' : ''} ${selection?.selected.has(r.path) ? 'selected' : ''} ${into.armed === r.path ? 'drop-into' : ''}`} style={tint(r)} data-color={r.color} onContextMenu={r.workspace ? undefined : rowMenu(ctl, r.path)} {...((r.workspace ? {} : dnd.rowProps(r)) as object)} {...((r.workspace ? {} : into.props(r.path)) as object)}>
                 {selection && <td class="vb-select">{!r.workspace && <input type="checkbox" aria-label={`Select ${r.title}`} checked={selection.selected.has(r.path)} onChange={() => selection.toggle(r.path)} />}</td>}
-                {cols.map((c) => <td key={c} class={isFit(ctl, c, keys) ? 'fit' : ''}><div class="vb-cellbox"><Cell ctl={ctl} row={r} k={c} keys={keys} config={config} update={update} /></div></td>)}
+                {hideTitle && <td class="vb-open"><button class="icon-button small" aria-label={`Open ${r.title}`} title={`Peek at this record (Ctrl+Click opens the page)`} onClick={(e) => { if (r.workspace || e.ctrlKey || e.metaKey) open(ctl, r); else setPeekPath(r.path); }}>↗</button></td>}
+                {cols.map((c) => <td key={c} tabIndex={-1} data-col={c} data-path={r.path} data-readonly={r.workspace || r.isVirtual ? 'true' : undefined} class={isFit(ctl, c, keys) ? 'fit' : ''}><div class="vb-cellbox"><Cell ctl={ctl} row={r} k={c} keys={keys} config={config} update={update} />{c === 'title' && !r.workspace && <button class="vb-peek-btn" aria-label={`Peek at ${r.title}`} title="Peek at this record" onClick={(e) => { e.stopPropagation(); setPeekPath(r.path); }}>↗</button>}</div></td>)}
               </tr>
             ))}
+            {footer && config.group && !folded.has(g.value ?? '') && footerRow(g.rows, 'vb-group-footer')}
           </tbody>
         ))}
+        {footer && <tfoot>{footerRow(shown, 'vb-total')}</tfoot>}
       </table>
+      {peeked && <RecordPeek ctl={ctl} config={config} row={peeked} order={cols} keys={keys} update={update} onStep={stepPeek} onClose={() => setPeekPath(null)} />}
     </div>
   );
 }

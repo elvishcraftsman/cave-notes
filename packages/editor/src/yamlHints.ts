@@ -69,7 +69,7 @@ export const RESERVED_VIEW: Record<string, string> = {
   name: 'The name shown on the view\u2019s tab (leave it empty for just the icon). Another view can start its query with !Name to take this one\u2019s query.',
   type: 'How the pages are shown: table, list, gallery, kanban or calendar.',
   title: 'A heading shown above the view.',
-  query: 'Which pages appear (the same query language as search). $this is this page.',
+  query: 'Which pages appear (the same query language as search). $this is the page showing the view; $self is the page the view is written in (the same, except in an embedded view file or template).',
   sort: 'The order of the rows: attribute names, each with - in front for descending, separated by commas.',
   group: 'The attribute that groups rows (tables, lists) or makes the columns (boards).',
   groupDir: 'desc puts the last group first.',

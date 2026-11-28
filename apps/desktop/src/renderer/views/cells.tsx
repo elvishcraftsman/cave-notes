@@ -1,5 +1,5 @@
 import type { AttributeKey, AttrValue, RelationDef, RelationPage } from '../../shared/api';
-import { attrsOf, clipTitle, dayOf, formatAttr, type Row } from '@cave-notes/ui-views';
+import { applyFormat, attrsOf, clipTitle, dayOf, formatAttr, type Row } from '@cave-notes/ui-views';
 import type { JSX } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { Controller, RelationMemory } from '../controller';
@@ -496,4 +496,51 @@ export function EditableTitle({ ctl, row }: { ctl: Controller; row: Row }): JSX.
 export function keyInfo(keys: AttributeKey[], k: string | undefined): AttributeKey | undefined {
   if (k === undefined) return undefined;
   return keys.find((x) => x.key === k) ?? keys.find((x) => x.key.toLowerCase() === k.toLowerCase());
+}
+
+/**
+ * A cell drawn under a column format (`formats:` in the view): money, a percentage, a rating, a bar, a link. Double-click
+ * (or Enter) edits the underlying value as text; a rating is set by clicking a star. `readOnly` cells (computed columns, other
+ * workspaces) only show.
+ */
+export function FormattedCell({ ctl, row, k, keys, spec, readOnly }: { ctl: Controller; row: Row; k: string; keys: AttributeKey[]; spec: string | undefined; readOnly: boolean }): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const attrs = attrsOf(row, k);
+  const shown = applyFormat(attrs, spec);
+  const canEdit = !readOnly && !row.isVirtual && !row.workspace;
+  if (editing && canEdit) {
+    return (
+      <span class="vb-edit" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') setEditing(false); }} onFocusOut={(e) => { if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) setEditing(false); }}>
+        <EditableCell ctl={ctl} row={row} k={k} keys={keys} />
+      </span>
+    );
+  }
+  const begin = canEdit ? { tabIndex: 0, onDblClick: () => setEditing(true), onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); setEditing(true); } } } : {};
+  if (shown.kind === 'rating') {
+    const set = (n: number): void => void ctl.setPageAttribute(row.path, k, n === shown.value ? null : n);
+    return (
+      <span class="vb-rating" role="img" aria-label={`${shown.value} of ${shown.max}`} {...begin}>
+        {Array.from({ length: shown.max }, (_, i) => (
+          <button key={i} type="button" class={`vb-star ${i < shown.value ? 'on' : ''}`} disabled={!canEdit} aria-label={`${i + 1} of ${shown.max}`} onClick={(e) => { e.stopPropagation(); set(i + 1); }}>{i < shown.value ? '★' : '☆'}</button>
+        ))}
+      </span>
+    );
+  }
+  if (shown.kind === 'progress') {
+    const pct = Math.round((shown.value / shown.max) * 100);
+    return (
+      <span class="vb-progress" title={`${shown.value} of ${shown.max}`} {...begin}>
+        <span class="vb-progress-bar" role="progressbar" aria-valuenow={shown.value} aria-valuemin={0} aria-valuemax={shown.max}><span style={{ width: `${pct}%` }} /></span>
+        <span class="vb-progress-text">{pct}%</span>
+      </span>
+    );
+  }
+  if (shown.kind === 'url' || shown.kind === 'email') {
+    return (
+      <span class="vb-val" {...begin}>
+        <a href={shown.href} title={shown.href} onClick={(e) => { e.preventDefault(); e.stopPropagation(); ctl.openUrl(shown.href); }}>{shown.text}</a>
+      </span>
+    );
+  }
+  return <span class={`vb-val ${shown.text === '' ? 'vb-dim' : ''}`} {...begin}>{shown.text === '' ? '—' : shown.text}</span>;
 }

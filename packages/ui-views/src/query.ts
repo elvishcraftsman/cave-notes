@@ -4,7 +4,8 @@ import type { ViewConfig } from './config';
 /** Keys that name a place or a kind of match; any other key is an attribute, where `$this` means a link to the page. */
 const NOT_ATTRIBUTES = new Set(['under', 'over', 'parent', 'children', 'links-to', 'backlinks', 'linked-from', 'path', 'heading', 'title', 'body', 'has', 'is', 'sort', 'saved', 'filename', 'filetype', 'mtime']);
 
-const stripMd = (p: string): string => p.replace(/\.md$/, '');
+/** A page path without its note extension (`.md`, `.markdown`, and the built-in `.canvas` and `.view`), as queries name pages. */
+const stripMd = (p: string): string => p.replace(/\.(md|markdown|canvas|view)$/i, '');
 
 /**
  * A saved query is one unit: with an OR at its top level it is put in parentheses, so that terms written next to
@@ -53,11 +54,13 @@ export function expandSaved(query: string, saved: ReadonlyMap<string, string>, e
 }
 
 /**
- * Fill in saved queries, `$this` / `$parent` and the config's sort, giving the query to run.
+ * Fill in saved queries, `$this` / `$self` / `$parent` and the config's sort, giving the query to run.
  * The view's own `sort` replaces any sort a saved query brings.
  */
-export function resolveQuery(config: Pick<ViewConfig, 'query' | 'sort'>, ctx: { page: string | null; saved?: ReadonlyMap<string, string> }): string {
+export function resolveQuery(config: Pick<ViewConfig, 'query' | 'sort'>, ctx: { page: string | null; saved?: ReadonlyMap<string, string>; self?: string | null }): string {
   const here = ctx.page ? stripMd(ctx.page) : null;
+  // `$self` is the page the view is written in: the view file or template page it comes from (`$this` is the page that shows it)
+  const own = ctx.self === undefined ? here : ctx.self ? stripMd(ctx.self) : null;
   const parent = here && here.includes('/') ? here.slice(0, here.lastIndexOf('/')) : null;
   const parts: string[] = [];
   const ownSort = tokenize(config.query).some((t) => t.key === 'sort');
@@ -69,6 +72,11 @@ export function resolveQuery(config: Pick<ViewConfig, 'query' | 'sort'>, ctx: { 
       if (here === null) continue;
       const asLink = t.key !== null && !NOT_ATTRIBUTES.has(t.key) && !/^[a-z]+\.(year|month|day|weekday|week)$/.test(t.key) && t.value === '$this';
       raw = asLink ? `${t.negated ? '-' : ''}${t.key}:${quoteValue(`[[${here}]]`)}` : raw.replace('$this', quoteValue(here));
+    }
+    if (raw.includes('$self')) {
+      if (own === null) continue;
+      const asLink = t.key !== null && !NOT_ATTRIBUTES.has(t.key) && !/^[a-z]+\.(year|month|day|weekday|week)$/.test(t.key) && t.value === '$self';
+      raw = asLink ? `${t.negated ? '-' : ''}${t.key}:${quoteValue(`[[${own}]]`)}` : raw.replace('$self', quoteValue(own));
     }
     if (raw.includes('$parent')) {
       if (parent === null) continue;
@@ -152,7 +160,7 @@ function yamlValue(raw: string, type: string, list: boolean): string {
 }
 
 /** The text of a new page: its attributes (empty ones left out) as frontmatter, then the title as a heading. */
-export function newPageContent(title: string, attrs: Record<string, string>, types: Record<string, { type: string; list?: boolean }> = {}, links: Record<string, string[]> = {}): string {
+export function newPageContent(title: string, attrs: Record<string, string>, types: Record<string, { type: string; list?: boolean }> = {}, links: Record<string, string[]> = {}, heading = true): string {
   const lines = Object.entries(attrs)
     .filter(([, v]) => v.trim() !== '')
     .map(([k, v]) => `${k}: ${yamlValue(v, types[k]?.type ?? 'string', types[k]?.list ?? false)}`);
@@ -163,5 +171,5 @@ export function newPageContent(title: string, attrs: Record<string, string>, typ
     lines.push(`${k}: ${q.length === 1 ? q[0] : `[${q.join(', ')}]`}`);
   }
   const front = lines.length > 0 ? `---\n${lines.join('\n')}\n---\n` : '';
-  return `${front}# ${title}\n\n`;
+  return heading ? `${front}# ${title}\n\n` : front;
 }

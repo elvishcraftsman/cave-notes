@@ -135,6 +135,8 @@ export interface NewRowProps {
   keys: AttributeKey[];
   /** create the page; resolves true when it was made */
   onCreate: (title: string, content: string, under: string | null) => Promise<boolean>;
+  /** the view hides titles: no title field; the page is named with a number */
+  hideTitle?: boolean;
   /** called after the row closes, so the "New" button can take focus */
   onClose: () => void;
 }
@@ -143,12 +145,12 @@ export interface NewRowProps {
  * One row of fields for a new page. Nothing is made until Enter or Save; Escape or Cancel drops the row. Fields start
  * with the values the view's own filters imply (status:todo gives status = todo), so the page shows up in the view.
  */
-export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClose }: NewRowProps): JSX.Element {
+export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClose, hideTitle }: NewRowProps): JSX.Element {
   const defaults = newPageDefaults(query);
   // the fields come in the order of the view's columns; the title sits where the title column is; whatever the filters imply
   // but the view does not show follows at the end
   const shownFields = columns.filter((c) => c !== 'path' && c !== 'modified' && !c.startsWith('filename') && c !== 'filetype');
-  const order = shownFields.includes('title') ? shownFields : ['title', ...shownFields];
+  const order = hideTitle ? shownFields.filter((c) => c !== 'title') : shownFields.includes('title') ? shownFields : ['title', ...shownFields];
   // a column of a relation: the forward side is chosen here, like in the view; the other side belongs to pages that do not exist yet
   const relOf = (k: string): { def: RelationDef; back: boolean } | null => {
     for (const r of ctl.saved.value.relations) {
@@ -157,7 +159,7 @@ export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClos
     }
     return null;
   };
-  const names = [...new Set(onlyListed ? order : [...order, ...Object.keys(defaults.attrs)])].filter((n) => !relOf(n)?.back);
+  const names = [...new Set(onlyListed ? order : [...order, ...Object.keys(defaults.attrs)])].filter((n) => !relOf(n)?.back && !(hideTitle && n === 'title'));
   const [linked, setLinked] = useState<Record<string, RelationPage[]>>({});
   const [title, setTitle] = useState('');
   // a date field starts on today (unless the view's own filters say otherwise); clear it to leave it empty
@@ -172,7 +174,7 @@ export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClos
 
   const save = async (): Promise<void> => {
     const t = title.trim();
-    if (!t || busy) return;
+    if ((!t && !hideTitle) || busy) return;
     setBusy(true);
     const types = Object.fromEntries(keys.map((k) => [k.key, { type: k.type, list: !!k.list }]));
     const links: Record<string, string[]> = {};
@@ -180,7 +182,7 @@ export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClos
       const r = relOf(k);
       if (r && pages.length) links[r.def.attribute] = (r.def.multiple === false ? pages.slice(0, 1) : pages).map((p) => (p.workspace ? `${p.workspace}::${stripExt(p.path)}` : stripExt(p.path)));
     }
-    const ok = await onCreate(t, newPageContent(t, values, types, links), defaults.under);
+    const ok = await onCreate(t, newPageContent(t, values, types, links, !hideTitle), defaults.under);
     setBusy(false);
     if (ok) onClose();
   };
@@ -237,7 +239,7 @@ export function NewRow({ ctl, query, columns, onlyListed, keys, onCreate, onClos
         }
         return <GrowText key={n} class="vb-new-field" label={label(n)} placeholder={n} value={values[n] ?? ''} onValue={(v) => set(n, v)} />;
       })}
-      <button class="pill-button small suggested" data-save-new disabled={busy || title.trim() === ''} onClick={() => void save()}>Save</button>
+      <button class="pill-button small suggested" data-save-new disabled={busy || (!hideTitle && title.trim() === '')} onClick={() => void save()}>Save</button>
       <button class="pill-button small" aria-label="Cancel new page" onClick={onClose}>Cancel</button>
     </div>
   );

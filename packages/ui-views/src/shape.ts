@@ -133,6 +133,14 @@ export function pickColumns(configured: string[] | undefined, rows: Row[], max =
   return resolve(['title', ...keys]);
 }
 
+/** The columns a view shows: `pickColumns`, without the title when the view hides titles. */
+export function viewColumns(config: { columns?: string[]; hideTitle?: boolean; computed?: Array<{ name: string }> }, rows: Row[], max = 4, aliases?: Map<string, string>): string[] {
+  let cols = pickColumns(config.columns, rows, max, aliases);
+  // computed columns come after the others unless `columns` puts them somewhere (it names them like any column)
+  if (!config.columns) cols = [...cols, ...(config.computed ?? []).map((c) => c.name).filter((n) => !cols.some((c) => c.toLowerCase() === n.toLowerCase()))];
+  return config.hideTitle ? cols.filter((c) => c !== 'title') : cols;
+}
+
 /** A title cut to `max` characters with an ellipsis (the whole title stays available as a tooltip). */
 export function clipTitle(title: string, max = 32): string {
   const chars = [...title];

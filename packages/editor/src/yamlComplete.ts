@@ -133,7 +133,7 @@ export function yamlCompletionSource(host: YamlCompleteHost) {
       }
       const word = /(?:^|[\s(!-])([\w.-]*)$/.exec(value);
       if (word && (word[1]!.length > 0 || ctx.explicit)) {
-        return { from: ctx.pos - word[1]!.length, options: attrs.map((a) => attrOption(a, ':')).concat([{ label: '$this', type: 'variable', info: 'this page' }]), validFor: /^[\w.$-]*$/ };
+        return { from: ctx.pos - word[1]!.length, options: attrs.map((a) => attrOption(a, ':')).concat([{ label: '$this', type: 'variable', info: 'the page showing the view' }, { label: '$self', type: 'variable', info: 'the page the view is written in' }]), validFor: /^[\w.$-]*$/ };
       }
     }
     return null;

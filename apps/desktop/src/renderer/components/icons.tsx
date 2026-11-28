@@ -30,6 +30,7 @@ const PATHS: Record<string, string> = {
   rename: 'M3 13l.5-2.8 7.2-7.2 2.3 2.3-7.2 7.2z M9.6 4.1l2.3 2.3',
   check: 'M3 8.5l3.2 3.2L13 4.8',
   download: 'M8 2.5v7.5 M4.8 7.2L8 10.4l3.2-3.2 M3 13h10',
+  upload: 'M8 10V2.5 M4.8 5.3L8 2.1l3.2 3.2 M3 13h10',
   copy: 'M5.5 5.5h7.5v8h-7.5z M3 10.5V2.5h7.5',
   search: 'M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9z M10.4 10.4L13.5 13.5',
   table: 'M2.5 3.5h11v9h-11z M2.5 7h11 M7 3.5v9',

@@ -579,6 +579,8 @@ export interface WorkerApi {
   /** what `![[target#heading]]` on page `from` shows (`named`: `![[@target]]`) */
   /** Work out an expression from the text of page `path`: formulas, sums and counts over a query, values of other pages. */
   evaluateExpression(path: string | null, expr: string): Promise<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty'; /** the colour of `highlight(…)` when its test is true */ mark?: string } | { ok: false; error: string }>;
+  /** Work out one expression for each of many pages (`this` is each page in turn): the computed columns of a view. Results come back in the order of `paths`. */
+  evaluateColumn(paths: string[], expr: string): Promise<Array<{ ok: true; text: string; list: string[]; kind: 'number' | 'text' | 'date' | 'bool' | 'list' | 'empty'; mark?: string } | { ok: false; error: string }>>;
   resolveEmbed(from: string, target: string, heading: string | null, named: boolean): Promise<{ ok: true; text: string; source: string } | { ok: false; error: string }>;
   /** change the source of an embed */
   saveEmbed(from: string, target: string, heading: string | null, named: boolean, text: string): Promise<{ ok: true } | { ok: false; error: string }>;
@@ -1053,7 +1055,7 @@ export const MAIN_METHODS = [
 ] as const satisfies ReadonlyArray<keyof MainApi>;
 
 export const WORKER_METHODS = [
-  'openWorkspace', 'closeWorkspace', 'prioritizePages', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'evaluateExpression', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'reloadIgnore', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
+  'openWorkspace', 'closeWorkspace', 'evaluateColumn', 'prioritizePages', 'listChildren', 'listFiles', 'filePath', 'getNoteTypes', 'setNoteTypes', 'applyAppNoteTypes', 'setFirstDay', 'syncFolder', 'duplicatePage', 'pageSource', 'copyPageIn', 'pageNameTaken', 'attributeSources', 'templatesFor', 'ensureConfigFolder', 'templateText', 'resolveEmbed', 'evaluateExpression', 'saveEmbed', 'globalsPending', 'globalsOffer', 'globalsDecide', 'globalsEnable', 'createPageNumbered', 'getWorkspaceYaml', 'setWorkspaceYaml', 'getExportStyles', 'setExportStyles', 'rescan', 'reloadIgnore', 'refreshIndex', 'treeAnchor', 'reorderPage', 'getAppearance', 'setAppearance', 'readPage', 'writePage', 'createPage', 'promoteVirtual',
   'planMove', 'applyPlan', 'undoLast', 'lastMove', 'deleteInfo', 'afterDelete', 'pageInfo', 'links', 'backlinks',
   'resolveLink', 'suggestPages', 'findPagePaths', 'getInheritedExportStyles', 'search', 'replaceFind', 'replaceApply', 'attributeKeys', 'attributeValues', 'queryView', 'savedQueries', 'saveQuery', 'setAttribute', 'setFileAttributes', 'moveFile', 'mergeTemplateInto', 'templateAttributes', 'editRelation', 'relationCandidates', 'setPageTitle', 'stats', 'getState', 'setState',
   'absolutePath', 'importFile', 'fileInPage', 'importExternal', 'setSyncOptions', 'mergeConflictCopies', 'historyList', 'historyRead', 'snapshot', 'historyTexts',

@@ -33,14 +33,22 @@ import { listInstalled, parsePackage, planInstall, planUpdate, removeInstalled, 
 const sha1 = (data: Uint8Array | string): string => sha1Of(data);
 
 /** What a new canvas file holds: no nodes and no edges, laid out as Obsidian writes it. */
+/** What a new view file holds (kept in step with NEW_VIEW_FILE in ui-views, which the service does not depend on). */
+const NEW_VIEW_FILE = '---\nviews:\n  - type: table\n    query: under:$this\n---\n';
+
 const EMPTY_CANVAS = '{\n\t"nodes":[],\n\t"edges":[]\n}';
 
 /** `.canvas` files (JSON Canvas, as Obsidian writes them) are pages in every workspace, whichever note types were chosen. */
-const withCanvas = (exts: readonly string[]): string[] => (exts.some((e) => e.toLowerCase() === '.canvas') ? [...exts] : [...exts, '.canvas']);
+/** `.view` files (a database view as a page, see ui-views) are pages in every workspace too. */
+const withCanvas = (exts: readonly string[]): string[] => {
+  const out = [...exts];
+  for (const own of ['.canvas', '.view']) if (!out.some((e) => e.toLowerCase() === own)) out.push(own);
+  return out;
+};
 
 /** The title of a page made from a typed name: the name as typed (a question mark or trailing dot stays), without a note extension. */
 function titleOfTyped(name: string, stem: string): string {
-  const typed = name.normalize('NFC').trim().replace(/\.(md|markdown|canvas)$/i, '').trim();
+  const typed = name.normalize('NFC').trim().replace(/\.(md|markdown|canvas|view)$/i, '').trim();
   return typed === '' ? stem : typed;
 }
 const posix = path.posix;
@@ -334,6 +342,14 @@ export class WorkspaceService implements WorkerApi {
     const list = items.filter((x) => x !== null && x !== undefined && x !== '').map((x) => valueText(x));
     const kind = list.length === 0 ? 'empty' : Array.isArray(v) ? 'list' : typeof v === 'number' ? 'number' : typeof v === 'boolean' ? 'bool' : typeof v === 'object' ? 'date' : 'text';
     return { ok: true, text: valueText(v), list, kind, ...(res.mark ? { mark: res.mark } : {}) };
+  }
+
+  /** One expression worked out for many pages, `this` being each in turn (the computed columns of a view). */
+  async evaluateColumn(paths: string[], expr: string): Promise<Array<Awaited<ReturnType<WorkspaceService['evaluateExpression']>>>> {
+    const out: Array<Awaited<ReturnType<WorkspaceService['evaluateExpression']>>> = [];
+    // one at a time: each may run queries of its own, and the index is not made for a crowd
+    for (const p of paths.slice(0, 500)) out.push(await this.evaluateExpression(p, expr));
+    return out;
   }
 
   /** the `.caveignore` for the whole computer (in the app's config folder), and what it says now */
@@ -1726,9 +1742,10 @@ export class WorkspaceService implements WorkerApi {
     // Text given by a view (mergeDefault): its attributes are laid over the default template's page.
     // a name typed with `.canvas` makes a canvas, whatever the workspace's usual note type is
     const canvas = !o.config && noteExtOf(name.trim()) === '.canvas';
-    const ext = canvas ? '.canvas' : o.config && !o.docs ? configCreateExt(parent) : defaultNoteExt();
+    const viewFile = !o.config && noteExtOf(name.trim()) === '.view';
+    const ext = canvas ? '.canvas' : viewFile ? '.view' : o.config && !o.docs ? configCreateExt(parent) : defaultNoteExt();
     let text = content;
-    if ((text === undefined || mergeDefault) && template !== null && !canvas && ext === defaultNoteExt()) {
+    if ((text === undefined || mergeDefault) && template !== null && !canvas && !viewFile && ext === defaultNoteExt()) {
       const want = template ?? (await defaultTemplateName(o.root, parent));
       const t = want ? await findTemplate(o.root, parent, want, this.appTemplates) : null;
       if (t) {
@@ -1736,7 +1753,7 @@ export class WorkspaceService implements WorkerApi {
         text = content === undefined ? made : mergeWithTemplate(made, content);
       }
     }
-    const created = await o.tree.createPage(parent, stem, text ?? (ext === '.md' ? `# ${title}\n\n` : ext === '.canvas' ? EMPTY_CANVAS : ''), ext);
+    const created = await o.tree.createPage(parent, stem, text ?? (ext === '.md' ? `# ${title}\n\n` : ext === '.canvas' ? EMPTY_CANVAS : ext === '.view' ? NEW_VIEW_FILE : ''), ext);
     await o.index.refresh([created]);
     await this.stampTodayDefaults(o, created);
     o.lookup = null;
@@ -1790,6 +1807,8 @@ export class WorkspaceService implements WorkerApi {
     } catch {
       return { ok: false, error: 'That file could not be read.' };
     }
+    // a view file is embedded as it is (its settings are its front matter, which embeddedText would leave out)
+    if (heading === null && /\.view$/i.test(src.rel ?? '')) return { ok: true, text, source: src.rel! };
     const r = embeddedText(text, heading);
     return r.ok ? { ok: true, text: r.text, source: src.rel ?? `${target}` } : { ok: false, error: r.error };
   }
